@@ -643,6 +643,72 @@ html[data-theme="dark"] .fc-daygrid-dot-event:hover { background: #1c1c1c !impor
 }
 .sheet-import-result.error { background: var(--danger); color: #fff; }
 
+/* ---------- 대시보드 ---------- */
+.dashboard-today { color: var(--text-muted); font-size: 13px; }
+.stat-row {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 10px;
+  margin-bottom: 18px;
+}
+.stat-tile {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 12px 14px;
+  cursor: pointer;
+  transition: border-color 0.12s ease, box-shadow 0.12s ease;
+}
+.stat-tile:hover { border-color: var(--accent); box-shadow: var(--shadow); }
+.stat-tile .stat-num { font-size: 26px; font-weight: 700; line-height: 1.1; }
+.stat-tile .stat-label { font-size: 12px; color: var(--text-muted); margin-top: 3px; }
+.stat-tile.accent-danger .stat-num { color: var(--danger); }
+.stat-tile.accent-warn .stat-num { color: #f6a609; }
+.stat-tile.accent-accent .stat-num { color: var(--accent); }
+
+.dashboard-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+.dash-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 14px 16px;
+  min-width: 0;
+}
+.dash-card h3 {
+  margin: 0 0 10px;
+  font-size: 13.5px;
+  display: flex; align-items: center; gap: 7px;
+}
+.dash-card h3 .count {
+  margin-left: auto;
+  color: var(--text-muted);
+  font-size: 12px; font-weight: 500;
+}
+.dash-list { display: flex; flex-direction: column; gap: 2px; }
+.dash-item {
+  display: flex; align-items: center; gap: 8px;
+  padding: 7px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.dash-item:hover { background: var(--surface-2); }
+.dash-item .di-title {
+  flex: 1; min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.dash-item .di-due { font-size: 12px; color: var(--text-muted); flex-shrink: 0; }
+.dash-item.overdue .di-due { color: var(--danger); font-weight: 600; }
+.dash-empty { color: var(--text-muted); font-size: 12.5px; padding: 6px 8px; }
+
+@media (max-width: 900px) {
+  .stat-row { grid-template-columns: repeat(2, 1fr); }
+  .dashboard-grid { grid-template-columns: 1fr; }
+}
+
 </style>
 </head>
 <body>
@@ -654,7 +720,10 @@ html[data-theme="dark"] .fc-daygrid-dot-event:hover { background: #1c1c1c !impor
     </div>
 
     <nav class="nav">
-      <button class="nav-btn active" data-view="calendar">
+      <button class="nav-btn active" data-view="dashboard">
+        <span class="nav-icon">🏠</span> 대시보드
+      </button>
+      <button class="nav-btn" data-view="calendar">
         <span class="nav-icon">📆</span> 캘린더
       </button>
       <button class="nav-btn" data-view="todos">
@@ -679,7 +748,16 @@ html[data-theme="dark"] .fc-daygrid-dot-event:hover { background: #1c1c1c !impor
 
   <main class="main">
 
-    <section id="view-calendar" class="view active">
+    <section id="view-dashboard" class="view active">
+      <div class="view-header">
+        <h1>대시보드</h1>
+        <span id="dashboardToday" class="dashboard-today"></span>
+      </div>
+      <div class="stat-row" id="statRow"></div>
+      <div class="dashboard-grid" id="dashboardGrid"></div>
+    </section>
+
+    <section id="view-calendar" class="view">
       <div class="view-header">
         <h1>캘린더</h1>
         <button class="btn btn-primary" id="addEventBtn">+ 새 일정</button>
@@ -1286,6 +1364,7 @@ async function init() {
 }
 
 function renderAll() {
+  renderDashboard();
   renderSidebarProjects();
   refreshCalendarEvents();
   renderTodos();
@@ -1320,6 +1399,7 @@ function setupNav() {
         setTimeout(() => calendar.updateSize(), 50);
       }
       if (view === 'projects') renderKanban();
+      if (view === 'dashboard') renderDashboard();
     });
   });
 }
@@ -1404,6 +1484,104 @@ function buildCalendarEvents() {
 
 function refreshCalendarEvents() {
   if (calendar) calendar.refetchEvents();
+}
+
+/* ---------- 대시보드 ---------- */
+function isIsoDate(d) { return /^\d{4}-\d{2}-\d{2}$/.test(d || ''); }
+
+function dashItemHtml(t, showDue, overdue) {
+  const proj = byId(state.projects, t.projectId);
+  const pri = normalizePriority(t.priority);
+  const priMark = pri === '긴급' ? '🔴 ' : pri === '중요' ? '🟠 ' : '';
+  const check = t.needsCheck === 'Y' ? '⚠ ' : '';
+  return `<div class="dash-item ${overdue ? 'overdue' : ''}" data-todo="${t.id}">
+    <span class="di-title">${priMark}${check}${escapeHtml(t.text)}</span>
+    ${proj ? tagHtml(proj.name, proj.color) : ''}
+    <span class="di-due">${showDue ? escapeHtml(t.dueDate || '') : ''}</span>
+  </div>`;
+}
+
+function dashCardHtml(icon, title, items, emptyMsg, showDue, overdue) {
+  const body = items.length
+    ? items.map((t) => dashItemHtml(t, showDue, overdue)).join('')
+    : `<div class="dash-empty">${emptyMsg}</div>`;
+  return `<div class="dash-card">
+    <h3>${icon} ${title}<span class="count">${items.length}</span></h3>
+    <div class="dash-list">${body}</div>
+  </div>`;
+}
+
+function renderDashboard() {
+  const grid = document.getElementById('dashboardGrid');
+  const statRow = document.getElementById('statRow');
+  if (!grid || !statRow) return;
+  const today = todayStr();
+  const weekEnd = addDays(today, 7);
+
+  const openTodos = state.todos.filter((t) => !todoIsDone(t));
+  const withDue = openTodos.filter((t) => isIsoDate(t.dueDate));
+  const byDue = (a, b) => a.dueDate.localeCompare(b.dueDate);
+  const overdue = withDue.filter((t) => t.dueDate < today).sort(byDue);
+  const todayList = withDue.filter((t) => t.dueDate === today).sort(byDue);
+  const week = withDue.filter((t) => t.dueDate > today && t.dueDate <= weekEnd).sort(byDue);
+  const needsCheck = openTodos.filter((t) => t.needsCheck === 'Y').sort((a, b) => (a.dueDate || '9999').localeCompare(b.dueDate || '9999'));
+  const todayEvents = state.events.filter((e) => {
+    const s = (e.start || '').slice(0, 10);
+    const en = (e.end || e.start || '').slice(0, 10);
+    return s && s <= today && today <= (en || s);
+  });
+
+  document.getElementById('dashboardToday').textContent = `오늘 ${today}`;
+
+  const stats = [
+    { label: '지연', num: overdue.length, cls: 'accent-danger' },
+    { label: '오늘', num: todayList.length + todayEvents.length, cls: 'accent-accent' },
+    { label: '이번 주', num: week.length, cls: '' },
+    { label: '점검 필요', num: needsCheck.length, cls: 'accent-warn' },
+    { label: '미완료 전체', num: openTodos.length, cls: '' }
+  ];
+  statRow.innerHTML = stats.map((s) =>
+    `<div class="stat-tile ${s.cls}" data-goto-todos="1"><div class="stat-num">${s.num}</div><div class="stat-label">${s.label}</div></div>`
+  ).join('');
+  statRow.querySelectorAll('[data-goto-todos]').forEach((el) => {
+    el.addEventListener('click', () => document.querySelector('.nav-btn[data-view="todos"]').click());
+  });
+
+  // 오늘 카드: 오늘 마감 할 일 + 오늘 일정
+  const todayEventsHtml = todayEvents.map((e) => {
+    const proj = byId(state.projects, e.projectId);
+    return `<div class="dash-item" data-event="${e.id}">
+      <span class="di-title">📆 ${escapeHtml(e.title)}</span>
+      ${proj ? tagHtml(proj.name, proj.color) : ''}
+      <span class="di-due">${e.allDay === false && e.startTime ? escapeHtml(e.startTime) : '종일'}</span>
+    </div>`;
+  }).join('');
+  const todayBody = (todayList.length || todayEvents.length)
+    ? todayList.map((t) => dashItemHtml(t, false, false)).join('') + todayEventsHtml
+    : `<div class="dash-empty">오늘 예정된 할 일과 일정이 없어요.</div>`;
+  const todayCard = `<div class="dash-card">
+    <h3>📌 오늘<span class="count">${todayList.length + todayEvents.length}</span></h3>
+    <div class="dash-list">${todayBody}</div>
+  </div>`;
+
+  grid.innerHTML =
+    dashCardHtml('🔴', '지연된 업무', overdue, '지연된 업무가 없어요. 👍', true, true) +
+    todayCard +
+    dashCardHtml('🗓', '이번 주 (7일 이내)', week, '이번 주 마감 예정 업무가 없어요.', true, false) +
+    dashCardHtml('⚠', '점검 필요', needsCheck, '점검이 필요한 업무가 없어요.', true, false);
+
+  grid.querySelectorAll('[data-todo]').forEach((el) => {
+    el.addEventListener('click', () => {
+      const t = byId(state.todos, el.getAttribute('data-todo'));
+      if (t) openTodoModal(t);
+    });
+  });
+  grid.querySelectorAll('[data-event]').forEach((el) => {
+    el.addEventListener('click', () => {
+      const e = byId(state.events, el.getAttribute('data-event'));
+      if (e) openEventModal(e);
+    });
+  });
 }
 
 /* ---------- 프로젝트 select 옵션 생성 ---------- */
