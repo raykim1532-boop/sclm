@@ -2209,6 +2209,29 @@ const SHEET_DEFAULT_COLS = ['no', 'registeredDate', 'project', 'channel', 'prior
 
 function normHeaderKey(s) { return String(s || '').replace(/[\s()（）.]/g, '').toLowerCase(); }
 
+/* 머리글 셀 → 내부 필드. 정확 매칭 우선, 실패 시 부분(포함) 매칭.
+   실제 시트의 "진행사항 / 업데이트 로그", "마감(예정)일" 같은 변형 헤더를 흡수한다. */
+function mapHeaderField(normKey) {
+  if (SHEET_HEADER_MAP[normKey]) return SHEET_HEADER_MAP[normKey];
+  const CONTAINS = [
+    ['진행사항', 'progress'], ['업데이트', 'progress'], ['진척', 'progress'],
+    ['완료', 'completedDate'],
+    ['마감', 'dueDate'], ['예정일', 'dueDate'], ['기한', 'dueDate'],
+    ['등록', 'registeredDate'],
+    ['담당', 'assignee'],
+    ['대분류', 'project'], ['카테고리', 'project'],
+    ['세부채널', 'channel'], ['채널', 'channel'],
+    ['우선순위', 'priority'], ['중요도', 'priority'],
+    ['진행상태', 'status'],
+    ['점검', 'needsCheck'],
+    ['업무내용', 'text'], ['업무', 'text'], ['내용', 'text'],
+    ['비고', 'remarks'], ['메모', 'remarks'],
+    ['번호', 'no']
+  ];
+  for (let i = 0; i < CONTAINS.length; i++) if (normKey.includes(CONTAINS[i][0])) return CONTAINS[i][1];
+  return null;
+}
+
 /* 날짜 문자열을 YYYY-MM-DD로 정규화. 실패하면 원본을 그대로 둔다(캘린더엔 안 뜨지만 보존). */
 function normalizeDate(v) {
   const s = String(v || '').trim();
@@ -2263,13 +2286,23 @@ function resolveProjectId(name, created) {
 /* 파싱된 표를 todos 레코드 배열로 변환 */
 function sheetRowsToTodos(rows, createdProjects) {
   if (!rows.length) return [];
-  // 머리글 행 감지: 첫 행 셀 중 3개 이상이 알려진 헤더 이름이면 머리글로 간주
-  let cols = SHEET_DEFAULT_COLS, dataRows = rows;
-  const first = rows[0].map(normHeaderKey);
-  const matched = first.filter((h) => SHEET_HEADER_MAP[h]).length;
-  if (matched >= 3) {
-    cols = first.map((h) => SHEET_HEADER_MAP[h] || null);
-    dataRows = rows.slice(1);
+  // 머리글 행 감지: 위쪽 제목/사용법 병합행을 건너뛰고, 알려진 헤더가 3개 이상인 행을 머리글로 삼는다.
+  let cols = null, dataStart = 0;
+  const scan = Math.min(rows.length, 6);
+  for (let i = 0; i < scan; i++) {
+    const exactCount = rows[i].map(normHeaderKey).filter((h) => SHEET_HEADER_MAP[h]).length;
+    if (exactCount >= 3) {
+      cols = rows[i].map((c) => mapHeaderField(normHeaderKey(c)));
+      dataStart = i + 1;
+      break;
+    }
+  }
+  let dataRows;
+  if (cols) {
+    dataRows = rows.slice(dataStart);
+  } else {
+    cols = SHEET_DEFAULT_COLS; // 머리글이 없으면 기본 열 순서로 간주
+    dataRows = rows;
   }
   const recs = [];
   dataRows.forEach((r) => {
@@ -2350,7 +2383,7 @@ function setupSettings() {
   });
   document.getElementById('importBtn').addEventListener('click', async () => {
     const r = await window.api.importBackup();
-    if (r.ok) { state = r.data; applyTheme(); renderAll(); toast('데이터를 불러왔어요'); }
+    if (r.ok) { state = r.data; await persist(); applyTheme(); renderAll(); toast('데이터를 불러왔어요'); }
   });
 
   document.getElementById('sheetImportBtn').addEventListener('click', () => {
