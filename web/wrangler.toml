@@ -6,7 +6,7 @@ pages_build_output_dir = "public"
 [[d1_databases]]
 binding = "DB"
 database_name = "scheduler-db"
-database_id = "REPLACE_WITH_YOUR_D1_DATABASE_ID"
+database_id = "2bc9bf74-675c-4665-9830-cf2bf4369c83"
 
 # 비밀번호(APP_PASSWORD)는 소스에 두지 말 것.
 # 로컬:  web/.dev.vars 에 APP_PASSWORD=... (git 무시됨)
