@@ -3,3 +3,10 @@ node_modules/
 .DS_Store
 Thumbs.db
 scheduler-backup-*.json
+
+# Cloudflare / web 배포
+web/node_modules/
+web/public/
+web/.wrangler/
+web/.dev.vars
+.dev.vars

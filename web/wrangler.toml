@@ -1,0 +1,13 @@
+name = "raymond-scheduler"
+compatibility_date = "2024-09-23"
+pages_build_output_dir = "public"
+
+# D1 데이터베이스 바인딩. database_id 는 `wrangler d1 create scheduler-db` 실행 후 출력값으로 교체.
+[[d1_databases]]
+binding = "DB"
+database_name = "scheduler-db"
+database_id = "REPLACE_WITH_YOUR_D1_DATABASE_ID"
+
+# 비밀번호(APP_PASSWORD)는 소스에 두지 말 것.
+# 로컬:  web/.dev.vars 에 APP_PASSWORD=... (git 무시됨)
+# 배포후: npx wrangler pages secret put APP_PASSWORD --project-name raymond-scheduler

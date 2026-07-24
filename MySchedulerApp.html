@@ -709,6 +709,39 @@ html[data-theme="dark"] .fc-daygrid-dot-event:hover { background: #1c1c1c !impor
   .dashboard-grid { grid-template-columns: 1fr; }
 }
 
+/* ---------- 클라우드 로그인 게이트 ---------- */
+.cloud-gate {
+  position: fixed; inset: 0; z-index: 500;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--bg);
+}
+.cloud-gate-box {
+  width: 320px; max-width: calc(100vw - 40px);
+  display: flex; flex-direction: column; gap: 12px;
+  text-align: center;
+  padding: 28px 26px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: var(--shadow-pop);
+}
+.cloud-gate-emoji { font-size: 34px; }
+.cloud-gate-box h2 { margin: 0; font-size: 17px; }
+.cloud-gate-box p { margin: 0; font-size: 12.5px; color: var(--text-muted); line-height: 1.5; }
+.cloud-gate-box input {
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+  color: var(--text);
+  font-size: 14px;
+  font-family: inherit;
+}
+.cloud-gate-box input:focus { outline: none; border-color: var(--accent); }
+.cloud-gate-box .btn-primary { justify-content: center; }
+.cloud-gate-box.loading .btn-primary { opacity: 0.6; pointer-events: none; }
+.cloud-gate-error { min-height: 16px; font-size: 12px; color: var(--danger); }
+
 </style>
 </head>
 <body>
@@ -857,7 +890,7 @@ html[data-theme="dark"] .fc-daygrid-dot-event:hover { background: #1c1c1c !impor
         </div>
       </div>
 
-      <div class="settings-card">
+      <div class="settings-card" id="localSyncCard">
         <h2>다른 기기와 함께 쓰기</h2>
         <div class="settings-row">
           <span id="syncStatusText">이 기기에만 저장 중</span>
@@ -1297,6 +1330,152 @@ window.FC_KO_LOCALE = {
 
 </script>
 <script>
+/*
+ * 클라우드 동기화 모듈.
+ * 앱이 http(s)로 서빙되고 백엔드(/api)가 있으면 "클라우드 모드"로 전환한다.
+ *  - 비밀번호로 로그인(토큰=비밀번호, HTTPS 전제) → 토큰을 localStorage에 보관
+ *  - window.api.loadData/saveData 를 클라우드 REST 호출로 교체 (다른 기기와 같은 데이터 공유)
+ *  - 로컬(file://)로 열면 detect()가 false → 기존 로컬 저장 그대로 (동작 변화 없음)
+ */
+(function () {
+  'use strict';
+  const TOKEN_KEY = 'myscheduler:cloud:token';
+  const LS_DATA_KEY = 'myscheduler:data:v1';
+  const localApi = window.api; // 로컬 저장 계층 (export/import 재사용, 재귀 방지)
+  let token = null;
+
+  const isHttp = () => location.protocol === 'http:' || location.protocol === 'https:';
+
+  function ensureShape(d) {
+    d = d || {};
+    return {
+      settings: Object.assign({ theme: 'light', accent: '#1a73e8' }, d.settings || {}),
+      projects: Array.isArray(d.projects) && d.projects.length ? d.projects : [{ id: 'default', name: '일반', color: '#1a73e8' }],
+      events: Array.isArray(d.events) ? d.events : [],
+      todos: Array.isArray(d.todos) ? d.todos : [],
+      tasks: Array.isArray(d.tasks) ? d.tasks : []
+    };
+  }
+
+  function authHeaders(extra) {
+    return Object.assign({}, extra || {}, token ? { Authorization: 'Bearer ' + token } : {});
+  }
+
+  async function detect() {
+    if (!isHttp()) return false;
+    try {
+      const r = await fetch('/api/health', { method: 'GET' });
+      if (!r.ok) return false;
+      const j = await r.json();
+      return !!(j && j.cloud === true);
+    } catch (e) { return false; }
+  }
+
+  async function verify(tok) {
+    try {
+      const r = await fetch('/api/data', { headers: { Authorization: 'Bearer ' + tok } });
+      return r.status === 200;
+    } catch (e) { return false; }
+  }
+
+  function logout() {
+    token = null;
+    try { localStorage.removeItem(TOKEN_KEY); } catch (e) {}
+  }
+
+  /* 로그인 게이트 오버레이. 로그인 성공 시 resolve. */
+  function showLoginGate() {
+    return new Promise((resolve) => {
+      const gate = document.createElement('div');
+      gate.className = 'cloud-gate';
+      gate.innerHTML = `
+        <form class="cloud-gate-box" autocomplete="off">
+          <div class="cloud-gate-emoji">🔒</div>
+          <h2>나의 스케줄러</h2>
+          <p>비밀번호를 입력하면 이 기기에서 클라우드 데이터를 볼 수 있어요.</p>
+          <input type="password" id="cloudPw" placeholder="비밀번호" autocomplete="current-password" />
+          <button type="submit" class="btn btn-primary">로그인</button>
+          <div class="cloud-gate-error" id="cloudPwError"></div>
+        </form>`;
+      document.body.appendChild(gate);
+      const input = gate.querySelector('#cloudPw');
+      const err = gate.querySelector('#cloudPwError');
+      const form = gate.querySelector('form');
+      setTimeout(() => input.focus(), 30);
+      form.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const pw = input.value.trim();
+        if (!pw) return;
+        err.textContent = '';
+        form.classList.add('loading');
+        const ok = await verify(pw);
+        form.classList.remove('loading');
+        if (ok) {
+          token = pw;
+          try { localStorage.setItem(TOKEN_KEY, token); } catch (e2) {}
+          gate.remove();
+          resolve(true);
+        } else {
+          err.textContent = '비밀번호가 올바르지 않아요.';
+          input.select();
+        }
+      });
+    });
+  }
+
+  async function ensureAuth() {
+    try { token = localStorage.getItem(TOKEN_KEY); } catch (e) { token = null; }
+    if (token && await verify(token)) return true;
+    logout();
+    return showLoginGate();
+  }
+
+  const cloudApi = {
+    loadData: async () => {
+      try {
+        const r = await fetch('/api/data', { headers: authHeaders() });
+        if (r.status === 401) { logout(); location.reload(); return ensureShape(null); }
+        const j = await r.json();
+        if (j && j.data) {
+          const data = ensureShape(j.data);
+          try { localStorage.setItem(LS_DATA_KEY, JSON.stringify(data)); } catch (e) {}
+          return data;
+        }
+        // 클라우드가 비어있으면: 로컬 캐시(있으면)로 시드하고 업로드
+        let seed = ensureShape(null);
+        try { const raw = localStorage.getItem(LS_DATA_KEY); if (raw) seed = ensureShape(JSON.parse(raw)); } catch (e) {}
+        await cloudApi.saveData(seed);
+        return seed;
+      } catch (e) {
+        console.error('클라우드 불러오기 실패 — 로컬 캐시로 대체', e);
+        try { const raw = localStorage.getItem(LS_DATA_KEY); if (raw) return ensureShape(JSON.parse(raw)); } catch (e2) {}
+        return ensureShape(null);
+      }
+    },
+    saveData: async (data) => {
+      try { localStorage.setItem(LS_DATA_KEY, JSON.stringify(data)); } catch (e) {}
+      try {
+        const r = await fetch('/api/data', { method: 'PUT', headers: authHeaders({ 'Content-Type': 'application/json' }), body: JSON.stringify(data) });
+        if (r.status === 401) { logout(); location.reload(); return false; }
+        return r.ok;
+      } catch (e) {
+        console.error('클라우드 저장 실패 (로컬에는 저장됨)', e);
+        return false;
+      }
+    },
+    exportBackup: (d) => localApi.exportBackup(d),
+    importBackup: () => localApi.importBackup(),
+    // File System Access 동기화는 클라우드 모드에서 사용하지 않음
+    startNewSyncFile: async () => ({ ok: false, error: '클라우드 모드에서는 사용하지 않아요.' }),
+    openExistingSyncFile: async () => ({ ok: false, error: '클라우드 모드에서는 사용하지 않아요.' }),
+    useLocalOnly: async () => ({ ok: true, dir: null, isDefault: true }),
+    getSyncInfo: async () => ({ dir: '클라우드', isDefault: false })
+  };
+
+  window.CloudSync = { detect, ensureAuth, logout, api: cloudApi };
+})();
+</script>
+<script>
 'use strict';
 
 /* ---------- 전역 상태 ---------- */
@@ -1350,7 +1529,15 @@ function tagHtml(text, color) {
 }
 
 /* ---------- 초기화 ---------- */
+let cloudMode = false;
+
 async function init() {
+  if (window.CloudSync && await CloudSync.detect()) {
+    await CloudSync.ensureAuth();
+    window.api = CloudSync.api;
+    cloudMode = true;
+    document.body.classList.add('cloud-mode');
+  }
   state = await window.api.loadData();
   applyTheme();
   setupNav();
@@ -1361,6 +1548,24 @@ async function init() {
   setupSync();
   setupModal();
   renderAll();
+  if (cloudMode) setupCloudUI();
+}
+
+/* 클라우드 모드에서는 '다른 기기와 함께 쓰기'(로컬 파일 동기화) 카드를 클라우드 상태로 대체 */
+function setupCloudUI() {
+  const card = document.getElementById('localSyncCard');
+  if (!card) return;
+  card.innerHTML = `
+    <h2>클라우드 동기화</h2>
+    <div class="settings-row">
+      <span>☁️ 클라우드에 연결됨 — 모든 기기에서 같은 데이터를 봅니다.</span>
+      <button class="btn" id="cloudLogoutBtn">로그아웃</button>
+    </div>
+    <p class="hint">이 기기의 로그인을 해제해요. 데이터는 클라우드에 그대로 남아 있고, 다시 로그인하면 이어서 볼 수 있어요.</p>`;
+  document.getElementById('cloudLogoutBtn').addEventListener('click', () => {
+    CloudSync.logout();
+    location.reload();
+  });
 }
 
 function renderAll() {
