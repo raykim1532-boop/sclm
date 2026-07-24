@@ -610,6 +610,39 @@ html[data-theme="dark"] .fc-daygrid-dot-event:hover { background: #1c1c1c !impor
   z-index: 100;
 }
 
+/* ---------- 구글시트 가져오기 ---------- */
+.sheet-paste {
+  width: 100%;
+  min-height: 96px;
+  margin-top: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--text);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  resize: vertical;
+  box-sizing: border-box;
+}
+.sheet-paste:focus { outline: none; border-color: var(--accent); }
+.sheet-clear-label {
+  display: flex; align-items: center; gap: 6px;
+  color: var(--text-muted); font-size: 12.5px; cursor: pointer;
+}
+.sheet-import-result {
+  margin: 10px 0 0;
+  padding: 9px 12px;
+  border-radius: var(--radius);
+  background: var(--surface-2);
+  color: var(--text);
+  font-size: 12.5px;
+  line-height: 1.6;
+  white-space: pre-line;
+}
+.sheet-import-result.error { background: var(--danger); color: #fff; }
+
 </style>
 </head>
 <body>
@@ -777,6 +810,21 @@ html[data-theme="dark"] .fc-daygrid-dot-event:hover { background: #1c1c1c !impor
           <button class="btn" id="importBtn">불러오기</button>
         </div>
         <p class="hint">데이터는 기본적으로 내 컴퓨터에만 저장되며, 동기화 폴더를 지정하지 않는 한 인터넷으로 전송되지 않아요.</p>
+      </div>
+
+      <div class="settings-card">
+        <h2>구글시트에서 가져오기</h2>
+        <p class="hint" style="margin-top:0">
+          구글시트(업무 트래커)에서 <b>표 범위를 복사</b>해 아래 칸에 붙여넣고 "가져오기"를 누르세요.
+          열 순서: No · 등록일 · 대분류 · 세부채널 · 우선순위 · 업무내용 · 담당자 · 마감일 · 진행상태 · 점검필요 · 완료일 · 진행사항 · 비고.
+          맨 윗줄이 머리글이면 자동으로 인식하고, <b>No가 같은 항목은 덮어쓰기(수정)</b> 됩니다.
+        </p>
+        <textarea id="sheetPasteArea" class="sheet-paste" placeholder="여기에 구글시트에서 복사한 표를 붙여넣기 (Ctrl+V)"></textarea>
+        <div class="settings-row" style="border:none;padding-top:10px">
+          <label class="sheet-clear-label"><input type="checkbox" id="sheetClearFirst" /> 가져오기 전에 기존 할 일 모두 비우기</label>
+          <button class="btn btn-primary" id="sheetImportBtn">가져오기</button>
+        </div>
+        <p id="sheetImportResult" class="sheet-import-result hidden"></p>
       </div>
     </section>
 
@@ -1193,6 +1241,22 @@ const TODO_STATUS_COLORS = {
 };
 function todoStatus(t) { return t.status || (t.done ? '완료' : '대기'); }
 function todoIsDone(t) { const s = todoStatus(t); return s === '완료' || s === '지연완료'; }
+/* 우선순위 정규화: 긴급/중요/보통 중 하나로 (동의어 흡수), 그 외/공란은 '' */
+function normalizePriority(v) {
+  const s = String(v || '').trim();
+  if (/긴급|urgent|critical|★|매우|최우선/i.test(s)) return '긴급';
+  if (/중요|high|important/i.test(s)) return '중요';
+  if (/보통|normal|낮음|low/i.test(s)) return '보통';
+  return s === '' ? '' : s;
+}
+/* 캘린더에 할 일을 표시할 때 붙는 접두 아이콘: 긴급 🔴 · 중요 🟠 · 점검필요 ⚠ · 그 외 ✓ */
+function todoCalendarPrefix(t) {
+  if (todoIsDone(t)) return '✓ ';
+  const p = normalizePriority(t.priority);
+  let mark = p === '긴급' ? '🔴 ' : p === '중요' ? '🟠 ' : '✓ ';
+  if (t.needsCheck === 'Y') mark += '⚠ ';
+  return mark;
+}
 
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
 
@@ -1323,7 +1387,7 @@ function buildCalendarEvents() {
   });
   const tds = state.todos.filter((t) => t.dueDate).map((t) => ({
     id: 'td-' + t.id,
-    title: '✓ ' + t.text,
+    title: todoCalendarPrefix(t) + t.text,
     start: t.dueDate,
     allDay: true,
     color: todoIsDone(t) ? '#9698b8' : projectColor(t.projectId)
@@ -1713,6 +1777,178 @@ function openTaskModal(status, task) {
   });
 }
 
+/* ---------- 구글시트/CSV 가져오기 ---------- */
+
+/* 붙여넣은 텍스트를 표(행×열)로 파싱. 탭 우선, 없으면 콤마(CSV). 따옴표로 감싼 셀 안의
+   구분자/줄바꿈을 존중한다(진행사항 같은 여러 줄 셀 대응). */
+function parseDelimitedTable(text) {
+  const src = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+  const delim = src.includes('\t') ? '\t' : ',';
+  const rows = [];
+  let row = [], cell = '', inQuotes = false;
+  for (let i = 0; i < src.length; i++) {
+    const ch = src[i];
+    if (inQuotes) {
+      if (ch === '"') {
+        if (src[i + 1] === '"') { cell += '"'; i++; }
+        else inQuotes = false;
+      } else cell += ch;
+    } else if (ch === '"') {
+      inQuotes = true;
+    } else if (ch === delim) {
+      row.push(cell); cell = '';
+    } else if (ch === '\n') {
+      row.push(cell); rows.push(row); row = []; cell = '';
+    } else cell += ch;
+  }
+  row.push(cell); rows.push(row);
+  // 완전히 빈 행 제거
+  return rows.filter((r) => r.some((c) => String(c).trim() !== ''));
+}
+
+/* 머리글 이름 → 내부 필드 매핑 (공백/괄호 제거 후 비교) */
+const SHEET_HEADER_MAP = {
+  'no': 'no', '번호': 'no', '순번': 'no',
+  '등록일': 'registeredDate', '등록': 'registeredDate', '등록날짜': 'registeredDate',
+  '대분류': 'project', '분류': 'project', '카테고리': 'project', '프로젝트': 'project',
+  '세부채널': 'channel', '채널': 'channel', '세부': 'channel',
+  '우선순위': 'priority', '중요도': 'priority',
+  '업무내용': 'text', '업무': 'text', '내용': 'text', '제목': 'text', '할일': 'text',
+  '담당자': 'assignee', '담당': 'assignee',
+  '마감일': 'dueDate', '마감': 'dueDate', '마감예정일': 'dueDate', '예정일': 'dueDate', '기한': 'dueDate',
+  '진행상태': 'status', '상태': 'status',
+  '점검필요': 'needsCheck', '점검': 'needsCheck',
+  '완료일': 'completedDate', '완료': 'completedDate', '완료날짜': 'completedDate',
+  '진행사항': 'progress', '진행': 'progress',
+  '비고': 'remarks', '메모': 'remarks', '기타': 'remarks'
+};
+const SHEET_DEFAULT_COLS = ['no', 'registeredDate', 'project', 'channel', 'priority', 'text', 'assignee', 'dueDate', 'status', 'needsCheck', 'completedDate', 'progress', 'remarks'];
+
+function normHeaderKey(s) { return String(s || '').replace(/[\s()（）.]/g, '').toLowerCase(); }
+
+/* 날짜 문자열을 YYYY-MM-DD로 정규화. 실패하면 원본을 그대로 둔다(캘린더엔 안 뜨지만 보존). */
+function normalizeDate(v) {
+  const s = String(v || '').trim();
+  if (!s) return '';
+  const m = s.match(/^(\d{2,4})[.\-/\s]+(\d{1,2})[.\-/\s]+(\d{1,2})/);
+  if (m) {
+    let y = +m[1]; if (y < 100) y += 2000;
+    return y + '-' + String(+m[2]).padStart(2, '0') + '-' + String(+m[3]).padStart(2, '0');
+  }
+  const md = s.match(/^(\d{1,2})[.\-/](\d{1,2})$/);
+  if (md) {
+    const y = new Date().getFullYear();
+    return y + '-' + String(+md[1]).padStart(2, '0') + '-' + String(+md[2]).padStart(2, '0');
+  }
+  return s;
+}
+
+const SHEET_STATUS_SYNONYMS = {
+  '완료': '완료', 'done': '완료', '종료': '완료', '완': '완료',
+  '지연완료': '지연완료', '지연': '지연완료',
+  '진행중': '진행중', '진행': '진행중', 'inprogress': '진행중', 'in-progress': '진행중', 'doing': '진행중',
+  '대기': '대기', '대기중': '대기', 'todo': '대기', '예정': '대기', '접수': '대기',
+  '보류': '보류', 'hold': '보류', 'onhold': '보류', '중단': '보류'
+};
+function normalizeStatus(v) {
+  const s = String(v || '').trim();
+  if (!s) return '대기';
+  if (TODO_STATUS_OPTIONS.includes(s)) return s;
+  const key = s.replace(/[\s()]/g, '').toLowerCase();
+  return SHEET_STATUS_SYNONYMS[key] || s;
+}
+function normalizeCheck(v) {
+  const s = String(v || '').trim().toLowerCase();
+  if (['y', 'yes', 'o', '○', '●', '예', 'v', '✓', 'true', '필요'].includes(s)) return 'Y';
+  if (['n', 'no', 'x', '×', '아니오', 'false'].includes(s)) return 'N';
+  return '';
+}
+
+/* 대분류 이름 → 프로젝트 id. 없으면 새 프로젝트를 만들고 새로 만든 이름을 created 배열에 담는다. */
+function resolveProjectId(name, created) {
+  const nm = String(name || '').trim();
+  if (!nm) return state.projects[0] ? state.projects[0].id : 'default';
+  const found = state.projects.find((p) => p.name.trim().toLowerCase() === nm.toLowerCase());
+  if (found) return found.id;
+  const color = PALETTE[state.projects.length % PALETTE.length];
+  const id = 'cat-' + uid();
+  state.projects.push({ id, name: nm, color });
+  created.push(nm);
+  return id;
+}
+
+/* 파싱된 표를 todos 레코드 배열로 변환 */
+function sheetRowsToTodos(rows, createdProjects) {
+  if (!rows.length) return [];
+  // 머리글 행 감지: 첫 행 셀 중 3개 이상이 알려진 헤더 이름이면 머리글로 간주
+  let cols = SHEET_DEFAULT_COLS, dataRows = rows;
+  const first = rows[0].map(normHeaderKey);
+  const matched = first.filter((h) => SHEET_HEADER_MAP[h]).length;
+  if (matched >= 3) {
+    cols = first.map((h) => SHEET_HEADER_MAP[h] || null);
+    dataRows = rows.slice(1);
+  }
+  const recs = [];
+  dataRows.forEach((r) => {
+    const rec = {};
+    cols.forEach((field, i) => { if (field) rec[field] = (r[i] != null ? String(r[i]).trim() : ''); });
+    // 업무내용도 No도 없으면 빈 행으로 보고 건너뜀
+    if (!rec.text && !rec.no) return;
+    const status = normalizeStatus(rec.status);
+    recs.push({
+      no: rec.no ? parseInt(String(rec.no).replace(/[^\d]/g, ''), 10) || null : null,
+      registeredDate: normalizeDate(rec.registeredDate),
+      projectId: resolveProjectId(rec.project, createdProjects),
+      channel: rec.channel || '',
+      priority: normalizePriority(rec.priority),
+      text: rec.text || '',
+      assignee: rec.assignee || '',
+      dueDate: normalizeDate(rec.dueDate),
+      status,
+      needsCheck: normalizeCheck(rec.needsCheck),
+      completedDate: normalizeDate(rec.completedDate),
+      progress: rec.progress || '',
+      remarks: rec.remarks || '',
+      done: status === '완료' || status === '지연완료'
+    });
+  });
+  return recs;
+}
+
+/* 텍스트를 받아 state.todos에 병합(No 기준 upsert). 결과 요약 객체 반환. */
+function importSheetText(text, clearFirst) {
+  const rows = parseDelimitedTable(text);
+  const createdProjects = [];
+  const recs = sheetRowsToTodos(rows, createdProjects);
+  if (!recs.length) return { ok: false, error: '가져올 행을 찾지 못했어요. 표를 다시 복사해 붙여넣어 주세요.' };
+
+  if (clearFirst) state.todos = [];
+  const byNo = new Map();
+  state.todos.forEach((t) => { if (t.no != null) byNo.set(t.no, t); });
+  let maxNo = state.todos.reduce((m, t) => Math.max(m, t.no || 0), 0);
+
+  let added = 0, updated = 0;
+  recs.forEach((rec) => {
+    let no = rec.no;
+    const existing = no != null ? byNo.get(no) : null;
+    if (existing) {
+      Object.assign(existing, rec, { id: existing.id, no });
+      updated++;
+    } else {
+      if (no == null) no = ++maxNo;
+      const todo = Object.assign({ id: uid() }, rec, { no });
+      state.todos.push(todo);
+      byNo.set(no, todo);
+      if (no > maxNo) maxNo = no;
+      added++;
+    }
+  });
+
+  persist();
+  renderAll();
+  return { ok: true, added, updated, createdProjects, total: state.todos.length };
+}
+
 /* ---------- 설정 ---------- */
 function setupSettings() {
   document.querySelectorAll('#themeSegment .segmented-btn').forEach((btn) => {
@@ -1732,6 +1968,32 @@ function setupSettings() {
   document.getElementById('importBtn').addEventListener('click', async () => {
     const r = await window.api.importBackup();
     if (r.ok) { state = r.data; applyTheme(); renderAll(); toast('데이터를 불러왔어요'); }
+  });
+
+  document.getElementById('sheetImportBtn').addEventListener('click', () => {
+    const area = document.getElementById('sheetPasteArea');
+    const resultEl = document.getElementById('sheetImportResult');
+    const clearFirst = document.getElementById('sheetClearFirst').checked;
+    const text = area.value;
+    resultEl.classList.remove('hidden', 'error');
+    if (!text.trim()) {
+      resultEl.classList.add('error');
+      resultEl.textContent = '붙여넣은 내용이 없어요. 구글시트에서 표를 복사해 붙여넣어 주세요.';
+      return;
+    }
+    let r;
+    try { r = importSheetText(text, clearFirst); }
+    catch (e) { console.error(e); r = { ok: false, error: '가져오는 중 오류가 발생했어요: ' + String(e.message || e) }; }
+    if (!r.ok) {
+      resultEl.classList.add('error');
+      resultEl.textContent = r.error;
+      return;
+    }
+    const lines = [`가져오기 완료 — 새 항목 ${r.added}건 · 수정 ${r.updated}건 (전체 ${r.total}건)`];
+    if (r.createdProjects.length) lines.push(`새 대분류 추가: ${r.createdProjects.join(', ')}`);
+    resultEl.textContent = lines.join('\n');
+    area.value = '';
+    toast(`할 일 ${r.added + r.updated}건을 가져왔어요`);
   });
 }
 
