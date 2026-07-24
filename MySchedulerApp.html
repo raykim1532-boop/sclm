@@ -341,28 +341,12 @@ html[data-theme="dark"] .fc-daygrid-dot-event:hover { background: #1c1c1c !impor
   font-size: 11px;
 }
 
-/* ---------- Todos ---------- */
+/* ---------- Todos (스프레드시트 스타일 테이블) ---------- */
 .todo-toolbar {
   display: flex;
-  justify-content: space-between;
-  align-items: center;
+  gap: 8px;
   margin-bottom: 16px;
 }
-
-.filter-group { display: flex; gap: 4px; }
-
-.chip {
-  border: none;
-  background: transparent;
-  color: var(--text-muted);
-  padding: 6px 12px;
-  border-radius: 6px;
-  font-size: 13px;
-  font-family: inherit;
-  cursor: pointer;
-}
-.chip:hover { background: var(--surface-2); }
-.chip.active { background: var(--surface-2); color: var(--text); font-weight: 600; }
 
 .select {
   border: 1px solid var(--border);
@@ -374,38 +358,69 @@ html[data-theme="dark"] .fc-daygrid-dot-event:hover { background: #1c1c1c !impor
   font-family: inherit;
 }
 
-.todo-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.todo-table-wrap {
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
 
-.todo-item {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  background: var(--surface);
-  padding: 10px 4px;
+.todo-table {
+  width: 100%;
+  min-width: 1180px;
+  border-collapse: collapse;
+  font-size: 12.8px;
+}
+
+.todo-table th, .todo-table td {
+  padding: 8px 10px;
   border-bottom: 1px solid var(--border);
+  text-align: left;
+  white-space: nowrap;
 }
-.todo-item:first-child { border-top: 1px solid var(--border); }
 
-.todo-item.done { opacity: 0.5; }
-.todo-item.done .todo-text { text-decoration: line-through; }
-
-.todo-check {
-  width: 17px; height: 17px;
-  border-radius: 50%;
-  border: 1.5px solid var(--item-color, var(--accent));
-  cursor: pointer;
-  flex-shrink: 0;
-  background: transparent;
-  padding: 0;
+.todo-table thead th {
+  background: var(--surface-2);
+  color: var(--text-muted);
+  font-weight: 600;
+  font-size: 11.5px;
+  position: sticky;
+  top: 0;
+  z-index: 1;
 }
-.todo-check.checked { background: var(--item-color, var(--accent)); }
 
-.todo-main { flex: 1; min-width: 0; }
-.todo-text { font-size: 13.5px; }
-.todo-meta { font-size: 12px; color: var(--text-muted); margin-top: 4px; display: flex; align-items: center; gap: 8px; }
+.todo-table tbody tr { background: var(--surface); cursor: pointer; }
+.todo-table tbody tr:hover { background: var(--surface-2); }
+.todo-table tbody tr:last-child td { border-bottom: none; }
 
-.todo-actions { display: flex; gap: 2px; opacity: 0; transition: opacity 0.1s ease; }
-.todo-item:hover .todo-actions { opacity: 1; }
+.todo-table tbody tr.done { opacity: 0.55; }
+.todo-table tbody tr.done .col-title { text-decoration: line-through; }
+
+.todo-table .col-no { width: 40px; color: var(--text-muted); }
+.todo-table .col-date { width: 92px; }
+.todo-table .col-check { text-align: center; width: 56px; }
+.todo-table .col-title { white-space: normal; min-width: 200px; }
+.todo-table .col-notes {
+  white-space: normal;
+  min-width: 160px;
+  max-width: 240px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+.todo-table .col-actions { width: 34px; }
+
+.status-tag {
+  display: inline-block;
+  padding: 2px 9px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.todo-table .col-actions .icon-btn { opacity: 0; transition: opacity 0.1s ease; }
+.todo-table tbody tr:hover .icon-btn { opacity: 1; }
 
 .empty-hint { color: var(--text-muted); text-align: center; padding: 48px 0; font-size: 13.5px; }
 .hidden { display: none !important; }
@@ -645,14 +660,39 @@ html[data-theme="dark"] .fc-daygrid-dot-event:hover { background: #1c1c1c !impor
         <button class="btn btn-primary" id="addTodoBtn">+ 할 일 추가</button>
       </div>
       <div class="todo-toolbar">
-        <div class="filter-group" id="todoFilterGroup">
-          <button class="chip active" data-filter="all">전체</button>
-          <button class="chip" data-filter="active">진행중</button>
-          <button class="chip" data-filter="done">완료</button>
-        </div>
         <select id="todoProjectFilter" class="select"></select>
+        <select id="todoStatusFilter" class="select">
+          <option value="all">전체 상태</option>
+          <option value="대기">대기</option>
+          <option value="진행중">진행중</option>
+          <option value="완료">완료</option>
+          <option value="지연완료">지연완료</option>
+          <option value="보류">보류</option>
+        </select>
       </div>
-      <ul id="todoList" class="todo-list"></ul>
+      <div class="todo-table-wrap">
+        <table class="todo-table">
+          <thead>
+            <tr>
+              <th class="col-no">No</th>
+              <th class="col-date">등록일</th>
+              <th>대분류</th>
+              <th>세부채널</th>
+              <th>우선순위</th>
+              <th class="col-title">업무내용</th>
+              <th>담당자</th>
+              <th class="col-date">마감일</th>
+              <th>진행상태</th>
+              <th class="col-check">점검필요</th>
+              <th class="col-date">완료일</th>
+              <th class="col-notes">진행사항</th>
+              <th class="col-notes">비고</th>
+              <th class="col-actions"></th>
+            </tr>
+          </thead>
+          <tbody id="todoTableBody"></tbody>
+        </table>
+      </div>
       <p id="todoEmpty" class="empty-hint hidden">할 일이 없어요. 오른쪽 위 버튼으로 추가해보세요.</p>
     </section>
 
@@ -1136,12 +1176,23 @@ window.FC_KO_LOCALE = {
 /* ---------- 전역 상태 ---------- */
 let state = null;
 let calendar = null;
-let currentTodoFilter = 'all';
 let currentProjectViewId = null;
 let draggedCardId = null;
 
 /* 구글 캘린더의 기본 이벤트 색상 팔레트 (Tomato/Flamingo/Tangerine/Banana/Sage/Basil/Peacock/Blueberry/Lavender/Grape/Graphite) */
 const PALETTE = ['#d50000', '#e67c73', '#f4511e', '#f6bf26', '#33b679', '#0b8043', '#039be5', '#3f51b5', '#7986cb', '#8e24aa', '#616161'];
+
+/* 할 일 목록의 "진행상태" 옵션과 태그 색상 (구글시트 업무 트래커 양식과 동일하게 맞춤) */
+const TODO_STATUS_OPTIONS = ['대기', '진행중', '완료', '지연완료', '보류'];
+const TODO_STATUS_COLORS = {
+  '완료': '#0f9d58',
+  '지연완료': '#f4511e',
+  '진행중': '#039be5',
+  '대기': '#9b9a97',
+  '보류': '#eb5757'
+};
+function todoStatus(t) { return t.status || (t.done ? '완료' : '대기'); }
+function todoIsDone(t) { const s = todoStatus(t); return s === '완료' || s === '지연완료'; }
 
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
 
@@ -1275,7 +1326,7 @@ function buildCalendarEvents() {
     title: '✓ ' + t.text,
     start: t.dueDate,
     allDay: true,
-    color: t.done ? '#9698b8' : projectColor(t.projectId)
+    color: todoIsDone(t) ? '#9698b8' : projectColor(t.projectId)
   }));
   const tks = state.tasks.filter((t) => t.dueDate).map((t) => ({
     id: 'tk-' + t.id,
@@ -1390,84 +1441,126 @@ function getSelectedColor(rowId) {
   return active ? active.dataset.color : PALETTE[0];
 }
 
-/* ---------- 할 일 ---------- */
+/* ---------- 할 일 (구글시트 업무 트래커 양식의 테이블 뷰) ---------- */
 function setupTodos() {
   document.getElementById('addTodoBtn').onclick = () => openTodoModal(null);
-  document.querySelectorAll('#todoFilterGroup .chip').forEach((chip) => {
-    chip.addEventListener('click', () => {
-      document.querySelectorAll('#todoFilterGroup .chip').forEach((c) => c.classList.remove('active'));
-      chip.classList.add('active');
-      currentTodoFilter = chip.dataset.filter;
-      renderTodos();
-    });
-  });
   document.getElementById('todoProjectFilter').addEventListener('change', renderTodos);
+  document.getElementById('todoStatusFilter').addEventListener('change', renderTodos);
 }
 
 function renderTodos() {
   const projSelect = document.getElementById('todoProjectFilter');
-  const prevVal = projSelect.value || 'all';
-  projSelect.innerHTML = '<option value="all">모든 프로젝트</option>' + projectOptionsHtml(null);
-  projSelect.value = state.projects.some((p) => p.id === prevVal) || prevVal === 'all' ? prevVal : 'all';
+  const prevProj = projSelect.value || 'all';
+  projSelect.innerHTML = '<option value="all">전체 대분류</option>' + projectOptionsHtml(null);
+  projSelect.value = state.projects.some((p) => p.id === prevProj) || prevProj === 'all' ? prevProj : 'all';
 
-  const list = document.getElementById('todoList');
-  list.innerHTML = '';
-  let items = state.todos.slice().sort((a, b) => (a.dueDate || '9999').localeCompare(b.dueDate || '9999'));
-  if (currentTodoFilter === 'active') items = items.filter((t) => !t.done);
-  if (currentTodoFilter === 'done') items = items.filter((t) => t.done);
+  const statusSelect = document.getElementById('todoStatusFilter');
+  const statusVal = statusSelect.value || 'all';
+
+  let items = state.todos.slice().sort((a, b) => (a.no || 0) - (b.no || 0) || (a.dueDate || '9999').localeCompare(b.dueDate || '9999'));
   if (projSelect.value !== 'all') items = items.filter((t) => t.projectId === projSelect.value);
+  if (statusVal !== 'all') items = items.filter((t) => todoStatus(t) === statusVal);
 
+  const tbody = document.getElementById('todoTableBody');
+  tbody.innerHTML = '';
   document.getElementById('todoEmpty').classList.toggle('hidden', items.length > 0);
 
-  items.forEach((t) => {
-    const li = document.createElement('li');
-    li.className = 'todo-item' + (t.done ? ' done' : '');
-    li.style.setProperty('--item-color', projectColor(t.projectId));
+  items.forEach((t, idx) => {
     const proj = byId(state.projects, t.projectId);
-    li.innerHTML = `
-      <button class="todo-check ${t.done ? 'checked' : ''}" title="완료 토글"></button>
-      <div class="todo-main">
-        <div class="todo-text">${escapeHtml(t.text)}</div>
-        <div class="todo-meta">
-          ${proj ? tagHtml(proj.name, proj.color) : ''}
-          ${t.dueDate ? `<span class="due-text">📅 ${t.dueDate}</span>` : ''}
-        </div>
-      </div>
-      <div class="todo-actions">
-        <button class="icon-btn edit-btn" title="수정">✎</button>
-        <button class="icon-btn del-btn" title="삭제">🗑</button>
-      </div>
+    const status = todoStatus(t);
+    const statusColor = TODO_STATUS_COLORS[status] || '#9b9a97';
+    const tr = document.createElement('tr');
+    tr.className = todoIsDone(t) ? 'done' : '';
+    tr.innerHTML = `
+      <td class="col-no">${t.no || idx + 1}</td>
+      <td class="col-date">${t.registeredDate || ''}</td>
+      <td>${proj ? tagHtml(proj.name, proj.color) : ''}</td>
+      <td>${escapeHtml(t.channel || '')}</td>
+      <td>${escapeHtml(t.priority || '')}</td>
+      <td class="col-title">${escapeHtml(t.text || '')}</td>
+      <td>${escapeHtml(t.assignee || '')}</td>
+      <td class="col-date">${t.dueDate || ''}</td>
+      <td><span class="status-tag" style="background:${statusColor}1f;color:${statusColor}">${escapeHtml(status)}</span></td>
+      <td class="col-check">${escapeHtml(t.needsCheck || '')}</td>
+      <td class="col-date">${t.completedDate || ''}</td>
+      <td class="col-notes" title="${escapeHtml(t.progress || '')}">${escapeHtml(t.progress || '')}</td>
+      <td class="col-notes" title="${escapeHtml(t.remarks || '')}">${escapeHtml(t.remarks || '')}</td>
+      <td class="col-actions"><button class="icon-btn del-btn" title="삭제">🗑</button></td>
     `;
-    li.querySelector('.todo-check').onclick = () => { t.done = !t.done; persist(); renderTodos(); refreshCalendarEvents(); };
-    li.querySelector('.edit-btn').onclick = () => openTodoModal(t);
-    li.querySelector('.del-btn').onclick = () => {
+    tr.addEventListener('click', (e) => {
+      if (e.target.closest('.del-btn')) return;
+      openTodoModal(t);
+    });
+    tr.querySelector('.del-btn').addEventListener('click', (e) => {
+      e.stopPropagation();
       state.todos = state.todos.filter((x) => x.id !== t.id);
       persist(); renderTodos(); refreshCalendarEvents();
-    };
-    list.appendChild(li);
+    });
+    tbody.appendChild(tr);
   });
 }
 
 function openTodoModal(todo) {
   const isNew = !todo;
-  const data = todo || { id: null, text: '', dueDate: '', projectId: state.projects[0].id, done: false };
+  const nextNo = isNew ? Math.max(0, ...state.todos.map((t) => t.no || 0)) + 1 : todo.no;
+  const data = todo || {
+    id: null, no: nextNo, registeredDate: todayStr(), projectId: state.projects[0] ? state.projects[0].id : null,
+    channel: '', priority: '', text: '', assignee: '', dueDate: '', status: '대기', needsCheck: '',
+    completedDate: '', progress: '', remarks: ''
+  };
   showModal({
     title: isNew ? '할 일 추가' : '할 일 수정',
     deletable: !isNew,
     bodyHtml: `
-      <div class="field"><label>내용</label><input type="text" id="f-text" value="${escapeHtml(data.text)}" placeholder="할 일 내용" /></div>
-      <div class="field"><label>마감일(선택)</label><input type="date" id="f-due" value="${data.dueDate || ''}" /></div>
-      <div class="field"><label>프로젝트</label><select id="f-project">${projectOptionsHtml(data.projectId)}</select></div>
+      <div class="field"><label>업무내용</label><input type="text" id="f-text" value="${escapeHtml(data.text)}" placeholder="업무 내용" /></div>
+      <div class="field-row">
+        <div class="field"><label>대분류</label><select id="f-project">${projectOptionsHtml(data.projectId)}</select></div>
+        <div class="field"><label>세부채널</label><input type="text" id="f-channel" value="${escapeHtml(data.channel || '')}" /></div>
+      </div>
+      <div class="field-row">
+        <div class="field"><label>담당자</label><input type="text" id="f-assignee" value="${escapeHtml(data.assignee || '')}" /></div>
+        <div class="field"><label>우선순위</label><input type="text" id="f-priority" value="${escapeHtml(data.priority || '')}" list="priority-options" /></div>
+      </div>
+      <datalist id="priority-options"><option value="보통"></option><option value="중요"></option><option value="긴급"></option></datalist>
+      <div class="field-row">
+        <div class="field"><label>등록일</label><input type="date" id="f-registered" value="${data.registeredDate || ''}" /></div>
+        <div class="field"><label>마감(예정)일</label><input type="date" id="f-due" value="${data.dueDate || ''}" /></div>
+      </div>
+      <div class="field-row">
+        <div class="field"><label>진행상태</label>
+          <select id="f-status">${TODO_STATUS_OPTIONS.map((s) => `<option value="${s}" ${todoStatus(data) === s ? 'selected' : ''}>${s}</option>`).join('')}</select>
+        </div>
+        <div class="field"><label>점검필요</label>
+          <select id="f-needscheck">
+            <option value="" ${!data.needsCheck ? 'selected' : ''}>-</option>
+            <option value="Y" ${data.needsCheck === 'Y' ? 'selected' : ''}>Y</option>
+            <option value="N" ${data.needsCheck === 'N' ? 'selected' : ''}>N</option>
+          </select>
+        </div>
+      </div>
+      <div class="field"><label>완료일(선택)</label><input type="date" id="f-completed" value="${data.completedDate || ''}" /></div>
+      <div class="field"><label>진행사항</label><textarea id="f-progress" placeholder="진행 상황 기록">${escapeHtml(data.progress || '')}</textarea></div>
+      <div class="field"><label>비고</label><textarea id="f-remarks" placeholder="기타 메모">${escapeHtml(data.remarks || '')}</textarea></div>
     `,
     onSave: () => {
       const text = document.getElementById('f-text').value.trim();
-      if (!text) { toast('내용을 입력해주세요'); return false; }
-      const dueDate = document.getElementById('f-due').value;
+      if (!text) { toast('업무내용을 입력해주세요'); return false; }
       const projectId = document.getElementById('f-project').value;
+      const channel = document.getElementById('f-channel').value;
+      const assignee = document.getElementById('f-assignee').value;
+      const priority = document.getElementById('f-priority').value;
+      const registeredDate = document.getElementById('f-registered').value;
+      const dueDate = document.getElementById('f-due').value;
+      const status = document.getElementById('f-status').value;
+      const needsCheck = document.getElementById('f-needscheck').value;
+      const completedDate = document.getElementById('f-completed').value;
+      const progress = document.getElementById('f-progress').value;
+      const remarks = document.getElementById('f-remarks').value;
+      const done = status === '완료' || status === '지연완료';
       if (isNew) {
-        state.todos.push({ id: uid(), text, dueDate, projectId, done: false });
+        state.todos.push({ id: uid(), no: nextNo, registeredDate, projectId, channel, priority, text, assignee, dueDate, status, needsCheck, completedDate, progress, remarks, done });
       } else {
-        Object.assign(todo, { text, dueDate, projectId });
+        Object.assign(todo, { registeredDate, projectId, channel, priority, text, assignee, dueDate, status, needsCheck, completedDate, progress, remarks, done });
       }
       persist(); renderTodos(); refreshCalendarEvents();
       return true;
