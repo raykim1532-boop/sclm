@@ -1,0 +1,14 @@
+# SCLM 매일 아침 푸시 발송용 Cron 워커.
+# Pages(raymond-scheduler)의 /api/push/run-daily 를 매일 08:00 KST(=23:00 UTC)에 호출한다.
+# 배포:  cd web/push-cron && npx wrangler deploy
+# 시크릿: npx wrangler secret put CRON_SECRET   (Pages 쪽과 동일한 값)
+name = "sclm-push-cron"
+main = "src/index.js"
+compatibility_date = "2024-09-23"
+workers_dev = false
+
+[triggers]
+crons = ["0 23 * * *"]
+
+[vars]
+TARGET_URL = "https://sclm.pages.dev/api/push/run-daily"

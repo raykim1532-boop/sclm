@@ -2,7 +2,8 @@
 <html lang="ko" data-theme="light">
 <head>
 <meta charset="UTF-8" />
-<title>나의 스케줄러</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>SCLM (스케줄 관리)</title>
 <style>
 :root {
   --accent: #1a73e8;
@@ -70,12 +71,17 @@ html, body {
   align-items: center;
   gap: 8px;
   font-weight: 600;
-  font-size: 14px;
+  font-size: 22px;
   color: var(--text);
-  padding: 4px 8px 16px;
+  padding: 6px 8px 18px;
 }
 
-.brand-emoji { font-size: 17px; }
+.brand { cursor: pointer; user-select: none; border-radius: 8px; transition: background 0.12s; }
+.brand:hover { background: var(--surface-2); }
+.brand:active { transform: scale(0.98); }
+.brand-emoji { font-size: 26px; }
+.brand-text { font-weight: 800; letter-spacing: 0.5px; }
+.cloud-gate-box h2 small { font-size: 12px; font-weight: 500; color: var(--text-muted); }
 
 .nav { display: flex; flex-direction: column; gap: 1px; }
 
@@ -105,8 +111,8 @@ html, body {
 .nav-icon { width: 16px; text-align: center; font-size: 13px; opacity: 0.9; }
 
 .project-quick {
-  margin-top: 20px;
-  padding-top: 12px;
+  margin-top: 14px;
+  padding-top: 10px;
   border-top: 1px solid var(--border);
   overflow-y: auto;
   flex: 1;
@@ -116,13 +122,25 @@ html, body {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  color: var(--text-muted);
-  font-size: 11px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  padding: 0 10px 6px;
+  padding: 0 6px 4px 4px;
 }
+.pq-toggle {
+  display: flex; align-items: center; gap: 5px;
+  background: none; border: none; cursor: pointer;
+  color: var(--text-muted);
+  font-size: 11px; font-weight: 600;
+  text-transform: uppercase; letter-spacing: 0.04em;
+  padding: 4px 4px;
+}
+.pq-toggle:hover { color: var(--text); }
+.pq-chevron { font-size: 9px; transition: transform 0.15s; }
+.project-quick.collapsed .pq-chevron { transform: rotate(-90deg); }
+.pq-count {
+  font-size: 10px; font-weight: 600; color: var(--text-muted);
+  background: var(--surface-2); border-radius: 8px; padding: 0 6px;
+  text-transform: none; letter-spacing: 0;
+}
+.project-quick.collapsed .project-quick-list { display: none; }
 
 .project-quick-list { list-style: none; margin: 0; padding: 0; }
 
@@ -130,13 +148,16 @@ html, body {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 6px 10px;
+  padding: 4px 10px;
   border-radius: 6px;
-  font-size: 13px;
+  font-size: 12.5px;
   color: var(--text-muted);
+  cursor: pointer;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 
 .project-quick-list li:hover { background: var(--surface-2); color: var(--text); }
+.project-quick-list li.active { background: var(--surface-2); color: var(--text); font-weight: 600; }
 
 .dot {
   width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0;
@@ -223,6 +244,9 @@ html, body {
   border: 1px solid var(--border);
   padding: 16px;
 }
+/* 일정 블록 간 위아래 간격 균일하게 */
+.fc-daygrid-event-harness { margin-top: 2px !important; }
+.fc .fc-daygrid-day-events { margin-bottom: 2px; }
 
 .fc {
   --fc-border-color: var(--border);
@@ -342,11 +366,66 @@ html[data-theme="dark"] .fc-daygrid-dot-event:hover { background: #1c1c1c !impor
 }
 
 /* ---------- Todos (스프레드시트 스타일 테이블) ---------- */
+.todo-filters {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 14px 16px;
+  margin-bottom: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
 .todo-toolbar {
   display: flex;
-  gap: 8px;
-  margin-bottom: 16px;
+  gap: 10px;
+  row-gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+  margin-bottom: 0;
 }
+.todo-toolbar-date {
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+}
+.todo-search {
+  flex: 1; min-width: 200px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  border-radius: 6px;
+  padding: 7px 11px;
+  font-size: 13px;
+}
+.todo-search:focus { outline: none; border-color: var(--accent); }
+.todo-count { font-size: 12px; color: var(--text-muted); flex-shrink: 0; margin-left: auto; }
+.todo-date-label { font-size: 12.5px; color: var(--text-muted); flex-shrink: 0; }
+.todo-date-sep { color: var(--text-muted); }
+.todo-date {
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  border-radius: 6px;
+  padding: 6px 9px;
+  font-size: 13px;
+  font-family: inherit;
+}
+.todo-date:focus { outline: none; border-color: var(--accent); }
+.view-header-actions { display: flex; align-items: center; gap: 8px; }
+.todo-pagination { display: flex; align-items: center; justify-content: center; gap: 12px; margin-top: 14px; }
+.todo-pagination:empty { display: none; }
+.todo-page-ind { font-size: 13px; color: var(--text-muted); min-width: 54px; text-align: center; }
+.todo-pagination .btn:disabled { opacity: 0.4; cursor: default; }
+#todoCalendar { max-width: 100%; }
+.scroll-top {
+  position: fixed; right: 26px; bottom: 26px; z-index: 60;
+  width: 42px; height: 42px; border-radius: 50%;
+  border: 1px solid var(--border); background: var(--surface); color: var(--text);
+  font-size: 18px; line-height: 1; cursor: pointer;
+  box-shadow: 0 3px 10px rgba(0,0,0,0.18);
+  transition: opacity 0.15s, transform 0.15s;
+}
+.scroll-top:hover { border-color: var(--accent); transform: translateY(-2px); }
 
 .select {
   border: 1px solid var(--border);
@@ -366,7 +445,7 @@ html[data-theme="dark"] .fc-daygrid-dot-event:hover { background: #1c1c1c !impor
 
 .todo-table {
   width: 100%;
-  min-width: 1180px;
+  min-width: 1288px;
   border-collapse: collapse;
   font-size: 12.8px;
 }
@@ -409,6 +488,20 @@ html[data-theme="dark"] .fc-daygrid-dot-event:hover { background: #1c1c1c !impor
   font-size: 12px;
 }
 .todo-table .col-actions { width: 34px; }
+.todo-table .col-link { width: 74px; }
+.todo-table .col-select { width: 34px; text-align: center; }
+.todo-table .col-select input, #todoSelectAll { width: 15px; height: 15px; cursor: pointer; }
+.todo-table tbody tr.row-selected { background: var(--accent-soft); }
+.todo-bulk {
+  display: flex; align-items: center; gap: 10px;
+  padding: 9px 12px; margin-bottom: 10px;
+  background: var(--accent-soft); border: 1px solid var(--accent);
+  border-radius: 8px;
+}
+.todo-bulk-count { font-size: 13px; font-weight: 600; color: var(--accent); }
+.todo-bulk .select { margin: 0; }
+.todo-link { color: var(--accent); text-decoration: none; font-size: 12px; white-space: nowrap; }
+.todo-link:hover { text-decoration: underline; }
 
 .status-tag {
   display: inline-block;
@@ -441,7 +534,8 @@ html[data-theme="dark"] .fc-daygrid-dot-event:hover { background: #1c1c1c !impor
 .project-tab:hover { color: var(--text); }
 .project-tab.active { border-bottom-color: var(--tab-color, var(--accent)); color: var(--text); font-weight: 600; }
 
-.kanban { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
+.kanban { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+@media (max-width: 900px) { .kanban { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 
 .kanban-col {
   background: var(--surface-2);
@@ -475,9 +569,17 @@ html[data-theme="dark"] .fc-daygrid-dot-event:hover { background: #1c1c1c !impor
 }
 .kanban-card:hover { border-color: var(--accent); }
 .kanban-card.dragging { opacity: 0.4; }
-.kanban-cards.drag-over { outline: 2px dashed var(--accent); outline-offset: -4px; border-radius: 8px; }
+.kanban-card.done { opacity: 0.65; }
+.kanban-card.done .kanban-card-title { text-decoration: line-through; }
+.kanban-cards.drag-over,
+.kanban-col.drag-over { outline: 2px dashed var(--accent); outline-offset: -4px; border-radius: 8px; }
+.kanban-count {
+  margin-left: auto; font-size: 11px; font-weight: 600; color: var(--text-muted);
+  background: var(--surface); border-radius: 8px; padding: 0 7px;
+}
 
 .kanban-card-title { margin-bottom: 4px; }
+.kanban-card-meta { font-size: 11px; color: var(--text-muted); margin-bottom: 2px; }
 .kanban-card-due { font-size: 11px; color: var(--text-muted); }
 
 .add-card-btn {
@@ -700,13 +802,154 @@ html[data-theme="dark"] .fc-daygrid-dot-event:hover { background: #1c1c1c !impor
   flex: 1; min-width: 0;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
+.dash-item .di-channel {
+  font-size: 11.5px; color: var(--text-muted); flex-shrink: 0;
+  background: var(--surface-2); border: 1px solid var(--border);
+  padding: 1px 7px; border-radius: 10px; max-width: 120px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
 .dash-item .di-due { font-size: 12px; color: var(--text-muted); flex-shrink: 0; }
+.channel-list { display: flex; flex-wrap: wrap; gap: 8px; margin: 6px 0 2px; }
+.channel-chip { display: inline-flex; align-items: center; gap: 6px; padding: 5px 6px 5px 11px; border: 1px solid var(--border); border-radius: 16px; background: var(--surface-2); font-size: 13px; }
+.channel-chip .channel-count { font-size: 11px; color: var(--text-muted); background: var(--surface); border-radius: 8px; padding: 0 6px; }
+.channel-chip button { border: none; background: none; cursor: pointer; color: var(--text-muted); font-size: 13px; line-height: 1; padding: 0 2px; border-radius: 50%; }
+.channel-chip button:hover { color: var(--danger); }
+.channel-empty { color: var(--text-muted); font-size: 12.5px; }
+.channel-toolbar { display: flex; align-items: center; gap: 10px; margin: 6px 0 10px; }
+.channel-toolbar .todo-count { margin-left: 0; }
+.channel-toolbar .select { margin-left: auto; }
+.channel-table { display: flex; flex-direction: column; gap: 6px; }
+.channel-row {
+  display: flex; align-items: center; gap: 12px;
+  padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px;
+  background: var(--surface);
+}
+.channel-row .ch-name { font-weight: 600; font-size: 13.5px; min-width: 110px; max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.channel-row .ch-rename-input { width: 150px; padding: 4px 8px; border: 1px solid var(--accent); border-radius: 5px; background: var(--surface); color: var(--text); font-size: 13px; }
+.ch-stats { display: flex; flex-wrap: wrap; gap: 5px; flex: 1; }
+.ch-badge { font-size: 11px; color: var(--text-muted); background: var(--surface-2); border-radius: 10px; padding: 1px 8px; }
+.ch-badge.b-wait { color: #8a6d00; background: #f6bf2622; }
+.ch-badge.b-active { color: #0369a1; background: #039be522; }
+.ch-badge.b-done { color: #0b8043; background: #0b804322; }
+.ch-badge.b-over { color: var(--danger); background: #d9302522; font-weight: 600; }
+.ch-actions { display: flex; gap: 2px; flex-shrink: 0; }
+.snapshot-list { display: flex; flex-direction: column; gap: 6px; margin: 8px 0 4px; max-height: 320px; overflow-y: auto; }
+.snapshot-row { display: flex; align-items: center; gap: 10px; padding: 7px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); }
+.snapshot-row .snap-info { flex: 1; font-size: 13px; }
+.snapshot-row .snap-reason { font-size: 11px; color: var(--text-muted); background: var(--surface-2); border-radius: 8px; padding: 1px 7px; }
+.snapshot-row .snap-summary { font-size: 11.5px; color: var(--text-muted); margin-top: 2px; }
+.snapshot-row .snap-restore { flex-shrink: 0; padding: 5px 12px; }
+#newChannelInput { flex: 1; min-width: 0; padding: 8px 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); color: var(--text); font-size: 13px; }
 .dash-item.overdue .di-due { color: var(--danger); font-weight: 600; }
 .dash-empty { color: var(--text-muted); font-size: 12.5px; padding: 6px 8px; }
+
+/* ---------- 대시보드 분석 ---------- */
+.dash-analytics {
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin-top: 18px;
+}
+.dash-analytics:empty { display: none; }
+.an-card {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 16px;
+}
+.an-card h3 {
+  margin: 0 0 12px; font-size: 13px; font-weight: 600; color: var(--text);
+  display: flex; align-items: baseline; gap: 8px;
+}
+.an-total { font-size: 11px; font-weight: 500; color: var(--text-muted); margin-left: auto; }
+.an-stack { display: flex; height: 14px; border-radius: 7px; overflow: hidden; background: var(--surface-2); }
+.an-stack-seg { height: 100%; }
+.an-legend-row { display: flex; flex-wrap: wrap; gap: 10px 14px; margin-top: 12px; }
+.an-legend { font-size: 12px; color: var(--text-muted); display: inline-flex; align-items: center; gap: 5px; }
+.an-legend i { width: 9px; height: 9px; border-radius: 2px; display: inline-block; }
+.an-legend b { color: var(--text); font-weight: 600; }
+.an-row { display: flex; align-items: center; gap: 8px; margin-bottom: 9px; }
+.an-row:last-child { margin-bottom: 0; }
+.an-label { flex: 0 0 84px; font-size: 12px; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.an-bar { flex: 1; height: 8px; background: var(--surface-2); border-radius: 4px; overflow: hidden; }
+.an-bar i { display: block; height: 100%; border-radius: 4px; transition: width 0.3s ease; }
+.an-val { flex: 0 0 auto; font-size: 11.5px; color: var(--text-muted); min-width: 62px; text-align: right; }
+@media (max-width: 900px) { .dash-analytics { grid-template-columns: 1fr; } }
+
+/* ---------- 마감 임박 알림 배너 ---------- */
+.dash-alert {
+  display: flex; align-items: center; gap: 12px;
+  padding: 12px 14px; margin-bottom: 18px;
+  border-radius: 10px;
+  border: 1px solid var(--border); background: var(--surface-2);
+  cursor: pointer;
+  animation: alertIn 0.25s ease;
+}
+.dash-alert:hover { filter: brightness(0.99); }
+.dash-alert.danger { background: #eb57571f; border-color: #eb575755; }
+.dash-alert.warn { background: #f2994a1f; border-color: #f2994a66; }
+html[data-theme="dark"] .dash-alert.danger { background: #eb575726; }
+html[data-theme="dark"] .dash-alert.warn { background: #f2994a26; }
+.dash-alert .da-icon { font-size: 20px; flex-shrink: 0; line-height: 1; }
+.dash-alert .da-text { flex: 1; font-size: 13.5px; color: var(--text); line-height: 1.45; }
+.dash-alert .da-text b { font-weight: 700; }
+.dash-alert .da-seg.da-over b { color: var(--danger); }
+.dash-alert .da-seg { white-space: nowrap; }
+.dash-alert .da-sep { color: var(--text-muted); margin: 0 7px; }
+.dash-alert .da-cta { font-size: 12.5px; color: var(--accent); font-weight: 600; flex-shrink: 0; white-space: nowrap; }
+.dash-alert .da-dismiss {
+  border: none; background: transparent; color: var(--text-muted);
+  font-size: 17px; line-height: 1; cursor: pointer; padding: 2px 7px; border-radius: 6px; flex-shrink: 0;
+}
+.dash-alert .da-dismiss:hover { background: rgba(0,0,0,0.09); color: var(--text); }
+@keyframes alertIn { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: none; } }
+@media (max-width: 768px) {
+  .dash-alert { flex-wrap: wrap; gap: 8px; }
+  .dash-alert .da-cta { margin-left: auto; }
+}
 
 @media (max-width: 900px) {
   .stat-row { grid-template-columns: repeat(2, 1fr); }
   .dashboard-grid { grid-template-columns: 1fr; }
+}
+
+/* ---------- 모바일 (오프캔버스 사이드바) ---------- */
+.nav-toggle { display: none; }
+.nav-backdrop { display: none; }
+
+@media (max-width: 768px) {
+  .nav-toggle {
+    display: flex; align-items: center; justify-content: center;
+    position: fixed; top: 9px; left: 9px; z-index: 220;
+    width: 40px; height: 40px; border-radius: 8px;
+    border: 1px solid var(--border); background: var(--surface); color: var(--text);
+    font-size: 19px; line-height: 1; cursor: pointer; box-shadow: var(--shadow);
+  }
+  .sidebar {
+    position: fixed; top: 0; left: 0; height: 100vh; width: 250px;
+    z-index: 240; transform: translateX(-100%);
+    transition: transform 0.22s ease; box-shadow: var(--shadow-pop);
+  }
+  .app.nav-open .sidebar { transform: translateX(0); }
+  .app.nav-open .nav-backdrop {
+    display: block; position: fixed; inset: 0; z-index: 230;
+    background: rgba(0, 0, 0, 0.42);
+  }
+  .main { padding: 54px 14px 24px; }
+  .view-header { flex-wrap: wrap; gap: 10px; }
+  .view-header h1 { font-size: 18px; }
+  .view-header-actions { flex-wrap: wrap; }
+  .stat-row { grid-template-columns: repeat(2, 1fr); gap: 8px; }
+  .todo-search { min-width: 140px; }
+  .todo-count { margin-left: 0; }
+  .todo-toolbar-date { flex-wrap: wrap; }
+  #calendar { padding: 8px; }
+  .fc .fc-toolbar.fc-header-toolbar { flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+  .fc .fc-toolbar-title { font-size: 15px; }
+  .settings-card { padding: 16px; }
+  .field-row { flex-direction: column; gap: 12px; }
+  .scroll-top { right: 16px; bottom: 16px; }
+  .project-tabs { overflow-x: auto; flex-wrap: nowrap; }
+}
+
+@media (max-width: 420px) {
+  .stat-row { grid-template-columns: 1fr; }
+  .segmented { flex-wrap: wrap; }
 }
 
 /* ---------- 클라우드 로그인 게이트 ---------- */
@@ -746,33 +989,40 @@ html[data-theme="dark"] .fc-daygrid-dot-event:hover { background: #1c1c1c !impor
 </head>
 <body>
 <div id="app" class="app">
+  <button class="nav-toggle" id="navToggle" aria-label="메뉴" title="메뉴">☰</button>
+  <div class="nav-backdrop" id="navBackdrop"></div>
   <aside class="sidebar">
-    <div class="brand">
+    <div class="brand" id="brandHome" title="새로고침">
       <span class="brand-emoji">🗓️</span>
-      <span class="brand-text">나의 스케줄러</span>
+      <span class="brand-text">SCLM</span>
     </div>
 
     <nav class="nav">
       <button class="nav-btn active" data-view="dashboard">
-        <span class="nav-icon">🏠</span> 대시보드
+        <span class="nav-icon">🏠</span> Dashboard
       </button>
       <button class="nav-btn" data-view="calendar">
-        <span class="nav-icon">📆</span> 캘린더
+        <span class="nav-icon">📆</span> Calendar
       </button>
       <button class="nav-btn" data-view="todos">
-        <span class="nav-icon">✅</span> 할 일
+        <span class="nav-icon">✅</span> To-do List
       </button>
       <button class="nav-btn" data-view="projects">
-        <span class="nav-icon">📁</span> 프로젝트
+        <span class="nav-icon">📁</span> Projects
+      </button>
+      <button class="nav-btn" data-view="channels">
+        <span class="nav-icon">🏷️</span> Channels
       </button>
       <button class="nav-btn" data-view="settings">
-        <span class="nav-icon">⚙️</span> 설정
+        <span class="nav-icon">⚙️</span> Settings
       </button>
     </nav>
 
-    <div class="project-quick">
+    <div class="project-quick" id="projectQuick">
       <div class="project-quick-header">
-        <span>내 프로젝트</span>
+        <button class="pq-toggle" id="pqToggle">
+          <span class="pq-chevron">▾</span> 내 프로젝트 <span class="pq-count" id="pqCount"></span>
+        </button>
         <button id="quickAddProjectBtn" class="icon-btn" title="새 프로젝트">+</button>
       </div>
       <ul id="sidebarProjectList" class="project-quick-list"></ul>
@@ -786,8 +1036,10 @@ html[data-theme="dark"] .fc-daygrid-dot-event:hover { background: #1c1c1c !impor
         <h1>대시보드</h1>
         <span id="dashboardToday" class="dashboard-today"></span>
       </div>
+      <div id="dashAlert" class="dash-alert hidden"></div>
       <div class="stat-row" id="statRow"></div>
       <div class="dashboard-grid" id="dashboardGrid"></div>
+      <div class="dash-analytics" id="dashAnalytics"></div>
     </section>
 
     <section id="view-calendar" class="view">
@@ -800,24 +1052,61 @@ html[data-theme="dark"] .fc-daygrid-dot-event:hover { background: #1c1c1c !impor
 
     <section id="view-todos" class="view">
       <div class="view-header">
-        <h1>할 일</h1>
-        <button class="btn btn-primary" id="addTodoBtn">+ 할 일 추가</button>
+        <h1>To-do List</h1>
+        <div class="view-header-actions">
+          <div class="segmented" id="todoLayout">
+            <button class="segmented-btn active" data-layout="table">표</button>
+            <button class="segmented-btn" data-layout="calendar">캘린더</button>
+          </div>
+          <button class="btn btn-primary" id="addTodoBtn">+ 할 일 추가</button>
+        </div>
       </div>
+      <div class="todo-filters">
       <div class="todo-toolbar">
         <select id="todoProjectFilter" class="select"></select>
-        <select id="todoStatusFilter" class="select">
-          <option value="all">전체 상태</option>
-          <option value="대기">대기</option>
-          <option value="진행중">진행중</option>
-          <option value="완료">완료</option>
-          <option value="지연완료">지연완료</option>
-          <option value="보류">보류</option>
+        <div class="segmented" id="todoQuickView">
+          <button class="segmented-btn active" data-qv="all">전체</button>
+          <button class="segmented-btn" data-qv="active">진행·대기</button>
+          <button class="segmented-btn" data-qv="done">완료</button>
+          <button class="segmented-btn" data-qv="hold">보류</button>
+        </div>
+        <input type="text" id="todoSearch" class="todo-search" placeholder="🔍 검색 (업무내용·세부채널·담당자·진행사항)" />
+        <span class="todo-count" id="todoCount"></span>
+      </div>
+      <div class="todo-toolbar todo-toolbar-date">
+        <span class="todo-date-label">📅 기간</span>
+        <select id="todoDateField" class="select">
+          <option value="dueDate">마감일 기준</option>
+          <option value="registeredDate">등록일 기준</option>
+          <option value="completedDate">완료일 기준</option>
         </select>
+        <input type="date" id="todoDateFrom" class="todo-date" />
+        <span class="todo-date-sep">~</span>
+        <input type="date" id="todoDateTo" class="todo-date" />
+        <button class="btn" id="todoDateClear">초기화</button>
+        <span class="todo-date-sep">|</span>
+        <span class="todo-date-label">표시</span>
+        <select id="todoPageSize" class="select">
+          <option value="25">25개</option>
+          <option value="50" selected>50개</option>
+          <option value="100">100개</option>
+          <option value="all">전체</option>
+        </select>
+      </div>
+      </div>
+      <div id="todoCalendarView" class="hidden"><div id="todoCalendar"></div></div>
+      <div id="todoTableView">
+      <div class="todo-bulk hidden" id="todoBulkBar">
+        <span class="todo-bulk-count" id="todoBulkCount">0개 선택</span>
+        <select class="select" id="todoBulkStatus"><option value="">진행상태 일괄 변경…</option></select>
+        <button class="btn btn-danger" id="todoBulkDelete">선택 삭제</button>
+        <button class="btn" id="todoBulkClear">선택 해제</button>
       </div>
       <div class="todo-table-wrap">
         <table class="todo-table">
           <thead>
             <tr>
+              <th class="col-select"><input type="checkbox" id="todoSelectAll" title="이 페이지 전체 선택" /></th>
               <th class="col-no">No</th>
               <th class="col-date">등록일</th>
               <th>대분류</th>
@@ -831,13 +1120,16 @@ html[data-theme="dark"] .fc-daygrid-dot-event:hover { background: #1c1c1c !impor
               <th class="col-date">완료일</th>
               <th class="col-notes">진행사항</th>
               <th class="col-notes">비고</th>
+              <th class="col-link">산출물</th>
               <th class="col-actions"></th>
             </tr>
           </thead>
           <tbody id="todoTableBody"></tbody>
         </table>
       </div>
-      <p id="todoEmpty" class="empty-hint hidden">할 일이 없어요. 오른쪽 위 버튼으로 추가해보세요.</p>
+      <div class="todo-pagination" id="todoPagination"></div>
+      </div>
+      <p id="todoEmpty" class="empty-hint hidden">조건에 맞는 업무가 없어요.</p>
     </section>
 
     <section id="view-projects" class="view">
@@ -846,24 +1138,30 @@ html[data-theme="dark"] .fc-daygrid-dot-event:hover { background: #1c1c1c !impor
         <button class="btn btn-primary" id="addProjectBtn">+ 새 프로젝트</button>
       </div>
       <div class="project-tabs" id="projectTabs"></div>
-      <div class="kanban" id="kanbanBoard">
-        <div class="kanban-col" data-status="todo">
-          <div class="kanban-col-header"><span class="dot dot-gray"></span>할 일</div>
-          <div class="kanban-cards" id="col-todo"></div>
-          <button class="add-card-btn" data-status="todo">+ 카드 추가</button>
+      <p class="hint" id="kanbanHint" style="margin:0 0 10px">이 보드는 <b>할 일(To-do)</b> 데이터를 프로젝트별·진행상태별로 보여줍니다. 카드를 드래그하면 진행상태가 바뀌고, 클릭하면 상세가 열려요.</p>
+      <div class="kanban" id="kanbanBoard"></div>
+      <p id="projectEmpty" class="empty-hint hidden">아직 프로젝트가 없어요. 위 버튼으로 새 프로젝트를 만들어보세요.</p>
+    </section>
+
+    <section id="view-channels" class="view">
+      <div class="view-header">
+        <h1>세부채널 관리</h1>
+      </div>
+      <div class="settings-card">
+        <p class="hint" style="margin-top:0">할 일의 <b>세부채널</b>(거래처·채널) 목록을 관리해요. 여기에 추가한 항목이 할 일 입력창의 세부채널 선택 목록에 나타납니다. (대분류는 <b>Projects</b>에서 관리) · 🔍 보기 · ✏️ 이름변경(할 일에 일괄 반영) · 🗑 삭제</p>
+        <div class="channel-toolbar">
+          <span class="todo-count" id="channelTotal"></span>
+          <select id="channelSort" class="select">
+            <option value="usage">사용 많은 순</option>
+            <option value="name">이름 순</option>
+          </select>
         </div>
-        <div class="kanban-col" data-status="inprogress">
-          <div class="kanban-col-header"><span class="dot dot-blue"></span>진행중</div>
-          <div class="kanban-cards" id="col-inprogress"></div>
-          <button class="add-card-btn" data-status="inprogress">+ 카드 추가</button>
-        </div>
-        <div class="kanban-col" data-status="done">
-          <div class="kanban-col-header"><span class="dot dot-green"></span>완료</div>
-          <div class="kanban-cards" id="col-done"></div>
-          <button class="add-card-btn" data-status="done">+ 카드 추가</button>
+        <div id="channelList" class="channel-table"></div>
+        <div class="settings-row" style="border:none;padding-top:10px;gap:8px">
+          <input type="text" id="newChannelInput" placeholder="새 세부채널 이름 (예: 마리오아울렛)" />
+          <button class="btn btn-primary" id="addChannelBtn">추가</button>
         </div>
       </div>
-      <p id="projectEmpty" class="empty-hint hidden">아직 프로젝트가 없어요. 위 버튼으로 새 프로젝트를 만들어보세요.</p>
     </section>
 
     <section id="view-settings" class="view">
@@ -890,6 +1188,37 @@ html[data-theme="dark"] .fc-daygrid-dot-event:hover { background: #1c1c1c !impor
         </div>
       </div>
 
+      <div class="settings-card hidden" id="googleCard">
+        <h2>구글 캘린더 연동</h2>
+        <div class="settings-row">
+          <span id="googleStatusText">연결 상태 확인 중…</span>
+          <div class="sync-btn-group">
+            <button class="btn btn-primary" id="googleConnectBtn">구글 캘린더 연결</button>
+            <button class="btn hidden" id="googleSyncBtn">지금 동기화</button>
+            <button class="btn hidden" id="googleDisconnectBtn">연결 해제</button>
+          </div>
+        </div>
+        <div class="settings-row" id="googleAutoRow" style="display:none">
+          <label class="sheet-clear-label"><input type="checkbox" id="googleAutoSync" /> 자동 동기화 (앱 열 때 + 15분마다)</label>
+        </div>
+        <p class="hint">구글 캘린더와 <b>양방향 동기화</b>합니다(생성·수정·삭제). 전용 <b>"SCLM"</b> 캘린더에만 반영돼 개인 일정은 안전합니다. ⚠️ 구글에서 SCLM 업무를 삭제하면 다음 동기화 때 SCLM에서도 지워집니다. 리프레시 토큰은 서버(D1)에만 보관됩니다.</p>
+        <p class="hint" id="googleSyncResult" style="display:none;white-space:pre-line"></p>
+      </div>
+
+      <div class="settings-card hidden" id="pushCard">
+        <h2>푸시 알림</h2>
+        <div class="settings-row">
+          <span id="pushStatusText">알림 상태 확인 중…</span>
+          <div class="sync-btn-group">
+            <button class="btn btn-primary" id="pushEnableBtn">알림 켜기</button>
+            <button class="btn hidden" id="pushDisableBtn">알림 끄기</button>
+            <button class="btn hidden" id="pushTestBtn">테스트 발송</button>
+          </div>
+        </div>
+        <p class="hint">앱을 닫아둬도 <b>매일 아침 8시</b>에 오늘 마감·지연 업무를 요약해 알려드려요. 알림 받을 <b>기기마다 한 번씩</b> "알림 켜기"를 눌러 등록하세요. (안드로이드·PC 크롬 지원 / 아이폰은 홈 화면에 추가해야 동작)</p>
+        <p class="hint" id="pushResult" style="display:none;white-space:pre-line"></p>
+      </div>
+
       <div class="settings-card" id="localSyncCard">
         <h2>다른 기기와 함께 쓰기</h2>
         <div class="settings-row">
@@ -908,6 +1237,16 @@ html[data-theme="dark"] .fc-daygrid-dot-event:hover { background: #1c1c1c !impor
           (두 기기를 동시에 열어놓고 동시에 수정하면 마지막에 저장한 내용만 남을 수 있으니, 가급적 한 번에
           한 기기에서만 사용해주세요.)
         </p>
+      </div>
+
+      <div class="settings-card hidden" id="backupCard">
+        <h2>백업 &amp; 복구</h2>
+        <div class="settings-row">
+          <span>스냅샷 백업 · <b>하루 1회 자동</b> + 복원 직전 자동</span>
+          <button class="btn btn-primary" id="snapshotNowBtn">지금 백업</button>
+        </div>
+        <div id="snapshotList" class="snapshot-list"></div>
+        <p class="hint">실수로 삭제하거나 동기화가 잘못됐을 때 이전 상태로 <b>되돌릴</b> 수 있어요. 복원하면 현재 상태도 자동 백업되니 복원도 되돌릴 수 있습니다. 최근 20개 보관.</p>
       </div>
 
       <div class="settings-card">
@@ -957,6 +1296,8 @@ html[data-theme="dark"] .fc-daygrid-dot-event:hover { background: #1c1c1c !impor
     </div>
   </div>
 </div>
+
+<button id="scrollTopBtn" class="scroll-top hidden" title="맨 위로">↑</button>
 
 <div id="toast" class="toast hidden"></div>
 
@@ -1040,13 +1381,16 @@ window.FC_KO_LOCALE = {
       projects: [{ id: 'default', name: '일반', color: '#1a73e8' }],
       events: [],
       todos: [],
+      channels: [],
       tasks: []
     };
   }
 
   function mergeWithDefaults(parsed) {
     const d = defaultData();
-    return { ...d, ...parsed, settings: { ...d.settings, ...((parsed && parsed.settings) || {}) } };
+    const merged = { ...d, ...parsed, settings: { ...d.settings, ...((parsed && parsed.settings) || {}) } };
+    if (!Array.isArray(parsed && parsed.channels)) merged.channels = uniqueChannels(merged.todos);
+    return merged;
   }
 
   function readLocalStorage() {
@@ -1353,6 +1697,7 @@ window.FC_KO_LOCALE = {
       projects: Array.isArray(d.projects) && d.projects.length ? d.projects : [{ id: 'default', name: '일반', color: '#1a73e8' }],
       events: Array.isArray(d.events) ? d.events : [],
       todos: Array.isArray(d.todos) ? d.todos : [],
+      channels: Array.isArray(d.channels) ? d.channels : uniqueChannels(d.todos),
       tasks: Array.isArray(d.tasks) ? d.tasks : []
     };
   }
@@ -1391,7 +1736,7 @@ window.FC_KO_LOCALE = {
       gate.innerHTML = `
         <form class="cloud-gate-box" autocomplete="off">
           <div class="cloud-gate-emoji">🔒</div>
-          <h2>나의 스케줄러</h2>
+          <h2>SCLM <small>(스케줄 관리)</small></h2>
           <p>비밀번호를 입력하면 이 기기에서 클라우드 데이터를 볼 수 있어요.</p>
           <input type="password" id="cloudPw" placeholder="비밀번호" autocomplete="current-password" />
           <button type="submit" class="btn btn-primary">로그인</button>
@@ -1472,7 +1817,13 @@ window.FC_KO_LOCALE = {
     getSyncInfo: async () => ({ dir: '클라우드', isDefault: false })
   };
 
-  window.CloudSync = { detect, ensureAuth, logout, api: cloudApi };
+  // 앱 비밀번호(Bearer)로 보호된 엔드포인트 호출용 (구글 연동 등에서 사용)
+  function authFetch(path, opts) {
+    opts = opts || {};
+    return fetch(path, Object.assign({}, opts, { headers: authHeaders(opts.headers) }));
+  }
+
+  window.CloudSync = { detect, ensureAuth, logout, api: cloudApi, authFetch };
 })();
 </script>
 <script>
@@ -1483,6 +1834,9 @@ let state = null;
 let calendar = null;
 let currentProjectViewId = null;
 let draggedCardId = null;
+let todoCal = null;
+let todoLayoutMode = 'table';
+let todoPage = 1;
 
 /* 구글 캘린더의 기본 이벤트 색상 팔레트 (Tomato/Flamingo/Tangerine/Banana/Sage/Basil/Peacock/Blueberry/Lavender/Grape/Graphite) */
 const PALETTE = ['#d50000', '#e67c73', '#f4511e', '#f6bf26', '#33b679', '#0b8043', '#039be5', '#3f51b5', '#7986cb', '#8e24aa', '#616161'];
@@ -1543,12 +1897,305 @@ async function init() {
   setupNav();
   setupCalendar();
   setupTodos();
+  setupTodoBulk();
   setupProjects();
   setupSettings();
   setupSync();
   setupModal();
+  setupScrollTop();
   renderAll();
-  if (cloudMode) setupCloudUI();
+  if (cloudMode) { setupCloudUI(); setupGoogle(); setupBackup(); setupPush(); }
+}
+
+/* ---------- 푸시 알림 (클라우드 전용, Web Push) ---------- */
+const VAPID_PUBLIC_KEY = 'BAAEnE9TX5dzdS79zuw2AJcANU-HQmCZWDb7paanIbjdIKSmwT0IwONF3RYSNAcHQ8EYrSgYuCB9CZLwOi_kDmU';
+
+function urlB64ToUint8Array(base64String) {
+  const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
+  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+  const raw = atob(base64);
+  const arr = new Uint8Array(raw.length);
+  for (let i = 0; i < raw.length; i++) arr[i] = raw.charCodeAt(i);
+  return arr;
+}
+
+async function setupPush() {
+  const card = document.getElementById('pushCard');
+  if (!card || !window.CloudSync || !CloudSync.authFetch) return;
+  const supported = ('serviceWorker' in navigator) && ('PushManager' in window) && ('Notification' in window);
+  card.classList.remove('hidden');
+
+  const statusText = document.getElementById('pushStatusText');
+  const enableBtn = document.getElementById('pushEnableBtn');
+  const disableBtn = document.getElementById('pushDisableBtn');
+  const testBtn = document.getElementById('pushTestBtn');
+  const result = document.getElementById('pushResult');
+
+  if (!supported) {
+    statusText.textContent = '이 브라우저는 푸시 알림을 지원하지 않아요';
+    enableBtn.classList.add('hidden');
+    return;
+  }
+
+  let reg = null;
+  try { reg = await navigator.serviceWorker.register('/sw.js'); }
+  catch (e) { statusText.textContent = '알림 초기화 실패'; enableBtn.classList.add('hidden'); return; }
+
+  async function refresh() {
+    const sub = await reg.pushManager.getSubscription();
+    const on = !!sub && Notification.permission === 'granted';
+    statusText.textContent = on ? '✅ 이 기기에서 알림 켜짐' : '알림 꺼짐 (이 기기)';
+    enableBtn.classList.toggle('hidden', on);
+    disableBtn.classList.toggle('hidden', !on);
+    testBtn.classList.toggle('hidden', !on);
+    return sub;
+  }
+
+  enableBtn.onclick = async () => {
+    enableBtn.disabled = true;
+    try {
+      const perm = await Notification.requestPermission();
+      if (perm !== 'granted') { toast('알림 권한이 거부됐어요. 브라우저 설정에서 허용해 주세요.'); enableBtn.disabled = false; return; }
+      let sub = await reg.pushManager.getSubscription();
+      if (!sub) {
+        sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: urlB64ToUint8Array(VAPID_PUBLIC_KEY) });
+      }
+      const r = await CloudSync.authFetch('/api/push/subscribe', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ subscription: sub.toJSON() })
+      });
+      const j = await r.json();
+      if (j.ok) toast('알림을 켰어요 🔔'); else toast('등록 실패');
+    } catch (e) { toast('알림 켜기 실패: ' + (e.message || e)); }
+    enableBtn.disabled = false;
+    refresh();
+  };
+
+  disableBtn.onclick = async () => {
+    disableBtn.disabled = true;
+    try {
+      const sub = await reg.pushManager.getSubscription();
+      if (sub) {
+        await CloudSync.authFetch('/api/push/subscribe', {
+          method: 'DELETE', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ endpoint: sub.endpoint })
+        });
+        await sub.unsubscribe();
+      }
+      toast('알림을 껐어요');
+    } catch (e) { toast('알림 끄기 실패'); }
+    disableBtn.disabled = false;
+    refresh();
+  };
+
+  testBtn.onclick = async () => {
+    testBtn.disabled = true;
+    result.style.display = 'none';
+    try {
+      const r = await CloudSync.authFetch('/api/push/test', { method: 'POST' });
+      const j = await r.json();
+      if (j.ok) {
+        toast('테스트 알림을 보냈어요');
+        result.style.display = 'block';
+        result.textContent = `발송 ${j.sent}건 · 등록기기 ${j.subs}건` + (j.removed ? ` · 만료정리 ${j.removed}` : '') + (j.errors && j.errors.length ? `\n오류: ${j.errors.join(' / ')}` : '');
+      } else toast('테스트 발송 실패');
+    } catch (e) { toast('테스트 발송 실패'); }
+    testBtn.disabled = false;
+  };
+
+  refresh();
+}
+
+/* ---------- 백업 & 복구 (클라우드 전용, D1 스냅샷) ---------- */
+async function setupBackup() {
+  const card = document.getElementById('backupCard');
+  if (!card || !window.CloudSync || !CloudSync.authFetch) return;
+  card.classList.remove('hidden');
+
+  document.getElementById('snapshotNowBtn').onclick = async () => {
+    try {
+      const r = await CloudSync.authFetch('/api/snapshots', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ reason: 'manual', force: true }) });
+      const j = await r.json();
+      if (j.ok) { toast('백업했어요'); renderSnapshots(); } else toast('백업 실패');
+    } catch (e) { toast('백업 실패'); }
+  };
+
+  // 하루 1회 자동 백업(서버가 중복 방지)
+  try { await CloudSync.authFetch('/api/snapshots', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ reason: 'daily' }) }); } catch (e) {}
+  renderSnapshots();
+}
+
+function fmtSnapTime(ts) {
+  const d = new Date(ts);
+  const p = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+
+async function renderSnapshots() {
+  const box = document.getElementById('snapshotList');
+  if (!box || !window.CloudSync || !CloudSync.authFetch) return;
+  try {
+    const r = await CloudSync.authFetch('/api/snapshots');
+    const j = await r.json();
+    const list = j.snapshots || [];
+    if (!list.length) { box.innerHTML = '<span class="channel-empty">아직 백업이 없어요.</span>'; return; }
+    box.innerHTML = list.map((s) =>
+      `<div class="snapshot-row">
+        <div class="snap-info"><b>${fmtSnapTime(s.created_at)}</b> <span class="snap-reason">${escapeHtml(s.reason || '')}</span><div class="snap-summary">${escapeHtml(s.summary || '')}</div></div>
+        <button class="btn snap-restore" data-id="${escapeHtml(s.id)}">복원</button>
+      </div>`).join('');
+    box.querySelectorAll('.snap-restore').forEach((btn) => {
+      btn.onclick = async () => {
+        if (!confirm('이 시점으로 되돌릴까요?\n(복원 전 현재 상태도 자동 백업됩니다)')) return;
+        btn.disabled = true;
+        try {
+          const r2 = await CloudSync.authFetch('/api/snapshots', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'restore', id: btn.getAttribute('data-id') }) });
+          const j2 = await r2.json();
+          if (j2.ok) { state = await window.api.loadData(); applyTheme(); renderAll(); toast('이전 상태로 되돌렸어요'); renderSnapshots(); }
+          else toast('복원 실패: ' + (j2.error || ''));
+        } catch (e) { toast('복원 요청 실패'); }
+        btn.disabled = false;
+      };
+    });
+  } catch (e) { box.innerHTML = '<span class="channel-empty">백업 목록을 불러오지 못했어요.</span>'; }
+}
+
+// 큰 변경(가져오기 등) 직전 강제 백업 (클라우드 전용, 실패해도 진행)
+async function snapshotBefore(reason) {
+  if (!window.CloudSync || !CloudSync.authFetch) return;
+  try { await CloudSync.authFetch('/api/snapshots', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ reason: reason || 'change', force: true }) }); } catch (e) {}
+}
+
+/* ---------- 구글 캘린더 연동 (1단계: OAuth 연결) ---------- */
+async function setupGoogle() {
+  const card = document.getElementById('googleCard');
+  if (!card || !window.CloudSync || !CloudSync.authFetch) return;
+  card.classList.remove('hidden');
+
+  const statusText = document.getElementById('googleStatusText');
+  const connectBtn = document.getElementById('googleConnectBtn');
+  const syncBtn = document.getElementById('googleSyncBtn');
+  const disconnectBtn = document.getElementById('googleDisconnectBtn');
+  const resultEl = document.getElementById('googleSyncResult');
+  const autoRow = document.getElementById('googleAutoRow');
+  const autoChk = document.getElementById('googleAutoSync');
+
+  let connected = false;
+
+  async function refresh() {
+    try {
+      const r = await CloudSync.authFetch('/api/google/status');
+      const j = await r.json();
+      connected = !!j.connected;
+      if (connected) {
+        statusText.textContent = '✅ 구글 캘린더에 연결됨';
+        connectBtn.classList.add('hidden');
+        syncBtn.classList.remove('hidden');
+        disconnectBtn.classList.remove('hidden');
+        if (autoRow) autoRow.style.display = '';
+      } else {
+        statusText.textContent = j.hasClient ? '연결되지 않음' : '⚠ 구글 클라우드 설정(GOOGLE_CLIENT_ID/SECRET)이 필요해요';
+        connectBtn.classList.remove('hidden');
+        syncBtn.classList.add('hidden');
+        disconnectBtn.classList.add('hidden');
+        if (autoRow) autoRow.style.display = 'none';
+      }
+    } catch (e) { statusText.textContent = '상태 확인 실패'; }
+  }
+
+  // 공통 동기화. silent=true면 백그라운드(조용히).
+  async function runSync(silent) {
+    try {
+      const r = await CloudSync.authFetch('/api/google/sync', { method: 'POST' });
+      const j = await r.json();
+      if (j.ok) {
+        const changed = j.pushed + j.updated + j.pulled + j.deletedLocal + j.deletedRemote;
+        if (changed > 0) { state = await window.api.loadData(); applyTheme(); renderAll(); }
+        const summary = `보냄 ${j.pushed} · 수정 ${j.updated} · 가져옴 ${j.pulled} · 삭제 ${j.deletedLocal + j.deletedRemote}`
+          + (j.truncated ? ' · (분량 많아 이어서 진행됨)' : '');
+        if (!silent || changed > 0) toast('구글 동기화 — ' + summary);
+        if (resultEl) {
+          resultEl.style.display = 'block';
+          resultEl.textContent = '마지막 동기화: ' + summary + (j.errors && j.errors.length ? '\n일부 실패: ' + j.errors.join(' / ') : '');
+        }
+        // 분량이 많아 잘렸으면 한 번 더 이어서
+        if (j.truncated) setTimeout(() => runSync(true), 1500);
+      } else if (!silent) {
+        toast('동기화 실패: ' + (j.error || ''));
+        if (resultEl) { resultEl.style.display = 'block'; resultEl.textContent = '실패: ' + (j.error || '') + (j.errors && j.errors.length ? '\n' + j.errors.join(' / ') : ''); }
+      }
+    } catch (e) { if (!silent) toast('동기화 요청 실패'); }
+  }
+
+  syncBtn.onclick = async () => {
+    syncBtn.disabled = true;
+    const prev = statusText.textContent;
+    statusText.textContent = '🔄 동기화 중… (수십 초 걸릴 수 있어요)';
+    if (resultEl) resultEl.style.display = 'none';
+    await runSync(false);
+    statusText.textContent = prev;
+    syncBtn.disabled = false;
+    refresh();
+  };
+
+  // 자동 동기화 (localStorage 'googleAutoSync', 기본 켜짐)
+  if (autoChk) {
+    autoChk.checked = localStorage.getItem('googleAutoSync') !== '0';
+    autoChk.onchange = () => {
+      localStorage.setItem('googleAutoSync', autoChk.checked ? '1' : '0');
+      if (autoChk.checked) runSync(true);
+    };
+  }
+  if (!setupGoogle._autoStarted) {
+    setupGoogle._autoStarted = true;
+    const autoOn = () => localStorage.getItem('googleAutoSync') !== '0';
+    setTimeout(() => { if (connected && autoOn()) runSync(true); }, 3500);
+    setInterval(() => { if (connected && autoOn()) runSync(true); }, 15 * 60 * 1000);
+  }
+
+  connectBtn.onclick = async () => {
+    connectBtn.disabled = true;
+    try {
+      const r = await CloudSync.authFetch('/api/google/auth');
+      const j = await r.json();
+      if (j.url) { window.location.href = j.url; return; }
+      toast(j.error || '구글 설정이 필요해요');
+    } catch (e) { toast('연결 시작 실패'); }
+    connectBtn.disabled = false;
+  };
+
+  disconnectBtn.onclick = async () => {
+    try { await CloudSync.authFetch('/api/google/status', { method: 'DELETE' }); } catch (e) {}
+    toast('구글 연결을 해제했어요');
+    refresh();
+  };
+
+  // OAuth 리다이렉트 결과 처리
+  const params = new URLSearchParams(location.search);
+  if (params.get('google')) {
+    const g = params.get('google');
+    const msg = {
+      connected: '구글 캘린더에 연결됐어요 🎉',
+      no_refresh: '연결됐지만 리프레시 토큰을 못 받았어요. 구글 계정 권한을 해제 후 다시 시도해주세요.',
+      state_error: '보안 검증(state) 실패 — 다시 시도해주세요.',
+      token_error: '토큰 교환 실패 — 클라이언트 설정을 확인해주세요.',
+      error: '구글 로그인이 취소됐어요.'
+    }[g] || ('구글 연동: ' + g);
+    toast(msg);
+    history.replaceState({}, '', location.pathname);
+  }
+  refresh();
+}
+
+/* 맨 아래로 내려가면 나타나는 "위로 가기" 버튼 (스크롤 컨테이너는 .main) */
+function setupScrollTop() {
+  const main = document.querySelector('.main');
+  const btn = document.getElementById('scrollTopBtn');
+  if (!main || !btn) return;
+  main.addEventListener('scroll', () => {
+    btn.classList.toggle('hidden', main.scrollTop < 300);
+  });
+  btn.addEventListener('click', () => main.scrollTo({ top: 0, behavior: 'smooth' }));
 }
 
 /* 클라우드 모드에서는 '다른 기기와 함께 쓰기'(로컬 파일 동기화) 카드를 클라우드 상태로 대체 */
@@ -1580,7 +2227,8 @@ function renderAll() {
 }
 
 async function persist() {
-  await window.api.saveData(state);
+  const ok = await window.api.saveData(state);
+  if (ok === false) toast('⚠ 클라우드 저장 실패 — 네트워크 확인 필요 (변경은 이 기기에 임시 저장됨)');
 }
 
 function toast(msg) {
@@ -1593,17 +2241,31 @@ function toast(msg) {
 
 /* ---------- 네비게이션 ---------- */
 function setupNav() {
+  const brand = document.getElementById('brandHome');
+  if (brand) brand.addEventListener('click', () => location.reload());
+  // 모바일 오프캔버스 사이드바
+  const app = document.getElementById('app');
+  const navToggle = document.getElementById('navToggle');
+  const navBackdrop = document.getElementById('navBackdrop');
+  const closeNav = () => app.classList.remove('nav-open');
+  if (navToggle) navToggle.addEventListener('click', () => app.classList.toggle('nav-open'));
+  if (navBackdrop) navBackdrop.addEventListener('click', closeNav);
   document.querySelectorAll('.nav-btn').forEach((btn) => {
     btn.addEventListener('click', () => {
+      closeNav();
       document.querySelectorAll('.nav-btn').forEach((b) => b.classList.remove('active'));
       btn.classList.add('active');
       const view = btn.dataset.view;
       document.querySelectorAll('.view').forEach((v) => v.classList.remove('active'));
       document.getElementById('view-' + view).classList.add('active');
       if (view === 'calendar' && calendar) {
-        setTimeout(() => calendar.updateSize(), 50);
+        setTimeout(() => { sizeCalendar(); calendar.updateSize(); }, 50);
+      }
+      if (view === 'todos' && todoLayoutMode === 'calendar' && todoCal) {
+        setTimeout(() => todoCal.updateSize(), 50);
       }
       if (view === 'projects') renderKanban();
+      if (view === 'channels') renderChannelSettings();
       if (view === 'dashboard') renderDashboard();
     });
   });
@@ -1614,10 +2276,32 @@ function renderSidebarProjects() {
   ul.innerHTML = '';
   state.projects.forEach((p) => {
     const li = document.createElement('li');
+    if (p.id === currentProjectViewId) li.className = 'active';
+    li.title = p.name;
     li.innerHTML = `<span class="dot" style="background:${p.color}"></span><span>${escapeHtml(p.name)}</span>`;
+    li.addEventListener('click', () => {
+      currentProjectViewId = p.id;
+      document.querySelector('.nav-btn[data-view="projects"]').click();
+      renderProjectTabs();
+      renderKanban();
+      renderSidebarProjects();
+    });
     ul.appendChild(li);
   });
-  document.getElementById('quickAddProjectBtn').onclick = () => openProjectModal(null);
+  const count = document.getElementById('pqCount');
+  if (count) count.textContent = state.projects.length;
+  document.getElementById('quickAddProjectBtn').onclick = (e) => { e.stopPropagation(); openProjectModal(null); };
+
+  const toggle = document.getElementById('pqToggle');
+  const quick = document.getElementById('projectQuick');
+  if (toggle && quick && !toggle.dataset.wired) {
+    toggle.dataset.wired = '1';
+    if (localStorage.getItem('pqCollapsed') === '1') quick.classList.add('collapsed');
+    toggle.addEventListener('click', () => {
+      quick.classList.toggle('collapsed');
+      localStorage.setItem('pqCollapsed', quick.classList.contains('collapsed') ? '1' : '0');
+    });
+  }
 }
 
 function escapeHtml(str) {
@@ -1625,11 +2309,21 @@ function escapeHtml(str) {
 }
 
 /* ---------- 캘린더 ---------- */
+// 화면 높이에 맞춘 캘린더 높이(패딩·헤더 고려). 주 행이 균일하게 채워진다.
+function calcCalendarHeight() {
+  return Math.max(560, (window.innerHeight || 900) - 172);
+}
+function sizeCalendar() {
+  if (calendar) calendar.setOption('height', calcCalendarHeight());
+}
+
 function setupCalendar() {
   const el = document.getElementById('calendar');
   calendar = new FullCalendar.Calendar(el, {
     initialView: 'dayGridMonth',
-    height: 'auto',
+    height: calcCalendarHeight(),
+    expandRows: true,
+    dayMaxEvents: true,
     firstDay: 0,
     locales: [window.FC_KO_LOCALE],
     locale: 'ko',
@@ -1646,11 +2340,20 @@ function setupCalendar() {
   });
   calendar.render();
   document.getElementById('addEventBtn').onclick = () => openEventModal(null);
+  window.addEventListener('resize', sizeCalendar);
+}
+
+// 구글 캘린더에서 가져온(외부) 일정 전용 색 — 프로젝트 색과 무관하게 고정
+const GOOGLE_IMPORT_COLOR = '#4285F4';
+function isGoogleImported(e) {
+  // 가져온 일정은 pull 시 id가 'g'+짧은난수, source='google'로 생성됨. SCLM 자체 일정(uid)과 구분.
+  return !!e && (e.source === 'google' ||
+    (!!e.googleId && typeof e.id === 'string' && e.id.charAt(0) === 'g' && e.id.length <= 10));
 }
 
 function buildCalendarEvents() {
   const evs = state.events.map((e) => {
-    const color = e.color || projectColor(e.projectId);
+    const color = e.color ? e.color : (isGoogleImported(e) ? GOOGLE_IMPORT_COLOR : projectColor(e.projectId));
     // 시간이 지정된(종일이 아닌) 일정: 날짜+시간을 합쳐 FullCalendar가 dot+시간+제목 형태로 보여주게 한다.
     if (!e.allDay && e.startTime) {
       const startIso = `${e.start}T${e.startTime}:00`;
@@ -1672,7 +2375,7 @@ function buildCalendarEvents() {
   });
   const tds = state.todos.filter((t) => t.dueDate).map((t) => ({
     id: 'td-' + t.id,
-    title: todoCalendarPrefix(t) + t.text,
+    title: todoCalendarPrefix(t) + (t.channel ? '[' + t.channel + '] ' : '') + t.text,
     start: t.dueDate,
     allDay: true,
     color: todoIsDone(t) ? '#9698b8' : projectColor(t.projectId)
@@ -1699,9 +2402,11 @@ function dashItemHtml(t, showDue, overdue) {
   const pri = normalizePriority(t.priority);
   const priMark = pri === '긴급' ? '🔴 ' : pri === '중요' ? '🟠 ' : '';
   const check = t.needsCheck === 'Y' ? '⚠ ' : '';
+  const channel = t.channel ? `<span class="di-channel">${escapeHtml(t.channel)}</span>` : '';
   return `<div class="dash-item ${overdue ? 'overdue' : ''}" data-todo="${t.id}">
     <span class="di-title">${priMark}${check}${escapeHtml(t.text)}</span>
     ${proj ? tagHtml(proj.name, proj.color) : ''}
+    ${channel}
     <span class="di-due">${showDue ? escapeHtml(t.dueDate || '') : ''}</span>
   </div>`;
 }
@@ -1716,6 +2421,37 @@ function dashCardHtml(icon, title, items, emptyMsg, showDue, overdue) {
   </div>`;
 }
 
+// 마감 임박 알림 배너: 지연 · 오늘 마감 · 내일 마감 요약. 오늘 하루 닫기 가능.
+function renderDashAlert(overdue, todayList, tomorrowList) {
+  const el = document.getElementById('dashAlert');
+  if (!el) return;
+  const nOver = overdue.length, nToday = todayList.length, nTom = tomorrowList.length;
+  const total = nOver + nToday + nTom;
+  const today = todayStr();
+  if (total === 0 || localStorage.getItem('dashAlertDismissed') === today) {
+    el.classList.add('hidden');
+    el.innerHTML = '';
+    return;
+  }
+  const segs = [];
+  if (nOver) segs.push(`<span class="da-seg da-over">지연 <b>${nOver}건</b></span>`);
+  if (nToday) segs.push(`<span class="da-seg">오늘 마감 <b>${nToday}건</b></span>`);
+  if (nTom) segs.push(`<span class="da-seg">내일 마감 <b>${nTom}건</b></span>`);
+  const icon = nOver ? '🔴' : '🟠';
+  el.className = 'dash-alert ' + (nOver ? 'danger' : 'warn');
+  el.innerHTML =
+    `<span class="da-icon">${icon}</span>` +
+    `<span class="da-text">${segs.join('<span class="da-sep">·</span>')}</span>` +
+    `<span class="da-cta">확인하기 →</span>` +
+    `<button class="da-dismiss" title="오늘 하루 숨기기" aria-label="닫기">✕</button>`;
+  el.onclick = () => document.querySelector('.nav-btn[data-view="todos"]').click();
+  el.querySelector('.da-dismiss').onclick = (e) => {
+    e.stopPropagation();
+    localStorage.setItem('dashAlertDismissed', today);
+    el.classList.add('hidden');
+  };
+}
+
 function renderDashboard() {
   const grid = document.getElementById('dashboardGrid');
   const statRow = document.getElementById('statRow');
@@ -1726,8 +2462,10 @@ function renderDashboard() {
   const openTodos = state.todos.filter((t) => !todoIsDone(t));
   const withDue = openTodos.filter((t) => isIsoDate(t.dueDate));
   const byDue = (a, b) => a.dueDate.localeCompare(b.dueDate);
+  const tomorrow = addDays(today, 1);
   const overdue = withDue.filter((t) => t.dueDate < today).sort(byDue);
   const todayList = withDue.filter((t) => t.dueDate === today).sort(byDue);
+  const tomorrowList = withDue.filter((t) => t.dueDate === tomorrow).sort(byDue);
   const week = withDue.filter((t) => t.dueDate > today && t.dueDate <= weekEnd).sort(byDue);
   const needsCheck = openTodos.filter((t) => t.needsCheck === 'Y').sort((a, b) => (a.dueDate || '9999').localeCompare(b.dueDate || '9999'));
   const todayEvents = state.events.filter((e) => {
@@ -1751,6 +2489,8 @@ function renderDashboard() {
   statRow.querySelectorAll('[data-goto-todos]').forEach((el) => {
     el.addEventListener('click', () => document.querySelector('.nav-btn[data-view="todos"]').click());
   });
+
+  renderDashAlert(overdue, todayList, tomorrowList);
 
   // 오늘 카드: 오늘 마감 할 일 + 오늘 일정
   const todayEventsHtml = todayEvents.map((e) => {
@@ -1787,11 +2527,92 @@ function renderDashboard() {
       if (e) openEventModal(e);
     });
   });
+
+  renderDashAnalytics();
+}
+
+// 대시보드 분석: 상태 분포 · 대분류별 진행률 · 세부채널 Top
+function renderDashAnalytics() {
+  const box = document.getElementById('dashAnalytics');
+  if (!box) return;
+  const todos = state.todos || [];
+  if (!todos.length) { box.innerHTML = ''; return; }
+
+  // 1) 상태 분포
+  const statusOrder = ['대기', '진행중', '완료', '지연완료', '보류'];
+  const statusCount = {};
+  todos.forEach((t) => { const s = todoStatus(t); statusCount[s] = (statusCount[s] || 0) + 1; });
+  const statuses = statusOrder.filter((s) => statusCount[s]);
+  Object.keys(statusCount).forEach((s) => { if (!statuses.includes(s)) statuses.push(s); });
+  const total = todos.length;
+  const stackSeg = statuses.map((s) => {
+    const c = statusCount[s]; const col = TODO_STATUS_COLORS[s] || '#9b9a97';
+    return `<div class="an-stack-seg" style="width:${(c / total * 100).toFixed(1)}%;background:${col}" title="${escapeHtml(s)} ${c}건"></div>`;
+  }).join('');
+  const legend = statuses.map((s) => {
+    const col = TODO_STATUS_COLORS[s] || '#9b9a97';
+    return `<span class="an-legend"><i style="background:${col}"></i>${escapeHtml(s)} <b>${statusCount[s]}</b></span>`;
+  }).join('');
+
+  // 2) 대분류별 진행률
+  const projRows = state.projects.map((p) => {
+    const items = todos.filter((t) => t.projectId === p.id);
+    if (!items.length) return '';
+    const done = items.filter((t) => todoIsDone(t)).length;
+    const pct = Math.round(done / items.length * 100);
+    return `<div class="an-row">
+      <span class="an-label" title="${escapeHtml(p.name)}">${escapeHtml(p.name)}</span>
+      <span class="an-bar"><i style="width:${pct}%;background:${p.color || 'var(--accent)'}"></i></span>
+      <span class="an-val">${done}/${items.length} · ${pct}%</span>
+    </div>`;
+  }).filter(Boolean).join('');
+
+  // 3) 세부채널 Top (미완료 기준)
+  const chCount = {};
+  todos.filter((t) => !todoIsDone(t) && t.channel).forEach((t) => { chCount[t.channel] = (chCount[t.channel] || 0) + 1; });
+  const chTop = Object.entries(chCount).sort((a, b) => b[1] - a[1]).slice(0, 8);
+  const chMax = chTop.length ? chTop[0][1] : 1;
+  const chRows = chTop.map(([name, c]) =>
+    `<div class="an-row">
+      <span class="an-label" title="${escapeHtml(name)}">${escapeHtml(name)}</span>
+      <span class="an-bar"><i style="width:${Math.round(c / chMax * 100)}%;background:#7b68ee"></i></span>
+      <span class="an-val">${c}건</span>
+    </div>`).join('');
+
+  box.innerHTML = `
+    <div class="an-card">
+      <h3>진행 상태 분포<span class="an-total">전체 ${total}건</span></h3>
+      <div class="an-stack">${stackSeg}</div>
+      <div class="an-legend-row">${legend}</div>
+    </div>
+    <div class="an-card">
+      <h3>대분류별 진행률</h3>
+      ${projRows || '<div class="dash-empty">데이터 없음</div>'}
+    </div>
+    <div class="an-card">
+      <h3>세부채널 Top <span class="an-total">미완료 기준</span></h3>
+      ${chRows || '<div class="dash-empty">미완료 업무 없음</div>'}
+    </div>`;
 }
 
 /* ---------- 프로젝트 select 옵션 생성 ---------- */
 function projectOptionsHtml(selectedId) {
   return state.projects.map((p) => `<option value="${p.id}" ${p.id === selectedId ? 'selected' : ''}>${escapeHtml(p.name)}</option>`).join('');
+}
+
+/* 할 일들에 실제로 쓰인 세부채널을 중복 없이 등장순으로 수집 (마스터 목록 최초 시드에 사용) */
+function uniqueChannels(todos) {
+  const seen = [];
+  (Array.isArray(todos) ? todos : []).forEach((t) => {
+    const c = ((t && t.channel) || '').trim();
+    if (c && !seen.includes(c)) seen.push(c);
+  });
+  return seen;
+}
+
+/* 세부채널 자동완성 옵션: 설정에서 관리하는 마스터 목록(state.channels)을 사용 */
+function channelOptionsHtml() {
+  return (state.channels || []).map((c) => `<option value="${escapeHtml(c)}"></option>`).join('');
 }
 
 /* ---------- 일정 모달 ---------- */
@@ -1891,8 +2712,119 @@ function getSelectedColor(rowId) {
 /* ---------- 할 일 (구글시트 업무 트래커 양식의 테이블 뷰) ---------- */
 function setupTodos() {
   document.getElementById('addTodoBtn').onclick = () => openTodoModal(null);
-  document.getElementById('todoProjectFilter').addEventListener('change', renderTodos);
-  document.getElementById('todoStatusFilter').addEventListener('change', renderTodos);
+  const reset = () => { todoPage = 1; renderTodos(); };
+  document.getElementById('todoProjectFilter').addEventListener('change', reset);
+  document.getElementById('todoSearch').addEventListener('input', reset);
+  document.getElementById('todoPageSize').addEventListener('change', reset);
+  ['todoDateField', 'todoDateFrom', 'todoDateTo'].forEach((id) => {
+    document.getElementById(id).addEventListener('change', reset);
+  });
+  document.getElementById('todoDateClear').addEventListener('click', () => {
+    document.getElementById('todoDateFrom').value = '';
+    document.getElementById('todoDateTo').value = '';
+    reset();
+  });
+  document.querySelectorAll('#todoQuickView .segmented-btn').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('#todoQuickView .segmented-btn').forEach((b) => b.classList.remove('active'));
+      btn.classList.add('active');
+      reset();
+    });
+  });
+  document.querySelectorAll('#todoLayout .segmented-btn').forEach((btn) => {
+    btn.addEventListener('click', () => setTodoLayout(btn.dataset.layout));
+  });
+}
+
+/* 현재 필터(빠른보기·검색·대분류·기간)를 적용한 할 일 목록 (페이지네이션 전) */
+function filterTodos() {
+  const projVal = (document.getElementById('todoProjectFilter') || {}).value || 'all';
+  const qv = (document.querySelector('#todoQuickView .segmented-btn.active') || {}).dataset;
+  const quick = (qv && qv.qv) || 'all';
+  const q = (document.getElementById('todoSearch').value || '').trim().toLowerCase();
+  const dateField = (document.getElementById('todoDateField') || {}).value || 'dueDate';
+  const dFrom = (document.getElementById('todoDateFrom') || {}).value || '';
+  const dTo = (document.getElementById('todoDateTo') || {}).value || '';
+
+  const matchesQuick = (t) => {
+    const s = todoStatus(t);
+    if (quick === 'active') return s === '대기' || s === '진행중';
+    if (quick === 'done') return s === '완료' || s === '지연완료';
+    if (quick === 'hold') return s === '보류';
+    return true;
+  };
+  const matchesSearch = (t) => {
+    if (!q) return true;
+    return [t.text, t.channel, t.assignee, t.progress, t.remarks, t.priority, String(t.no || '')]
+      .some((v) => (v || '').toString().toLowerCase().includes(q));
+  };
+  const matchesDate = (t) => {
+    if (!dFrom && !dTo) return true;
+    const v = t[dateField] || '';
+    if (!v) return false;
+    if (dFrom && v < dFrom) return false;
+    if (dTo && v > dTo) return false;
+    return true;
+  };
+
+  let items = state.todos.slice().sort((a, b) => (a.no || 0) - (b.no || 0) || (a.dueDate || '9999').localeCompare(b.dueDate || '9999'));
+  if (projVal !== 'all') items = items.filter((t) => t.projectId === projVal);
+  return items.filter(matchesQuick).filter(matchesSearch).filter(matchesDate);
+}
+
+/* 표 ↔ 캘린더 레이아웃 전환 */
+function setTodoLayout(mode) {
+  todoLayoutMode = mode;
+  document.querySelectorAll('#todoLayout .segmented-btn').forEach((b) => b.classList.toggle('active', b.dataset.layout === mode));
+  document.getElementById('todoTableView').classList.toggle('hidden', mode !== 'table');
+  document.getElementById('todoCalendarView').classList.toggle('hidden', mode !== 'calendar');
+  if (mode === 'calendar') {
+    ensureTodoCalendar();
+    todoCal.refetchEvents();
+    setTimeout(() => todoCal.updateSize(), 40);
+  }
+}
+
+/* 할 일 전용 캘린더(필터 적용, 마감일 기준) — 최초 전환 시 1회 생성 */
+function ensureTodoCalendar() {
+  if (todoCal) return;
+  todoCal = new FullCalendar.Calendar(document.getElementById('todoCalendar'), {
+    initialView: 'dayGridMonth',
+    height: 'auto',
+    firstDay: 0,
+    locales: [window.FC_KO_LOCALE],
+    locale: 'ko',
+    headerToolbar: { left: 'prev,next today', center: 'title', right: 'dayGridMonth,timeGridWeek' },
+    events: (info, success) => success(buildTodoViewEvents()),
+    eventClick: (info) => {
+      if (info.event.id.startsWith('td-')) openTodoModal(byId(state.todos, info.event.id.slice(3)));
+    }
+  });
+  todoCal.render();
+}
+
+function buildTodoViewEvents() {
+  return filterTodos().filter((t) => t.dueDate).map((t) => ({
+    id: 'td-' + t.id,
+    title: todoCalendarPrefix(t) + (t.channel ? '[' + t.channel + '] ' : '') + t.text,
+    start: t.dueDate,
+    allDay: true,
+    color: todoIsDone(t) ? '#9698b8' : projectColor(t.projectId)
+  }));
+}
+
+function renderTodoPagination(pages, size) {
+  const bar = document.getElementById('todoPagination');
+  if (!bar) return;
+  if (size === Infinity || pages <= 1) { bar.innerHTML = ''; return; }
+  bar.innerHTML =
+    `<button class="btn" id="todoPrevBtn" ${todoPage <= 1 ? 'disabled' : ''}>◀ 이전</button>` +
+    `<span class="todo-page-ind">${todoPage} / ${pages}</span>` +
+    `<button class="btn" id="todoNextBtn" ${todoPage >= pages ? 'disabled' : ''}>다음 ▶</button>`;
+  const prev = document.getElementById('todoPrevBtn');
+  const next = document.getElementById('todoNextBtn');
+  if (prev) prev.onclick = () => { if (todoPage > 1) { todoPage--; renderTodos(); } };
+  if (next) next.onclick = () => { if (todoPage < pages) { todoPage++; renderTodos(); } };
 }
 
 function renderTodos() {
@@ -1901,24 +2833,34 @@ function renderTodos() {
   projSelect.innerHTML = '<option value="all">전체 대분류</option>' + projectOptionsHtml(null);
   projSelect.value = state.projects.some((p) => p.id === prevProj) || prevProj === 'all' ? prevProj : 'all';
 
-  const statusSelect = document.getElementById('todoStatusFilter');
-  const statusVal = statusSelect.value || 'all';
+  const all = filterTodos();
+  const total = state.todos.length;
 
-  let items = state.todos.slice().sort((a, b) => (a.no || 0) - (b.no || 0) || (a.dueDate || '9999').localeCompare(b.dueDate || '9999'));
-  if (projSelect.value !== 'all') items = items.filter((t) => t.projectId === projSelect.value);
-  if (statusVal !== 'all') items = items.filter((t) => todoStatus(t) === statusVal);
+  const countEl = document.getElementById('todoCount');
+  if (countEl) countEl.textContent = all.length === total ? `${total}건` : `${all.length} / ${total}건`;
+
+  if (todoLayoutMode === 'calendar' && todoCal) todoCal.refetchEvents();
+
+  const sizeVal = (document.getElementById('todoPageSize') || {}).value || '50';
+  const size = sizeVal === 'all' ? Infinity : parseInt(sizeVal, 10);
+  const pages = size === Infinity ? 1 : Math.max(1, Math.ceil(all.length / size));
+  if (todoPage > pages) todoPage = pages;
+  if (todoPage < 1) todoPage = 1;
+  const pageItems = size === Infinity ? all : all.slice((todoPage - 1) * size, todoPage * size);
 
   const tbody = document.getElementById('todoTableBody');
   tbody.innerHTML = '';
-  document.getElementById('todoEmpty').classList.toggle('hidden', items.length > 0);
+  document.getElementById('todoEmpty').classList.toggle('hidden', all.length > 0);
 
-  items.forEach((t, idx) => {
+  pageItems.forEach((t, idx) => {
     const proj = byId(state.projects, t.projectId);
     const status = todoStatus(t);
     const statusColor = TODO_STATUS_COLORS[status] || '#9b9a97';
     const tr = document.createElement('tr');
     tr.className = todoIsDone(t) ? 'done' : '';
+    if (todoSelected.has(t.id)) tr.classList.add('row-selected');
     tr.innerHTML = `
+      <td class="col-select"><input type="checkbox" class="todo-check" data-id="${escapeHtml(t.id)}" ${todoSelected.has(t.id) ? 'checked' : ''} /></td>
       <td class="col-no">${t.no || idx + 1}</td>
       <td class="col-date">${t.registeredDate || ''}</td>
       <td>${proj ? tagHtml(proj.name, proj.color) : ''}</td>
@@ -1932,29 +2874,118 @@ function renderTodos() {
       <td class="col-date">${t.completedDate || ''}</td>
       <td class="col-notes" title="${escapeHtml(t.progress || '')}">${escapeHtml(t.progress || '')}</td>
       <td class="col-notes" title="${escapeHtml(t.remarks || '')}">${escapeHtml(t.remarks || '')}</td>
+      <td class="col-link">${t.link ? `<a class="todo-link" href="${escapeHtml(normalizeUrl(t.link))}" target="_blank" rel="noopener" title="${escapeHtml(t.link)}">🔗 열기</a>` : ''}</td>
       <td class="col-actions"><button class="icon-btn del-btn" title="삭제">🗑</button></td>
     `;
     tr.addEventListener('click', (e) => {
-      if (e.target.closest('.del-btn')) return;
+      if (e.target.closest('.del-btn') || e.target.closest('.todo-link') || e.target.closest('.col-select')) return;
       openTodoModal(t);
+    });
+    tr.querySelector('.todo-check').addEventListener('change', (e) => {
+      if (e.target.checked) todoSelected.add(t.id); else todoSelected.delete(t.id);
+      tr.classList.toggle('row-selected', e.target.checked);
+      updateBulkBar();
     });
     tr.querySelector('.del-btn').addEventListener('click', (e) => {
       e.stopPropagation();
+      todoSelected.delete(t.id);
       state.todos = state.todos.filter((x) => x.id !== t.id);
       persist(); renderTodos(); refreshCalendarEvents();
     });
     tbody.appendChild(tr);
   });
+
+  updateBulkBar();
+  renderTodoPagination(pages, size);
 }
 
-function openTodoModal(todo) {
+let todoSelected = new Set();
+
+function updateBulkBar() {
+  const bar = document.getElementById('todoBulkBar');
+  if (!bar) return;
+  const n = todoSelected.size;
+  bar.classList.toggle('hidden', n === 0);
+  const cnt = document.getElementById('todoBulkCount');
+  if (cnt) cnt.textContent = `${n}개 선택`;
+  // 전체선택 체크박스 상태(현재 페이지 기준)
+  const boxes = [...document.querySelectorAll('#todoTableBody .todo-check')];
+  const all = document.getElementById('todoSelectAll');
+  if (all) {
+    const checked = boxes.filter((b) => b.checked).length;
+    all.checked = boxes.length > 0 && checked === boxes.length;
+    all.indeterminate = checked > 0 && checked < boxes.length;
+  }
+}
+
+function setupTodoBulk() {
+  const statusSel = document.getElementById('todoBulkStatus');
+  if (statusSel && statusSel.options.length <= 1) {
+    TODO_STATUS_OPTIONS.forEach((s) => {
+      const o = document.createElement('option'); o.value = s; o.textContent = '→ ' + s; statusSel.appendChild(o);
+    });
+  }
+  const all = document.getElementById('todoSelectAll');
+  if (all) all.addEventListener('change', () => {
+    const boxes = [...document.querySelectorAll('#todoTableBody .todo-check')];
+    boxes.forEach((b) => {
+      b.checked = all.checked;
+      const id = b.getAttribute('data-id');
+      if (all.checked) todoSelected.add(id); else todoSelected.delete(id);
+      b.closest('tr').classList.toggle('row-selected', all.checked);
+    });
+    updateBulkBar();
+  });
+  if (statusSel) statusSel.addEventListener('change', () => {
+    const st = statusSel.value;
+    statusSel.value = '';
+    if (!st || todoSelected.size === 0) return;
+    let n = 0;
+    state.todos.forEach((t) => {
+      if (todoSelected.has(t.id)) {
+        t.status = st; t.done = (st === '완료' || st === '지연완료');
+        if (t.done && !t.completedDate) t.completedDate = todayStr();
+        n++;
+      }
+    });
+    todoSelected.clear();
+    persist(); renderAll(); toast(`${n}개 상태를 '${st}'로 변경했어요`);
+  });
+  const delBtn = document.getElementById('todoBulkDelete');
+  if (delBtn) delBtn.addEventListener('click', () => {
+    const n = todoSelected.size;
+    if (!n) return;
+    if (!confirm(`선택한 ${n}개 업무를 삭제할까요?`)) return;
+    state.todos = state.todos.filter((t) => !todoSelected.has(t.id));
+    todoSelected.clear();
+    persist(); renderAll(); toast(`${n}개를 삭제했어요`);
+  });
+  const clearBtn = document.getElementById('todoBulkClear');
+  if (clearBtn) clearBtn.addEventListener('click', () => {
+    todoSelected.clear();
+    document.querySelectorAll('#todoTableBody .todo-check').forEach((b) => { b.checked = false; b.closest('tr').classList.remove('row-selected'); });
+    updateBulkBar();
+  });
+}
+
+// 스킴 없는 URL이면 https:// 를 붙여 새 탭에서 열리게 한다. javascript: 등은 무력화.
+function normalizeUrl(u) {
+  const s = String(u || '').trim();
+  if (!s) return '';
+  if (/^javascript:/i.test(s)) return '';
+  if (/^https?:\/\//i.test(s)) return s;
+  if (/^\/\//.test(s)) return 'https:' + s;
+  return 'https://' + s;
+}
+
+function openTodoModal(todo, presets) {
   const isNew = !todo;
   const nextNo = isNew ? Math.max(0, ...state.todos.map((t) => t.no || 0)) + 1 : todo.no;
-  const data = todo || {
+  const data = todo || Object.assign({
     id: null, no: nextNo, registeredDate: todayStr(), projectId: state.projects[0] ? state.projects[0].id : null,
     channel: '', priority: '', text: '', assignee: '', dueDate: '', status: '대기', needsCheck: '',
-    completedDate: '', progress: '', remarks: ''
-  };
+    completedDate: '', progress: '', remarks: '', link: ''
+  }, presets || {});
   showModal({
     title: isNew ? '할 일 추가' : '할 일 수정',
     deletable: !isNew,
@@ -1962,8 +2993,9 @@ function openTodoModal(todo) {
       <div class="field"><label>업무내용</label><input type="text" id="f-text" value="${escapeHtml(data.text)}" placeholder="업무 내용" /></div>
       <div class="field-row">
         <div class="field"><label>대분류</label><select id="f-project">${projectOptionsHtml(data.projectId)}</select></div>
-        <div class="field"><label>세부채널</label><input type="text" id="f-channel" value="${escapeHtml(data.channel || '')}" /></div>
+        <div class="field"><label>세부채널</label><input type="text" id="f-channel" value="${escapeHtml(data.channel || '')}" list="channel-options" placeholder="거래처·채널 선택 또는 입력" /></div>
       </div>
+      <datalist id="channel-options">${channelOptionsHtml()}</datalist>
       <div class="field-row">
         <div class="field"><label>담당자</label><input type="text" id="f-assignee" value="${escapeHtml(data.assignee || '')}" /></div>
         <div class="field"><label>우선순위</label><input type="text" id="f-priority" value="${escapeHtml(data.priority || '')}" list="priority-options" /></div>
@@ -1988,12 +3020,18 @@ function openTodoModal(todo) {
       <div class="field"><label>완료일(선택)</label><input type="date" id="f-completed" value="${data.completedDate || ''}" /></div>
       <div class="field"><label>진행사항</label><textarea id="f-progress" placeholder="진행 상황 기록">${escapeHtml(data.progress || '')}</textarea></div>
       <div class="field"><label>비고</label><textarea id="f-remarks" placeholder="기타 메모">${escapeHtml(data.remarks || '')}</textarea></div>
+      <div class="field"><label>산출물 링크 (선택)</label><input type="text" id="f-link" value="${escapeHtml(data.link || '')}" placeholder="스프레드시트·드라이브·문서 URL" /></div>
     `,
     onSave: () => {
       const text = document.getElementById('f-text').value.trim();
       if (!text) { toast('업무내용을 입력해주세요'); return false; }
       const projectId = document.getElementById('f-project').value;
-      const channel = document.getElementById('f-channel').value;
+      const channel = document.getElementById('f-channel').value.trim();
+      // 새로 입력한 세부채널은 마스터 목록에 자동 등록
+      if (channel) {
+        if (!Array.isArray(state.channels)) state.channels = [];
+        if (!state.channels.includes(channel)) state.channels.push(channel);
+      }
       const assignee = document.getElementById('f-assignee').value;
       const priority = document.getElementById('f-priority').value;
       const registeredDate = document.getElementById('f-registered').value;
@@ -2003,18 +3041,19 @@ function openTodoModal(todo) {
       const completedDate = document.getElementById('f-completed').value;
       const progress = document.getElementById('f-progress').value;
       const remarks = document.getElementById('f-remarks').value;
+      const link = document.getElementById('f-link').value.trim();
       const done = status === '완료' || status === '지연완료';
       if (isNew) {
-        state.todos.push({ id: uid(), no: nextNo, registeredDate, projectId, channel, priority, text, assignee, dueDate, status, needsCheck, completedDate, progress, remarks, done });
+        state.todos.push({ id: uid(), no: nextNo, registeredDate, projectId, channel, priority, text, assignee, dueDate, status, needsCheck, completedDate, progress, remarks, link, done });
       } else {
-        Object.assign(todo, { registeredDate, projectId, channel, priority, text, assignee, dueDate, status, needsCheck, completedDate, progress, remarks, done });
+        Object.assign(todo, { registeredDate, projectId, channel, priority, text, assignee, dueDate, status, needsCheck, completedDate, progress, remarks, link, done });
       }
-      persist(); renderTodos(); refreshCalendarEvents();
+      persist(); renderAll();
       return true;
     },
     onDelete: () => {
       state.todos = state.todos.filter((x) => x.id !== todo.id);
-      persist(); renderTodos(); refreshCalendarEvents();
+      persist(); renderAll();
     }
   });
 }
@@ -2022,12 +3061,6 @@ function openTodoModal(todo) {
 /* ---------- 프로젝트 / 칸반 ---------- */
 function setupProjects() {
   document.getElementById('addProjectBtn').onclick = () => openProjectModal(null);
-  document.querySelectorAll('.add-card-btn').forEach((btn) => {
-    btn.addEventListener('click', () => {
-      if (!currentProjectViewId) { toast('먼저 프로젝트를 선택하거나 만들어주세요'); return; }
-      openTaskModal(btn.dataset.status, null);
-    });
-  });
 }
 
 function renderProjectTabs() {
@@ -2048,40 +3081,83 @@ function renderProjectTabs() {
   document.getElementById('projectEmpty').classList.toggle('hidden', state.projects.length > 0);
 }
 
+/* 칸반 컬럼 = 할 일 데이터의 진행상태. 지연완료는 완료 열에 합쳐 표시한다. */
+const KANBAN_COLS = [
+  { key: '대기', label: '할 일', dot: '#9b9a97' },
+  { key: '진행중', label: '진행중', dot: '#039be5' },
+  { key: '완료', label: '완료', dot: '#0b8043' },
+  { key: '보류', label: '보류', dot: '#f6bf26' }
+];
+
+function todoKanbanCol(t) {
+  const s = todoStatus(t);
+  if (s === '진행중') return '진행중';
+  if (s === '완료' || s === '지연완료') return '완료';
+  if (s === '보류') return '보류';
+  return '대기';
+}
+
 function renderKanban() {
   const board = document.getElementById('kanbanBoard');
+  const hint = document.getElementById('kanbanHint');
   board.classList.toggle('hidden', !currentProjectViewId);
+  if (hint) hint.classList.toggle('hidden', !currentProjectViewId);
+  board.innerHTML = '';
   if (!currentProjectViewId) return;
 
-  ['todo', 'inprogress', 'done'].forEach((status) => {
-    const col = document.getElementById('col-' + status);
-    col.innerHTML = '';
-    const tasks = state.tasks.filter((t) => t.projectId === currentProjectViewId && t.status === status);
-    tasks.forEach((t) => {
+  const items = state.todos.filter((t) => t.projectId === currentProjectViewId);
+
+  KANBAN_COLS.forEach((c) => {
+    const list = items
+      .filter((t) => todoKanbanCol(t) === c.key)
+      .sort((a, b) => (a.dueDate || '9999').localeCompare(b.dueDate || '9999'));
+
+    const colEl = document.createElement('div');
+    colEl.className = 'kanban-col';
+    colEl.innerHTML = `
+      <div class="kanban-col-header"><span class="dot" style="background:${c.dot}"></span>${c.label}<span class="kanban-count">${list.length}</span></div>
+      <div class="kanban-cards"></div>
+      <button class="add-card-btn">+ 할 일 추가</button>`;
+    const cards = colEl.querySelector('.kanban-cards');
+
+    list.forEach((t) => {
+      const pri = normalizePriority(t.priority);
+      const priMark = pri === '긴급' ? '🔴 ' : pri === '중요' ? '🟠 ' : '';
+      const chk = t.needsCheck === 'Y' ? '⚠ ' : '';
       const card = document.createElement('div');
-      card.className = 'kanban-card';
+      card.className = 'kanban-card' + (todoIsDone(t) ? ' done' : '');
       card.style.setProperty('--item-color', projectColor(t.projectId));
       card.draggable = true;
       card.dataset.id = t.id;
-      card.innerHTML = `<div class="kanban-card-title">${t.notes ? '📝 ' : ''}${escapeHtml(t.title)}</div>${t.dueDate ? `<div class="kanban-card-due">📅 ${t.dueDate}</div>` : ''}`;
-      card.addEventListener('click', () => openTaskModal(null, t));
+      card.innerHTML = `<div class="kanban-card-title">${priMark}${chk}${escapeHtml(t.text)}</div>`
+        + (t.channel ? `<div class="kanban-card-meta">${escapeHtml(t.channel)}</div>` : '')
+        + (t.dueDate ? `<div class="kanban-card-due">📅 ${t.dueDate}</div>` : '');
+      card.addEventListener('click', () => openTodoModal(t));
       card.addEventListener('dragstart', () => { draggedCardId = t.id; card.classList.add('dragging'); });
       card.addEventListener('dragend', () => { card.classList.remove('dragging'); draggedCardId = null; });
-      col.appendChild(card);
+      cards.appendChild(card);
     });
 
-    col.ondragover = (e) => { e.preventDefault(); col.classList.add('drag-over'); };
-    col.ondragleave = () => col.classList.remove('drag-over');
-    col.ondrop = (e) => {
+    colEl.querySelector('.add-card-btn').addEventListener('click', () => {
+      openTodoModal(null, { projectId: currentProjectViewId, status: c.key });
+    });
+
+    colEl.ondragover = (e) => { e.preventDefault(); colEl.classList.add('drag-over'); };
+    colEl.ondragleave = () => colEl.classList.remove('drag-over');
+    colEl.ondrop = (e) => {
       e.preventDefault();
-      col.classList.remove('drag-over');
+      colEl.classList.remove('drag-over');
       if (!draggedCardId) return;
-      const task = byId(state.tasks, draggedCardId);
-      if (task) {
-        task.status = status;
-        persist(); renderKanban(); refreshCalendarEvents();
+      const t = byId(state.todos, draggedCardId);
+      if (t && todoKanbanCol(t) !== c.key) {
+        t.status = c.key;
+        t.done = c.key === '완료';
+        if (c.key === '완료' && !t.completedDate) t.completedDate = todayStr();
+        persist(); renderKanban(); renderTodos(); renderDashboard(); refreshCalendarEvents();
       }
     };
+
+    board.appendChild(colEl);
   });
 }
 
@@ -2360,6 +3436,10 @@ function importSheetText(text, clearFirst) {
     }
   });
 
+  // 가져온 세부채널을 마스터 목록에 병합
+  if (!Array.isArray(state.channels)) state.channels = [];
+  uniqueChannels(state.todos).forEach((c) => { if (!state.channels.includes(c)) state.channels.push(c); });
+
   persist();
   renderAll();
   return { ok: true, added, updated, createdProjects, total: state.todos.length };
@@ -2383,10 +3463,25 @@ function setupSettings() {
   });
   document.getElementById('importBtn').addEventListener('click', async () => {
     const r = await window.api.importBackup();
-    if (r.ok) { state = r.data; await persist(); applyTheme(); renderAll(); toast('데이터를 불러왔어요'); }
+    if (r.ok) { await snapshotBefore('backup-import'); state = r.data; await persist(); applyTheme(); renderAll(); if (typeof renderSnapshots === 'function') renderSnapshots(); toast('데이터를 불러왔어요'); }
   });
 
-  document.getElementById('sheetImportBtn').addEventListener('click', () => {
+  const addChBtn = document.getElementById('addChannelBtn');
+  const chInput = document.getElementById('newChannelInput');
+  function addChannel() {
+    const v = chInput.value.trim();
+    if (!v) return;
+    if (!Array.isArray(state.channels)) state.channels = [];
+    if (state.channels.includes(v)) { toast('이미 있는 세부채널이에요'); chInput.value = ''; return; }
+    state.channels.push(v);
+    chInput.value = '';
+    persist(); renderChannelSettings();
+    toast('세부채널을 추가했어요');
+  }
+  if (addChBtn) addChBtn.addEventListener('click', addChannel);
+  if (chInput) chInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); addChannel(); } });
+
+  document.getElementById('sheetImportBtn').addEventListener('click', async () => {
     const area = document.getElementById('sheetPasteArea');
     const resultEl = document.getElementById('sheetImportResult');
     const clearFirst = document.getElementById('sheetClearFirst').checked;
@@ -2397,6 +3492,7 @@ function setupSettings() {
       resultEl.textContent = '붙여넣은 내용이 없어요. 구글시트에서 표를 복사해 붙여넣어 주세요.';
       return;
     }
+    await snapshotBefore('sheet-import');
     let r;
     try { r = importSheetText(text, clearFirst); }
     catch (e) { console.error(e); r = { ok: false, error: '가져오는 중 오류가 발생했어요: ' + String(e.message || e) }; }
@@ -2427,6 +3523,103 @@ function renderSettingsUI() {
     sw.appendChild(s);
   });
   document.getElementById('customAccentPicker').value = state.settings.accent;
+  renderChannelSettings();
+}
+
+/* 세부채널 마스터 목록 렌더 (칩 + 삭제 버튼) */
+function channelStat(c) {
+  const items = state.todos.filter((t) => ((t.channel || '').trim()) === c);
+  const st = (s) => items.filter((t) => todoStatus(t) === s).length;
+  const today = todayStr();
+  const overdue = items.filter((t) => !todoIsDone(t) && t.dueDate && t.dueDate < today).length;
+  return { total: items.length, wait: st('대기'), active: st('진행중'), done: items.filter((t) => todoIsDone(t)).length, overdue };
+}
+
+function renderChannelSettings() {
+  const box = document.getElementById('channelList');
+  if (!box) return;
+  const totalEl = document.getElementById('channelTotal');
+  const sortSel = document.getElementById('channelSort');
+  if (sortSel) sortSel.onchange = renderChannelSettings;
+
+  let list = (state.channels || []).slice();
+  if (totalEl) totalEl.textContent = `채널 ${list.length}개`;
+  if (!list.length) {
+    box.innerHTML = '<span class="channel-empty">아직 세부채널이 없어요. 아래에서 추가해보세요.</span>';
+    return;
+  }
+  const sort = sortSel ? sortSel.value : 'usage';
+  if (sort === 'name') list.sort((a, b) => a.localeCompare(b));
+  else list.sort((a, b) => channelStat(b).total - channelStat(a).total || a.localeCompare(b));
+
+  box.innerHTML = list.map((c) => {
+    const s = channelStat(c);
+    return `<div class="channel-row" data-ch="${escapeHtml(c)}">
+      <div class="ch-name" title="${escapeHtml(c)}">${escapeHtml(c)}</div>
+      <div class="ch-stats">
+        <span class="ch-badge">전체 ${s.total}</span>
+        <span class="ch-badge b-wait">대기 ${s.wait}</span>
+        <span class="ch-badge b-active">진행 ${s.active}</span>
+        <span class="ch-badge b-done">완료 ${s.done}</span>
+        ${s.overdue ? `<span class="ch-badge b-over">지연 ${s.overdue}</span>` : ''}
+      </div>
+      <div class="ch-actions">
+        <button class="icon-btn" data-act="view" title="이 채널 할 일 보기">🔍</button>
+        <button class="icon-btn" data-act="rename" title="이름 변경">✏️</button>
+        <button class="icon-btn" data-act="del" title="삭제">🗑</button>
+      </div>
+    </div>`;
+  }).join('');
+
+  box.querySelectorAll('.channel-row').forEach((row) => {
+    const c = row.getAttribute('data-ch');
+    row.querySelector('[data-act="view"]').onclick = () => channelJump(c);
+    row.querySelector('[data-act="rename"]').onclick = () => channelStartRename(row, c);
+    row.querySelector('[data-act="del"]').onclick = () => channelDelete(c);
+  });
+}
+
+/* 이 채널로 필터된 To-do로 이동 */
+function channelJump(c) {
+  const btn = document.querySelector('.nav-btn[data-view="todos"]');
+  if (btn) btn.click();
+  const s = document.getElementById('todoSearch');
+  if (s) { s.value = c; s.dispatchEvent(new Event('input', { bubbles: true })); }
+}
+
+/* 인라인 이름 변경 */
+function channelStartRename(row, oldName) {
+  const nameEl = row.querySelector('.ch-name');
+  nameEl.innerHTML = `<input class="ch-rename-input" type="text" value="${escapeHtml(oldName)}" />`;
+  const inp = nameEl.querySelector('input');
+  inp.focus(); inp.select();
+  let done = false;
+  const commit = () => { if (done) return; done = true; channelApplyRename(oldName, inp.value.trim()); };
+  inp.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); commit(); }
+    else if (e.key === 'Escape') { done = true; renderChannelSettings(); }
+  });
+  inp.addEventListener('blur', commit);
+}
+
+function channelApplyRename(oldName, nv) {
+  if (!nv || nv === oldName) { renderChannelSettings(); return; }
+  if (!Array.isArray(state.channels)) state.channels = [];
+  const merging = state.channels.includes(nv);
+  state.todos.forEach((t) => { if (((t.channel || '').trim()) === oldName) t.channel = nv; });
+  const idx = state.channels.indexOf(oldName);
+  if (merging) { if (idx > -1) state.channels.splice(idx, 1); }
+  else if (idx > -1) state.channels[idx] = nv;
+  persist(); renderChannelSettings(); renderTodos(); refreshCalendarEvents();
+  toast(merging ? `"${oldName}"을(를) "${nv}"에 합쳤어요` : '세부채널 이름을 바꿨어요');
+}
+
+function channelDelete(c) {
+  const used = state.todos.filter((t) => ((t.channel || '').trim()) === c).length;
+  const i = (state.channels || []).indexOf(c);
+  if (i > -1) state.channels.splice(i, 1);
+  persist(); renderChannelSettings();
+  toast(used > 0 ? `"${c}" 목록에서 제거 (할 일 ${used}건은 값 유지)` : `"${c}" 삭제`);
 }
 
 function applyTheme() {

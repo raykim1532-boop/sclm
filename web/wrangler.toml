@@ -1,4 +1,4 @@
-name = "raymond-scheduler"
+name = "sclm"
 compatibility_date = "2024-09-23"
 pages_build_output_dir = "public"
 

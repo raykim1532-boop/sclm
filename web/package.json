@@ -6,7 +6,7 @@
   "scripts": {
     "build": "node build.js",
     "dev": "node build.js && wrangler pages dev public --d1 DB=scheduler-db --compatibility-date=2024-09-23",
-    "deploy": "node build.js && wrangler pages deploy public --project-name raymond-scheduler",
+    "deploy": "node build.js && wrangler pages deploy public --project-name sclm --branch=main",
     "db:init:local": "wrangler d1 execute scheduler-db --local --file=schema.sql",
     "db:init": "wrangler d1 execute scheduler-db --remote --file=schema.sql"
   },

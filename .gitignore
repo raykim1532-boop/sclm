@@ -4,6 +4,9 @@ node_modules/
 Thumbs.db
 scheduler-backup-*.json
 
+# 실제 업무 데이터 백업(민감) — 저장소에 올리지 않음
+Ray-Work-Flow-백업.json
+
 # Cloudflare / web 배포
 web/node_modules/
 web/public/
