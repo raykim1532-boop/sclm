@@ -879,6 +879,13 @@ html[data-theme="dark"] .fc-daygrid-dot-event:hover { background: #1c1c1c !impor
 .an-bar { flex: 1; height: 8px; background: var(--surface-2); border-radius: 4px; overflow: hidden; }
 .an-bar i { display: block; height: 100%; border-radius: 4px; transition: width 0.3s ease; }
 .an-val { flex: 0 0 auto; font-size: 11.5px; color: var(--text-muted); min-width: 62px; text-align: right; }
+.an-card-wide { grid-column: 1 / -1; }
+.an-trend { display: flex; align-items: flex-end; gap: 6px; height: 130px; padding-top: 16px; }
+.an-mcol { flex: 1; display: flex; flex-direction: column; align-items: center; height: 100%; }
+.an-mbars { flex: 1; display: flex; align-items: flex-end; justify-content: center; gap: 4px; width: 100%; }
+.an-mbar { width: 15px; min-height: 2px; border-radius: 3px 3px 0 0; position: relative; }
+.an-mbar span { position: absolute; top: -15px; left: 50%; transform: translateX(-50%); font-size: 10px; color: var(--text-muted); }
+.an-mlabel { font-size: 11px; color: var(--text-muted); margin-top: 6px; }
 @media (max-width: 900px) { .dash-analytics { grid-template-columns: 1fr; } }
 
 /* ---------- 마감 임박 알림 배너 ---------- */
@@ -2608,6 +2615,28 @@ function renderDashAnalytics() {
       <span class="an-val">${c}건</span>
     </div>`).join('');
 
+  // 4) 최근 6개월 등록 vs 완료 추이
+  const now = new Date();
+  const monthKeys = [];
+  for (let i = 5; i >= 0; i--) { const d = new Date(now.getFullYear(), now.getMonth() - i, 1); monthKeys.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`); }
+  const reg = {}, comp = {};
+  todos.forEach((t) => {
+    const rm = (t.registeredDate || '').slice(0, 7); if (rm) reg[rm] = (reg[rm] || 0) + 1;
+    if (todoIsDone(t)) { const cm = (t.completedDate || '').slice(0, 7); if (cm) comp[cm] = (comp[cm] || 0) + 1; }
+  });
+  const maxV = Math.max(1, ...monthKeys.map((k) => Math.max(reg[k] || 0, comp[k] || 0)));
+  const trendCols = monthKeys.map((k) => {
+    const rv = reg[k] || 0, cv = comp[k] || 0;
+    const mLabel = parseInt(k.slice(5, 7), 10) + '월';
+    return `<div class="an-mcol">
+      <div class="an-mbars">
+        <div class="an-mbar reg" style="height:${Math.round(rv / maxV * 100)}%"><span>${rv || ''}</span></div>
+        <div class="an-mbar comp" style="height:${Math.round(cv / maxV * 100)}%"><span>${cv || ''}</span></div>
+      </div>
+      <div class="an-mlabel">${mLabel}</div>
+    </div>`;
+  }).join('');
+
   box.innerHTML = `
     <div class="an-card">
       <h3>진행 상태 분포<span class="an-total">전체 ${total}건</span></h3>
@@ -2621,6 +2650,10 @@ function renderDashAnalytics() {
     <div class="an-card">
       <h3>세부채널 Top <span class="an-total">미완료 기준</span></h3>
       ${chRows || '<div class="dash-empty">미완료 업무 없음</div>'}
+    </div>
+    <div class="an-card an-card-wide">
+      <h3>최근 6개월 추이<span class="an-legend-row" style="margin:0 0 0 auto"><span class="an-legend"><i style="background:#9b9a97"></i>등록</span><span class="an-legend"><i style="background:#0b8043"></i>완료</span></span></h3>
+      <div class="an-trend">${trendCols}</div>
     </div>`;
 }
 
@@ -2667,6 +2700,17 @@ function openEventModal(ev, dateStr) {
         <div class="field"><label>종료 시간(선택)</label><input type="time" id="f-end-time" value="${data.endTime || ''}" /></div>
       </div>
       <div class="field"><label>프로젝트</label><select id="f-project">${projectOptionsHtml(data.projectId)}</select></div>
+      ${isNew ? `
+      <div class="field-row">
+        <div class="field"><label>반복</label><select id="f-recur">
+          <option value="none">없음</option>
+          <option value="daily">매일</option>
+          <option value="weekly">매주</option>
+          <option value="biweekly">2주마다</option>
+          <option value="monthly">매월</option>
+        </select></div>
+        <div class="field hidden" id="f-recur-until-wrap"><label>반복 종료일</label><input type="date" id="f-recur-until" /></div>
+      </div>` : (data.recurGroup ? '<div class="field"><span class="hint">🔁 반복 일정 중 하나입니다. 삭제 시 전체/개별 선택 가능.</span></div>' : '')}
       <div class="field"><label>색상</label><div class="color-picker-row" id="f-color-row"></div></div>
       <div class="field"><label>메모</label><textarea id="f-notes" placeholder="메모(선택)">${escapeHtml(data.notes || '')}</textarea></div>
     `,
@@ -2677,6 +2721,13 @@ function openEventModal(ev, dateStr) {
       const syncTimeRowVisibility = () => timeRow.classList.toggle('hidden', allDayCb.checked);
       syncTimeRowVisibility();
       allDayCb.addEventListener('change', syncTimeRowVisibility);
+      const recur = document.getElementById('f-recur');
+      if (recur) {
+        const untilWrap = document.getElementById('f-recur-until-wrap');
+        const syncRecur = () => untilWrap.classList.toggle('hidden', recur.value === 'none');
+        syncRecur();
+        recur.addEventListener('change', syncRecur);
+      }
     },
     onSave: () => {
       const title = document.getElementById('f-title').value.trim();
@@ -2689,6 +2740,19 @@ function openEventModal(ev, dateStr) {
       const projectId = document.getElementById('f-project').value;
       const color = getSelectedColor('f-color-row');
       const notes = document.getElementById('f-notes').value;
+      const recur = isNew ? (document.getElementById('f-recur') ? document.getElementById('f-recur').value : 'none') : 'none';
+      if (isNew && recur !== 'none') {
+        const until = document.getElementById('f-recur-until').value;
+        const dates = generateRecurrence(start, recur, until);
+        const durDays = end ? Math.round((new Date(end) - new Date(start)) / 864e5) : 0;
+        const group = 'rg' + uid();
+        dates.forEach((s) => {
+          state.events.push({ id: uid(), title, start: s, end: durDays > 0 ? addDays(s, durDays) : '', allDay, startTime, endTime, projectId, color, notes, recurGroup: group });
+        });
+        persist(); refreshCalendarEvents();
+        toast(`반복 일정 ${dates.length}개를 추가했어요`);
+        return true;
+      }
       if (isNew) {
         state.events.push({ id: uid(), title, start, end, allDay, startTime, endTime, projectId, color, notes });
       } else {
@@ -2698,10 +2762,41 @@ function openEventModal(ev, dateStr) {
       return true;
     },
     onDelete: () => {
-      state.events = state.events.filter((e) => e.id !== ev.id);
+      if (ev.recurGroup) {
+        const cnt = state.events.filter((e) => e.recurGroup === ev.recurGroup).length;
+        if (cnt > 1 && confirm(`반복 일정입니다. 전체 ${cnt}개를 삭제할까요?\n(확인=전체 삭제 / 취소=이 일정 1개만 삭제)`)) {
+          state.events = state.events.filter((e) => e.recurGroup !== ev.recurGroup);
+          toast(`반복 일정 ${cnt}개를 삭제했어요`);
+        } else {
+          state.events = state.events.filter((e) => e.id !== ev.id);
+        }
+      } else {
+        state.events = state.events.filter((e) => e.id !== ev.id);
+      }
       persist(); refreshCalendarEvents();
     }
   });
+}
+
+// 반복 일정: 시작일 기준 k번째 인스턴스 날짜(YYYY-MM-DD). 월별은 말일 클램프로 드리프트 방지.
+function recurStep(startStr, recur, k) {
+  const [y, m, d] = startStr.split('-').map(Number);
+  if (recur === 'daily') return addDays(startStr, k);
+  if (recur === 'weekly') return addDays(startStr, 7 * k);
+  if (recur === 'biweekly') return addDays(startStr, 14 * k);
+  if (recur === 'monthly') {
+    const dt = new Date(y, (m - 1) + k, 1);
+    const dim = new Date(dt.getFullYear(), dt.getMonth() + 1, 0).getDate();
+    dt.setDate(Math.min(d, dim));
+    return dt.getFullYear() + '-' + String(dt.getMonth() + 1).padStart(2, '0') + '-' + String(dt.getDate()).padStart(2, '0');
+  }
+  return startStr;
+}
+function generateRecurrence(startStr, recur, untilStr) {
+  const out = [];
+  const until = untilStr || addDays(startStr, 90); // 종료일 미지정 시 기본 3개월
+  for (let k = 0; k < 200; k++) { const s = recurStep(startStr, recur, k); if (s > until) break; out.push(s); }
+  return out;
 }
 
 function todayStr() {
