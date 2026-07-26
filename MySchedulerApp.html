@@ -663,6 +663,11 @@ html[data-theme="dark"] .fc-daygrid-dot-event:hover { background: #1c1c1c !impor
   border-radius: 10px;
   box-shadow: var(--shadow-pop);
 }
+.modal.modal-wide { width: 600px; }
+.modal-wide .modal-body { gap: 16px; padding: 20px 22px; }
+.modal-wide .field-row { gap: 16px; }
+.modal-wide .field label { margin-bottom: 1px; }
+.modal-wide .field textarea { min-height: 72px; }
 
 .modal-header {
   display: flex; align-items: center; justify-content: space-between;
@@ -3129,6 +3134,7 @@ function openTodoModal(todo, presets) {
   showModal({
     title: isNew ? '할 일 추가' : '할 일 수정',
     deletable: !isNew,
+    wide: true,
     bodyHtml: `
       <div class="field"><label>업무내용</label><input type="text" id="f-text" value="${escapeHtml(data.text)}" placeholder="업무 내용" /></div>
       <div class="field-row">
@@ -3158,8 +3164,10 @@ function openTodoModal(todo, presets) {
         </div>
       </div>
       <div class="field"><label>완료일(선택)</label><input type="date" id="f-completed" value="${data.completedDate || ''}" /></div>
-      <div class="field"><label>진행사항</label><textarea id="f-progress" placeholder="진행 상황 기록">${escapeHtml(data.progress || '')}</textarea></div>
-      <div class="field"><label>비고</label><textarea id="f-remarks" placeholder="기타 메모">${escapeHtml(data.remarks || '')}</textarea></div>
+      <div class="field-row">
+        <div class="field"><label>진행사항</label><textarea id="f-progress" placeholder="진행 상황 기록">${escapeHtml(data.progress || '')}</textarea></div>
+        <div class="field"><label>비고</label><textarea id="f-remarks" placeholder="기타 메모">${escapeHtml(data.remarks || '')}</textarea></div>
+      </div>
       <div class="field"><label>산출물 링크 (선택 · 여러 개 가능)</label>
         <div id="f-links">${(todoLinks(data).length ? todoLinks(data) : ['']).map((u) => linkRowHtml(u)).join('')}</div>
         <button type="button" class="btn link-add-btn" id="f-link-add">+ 링크 추가</button>
@@ -3862,8 +3870,9 @@ function setupModal() {
 
 let currentModalHandlers = null;
 
-function showModal({ title, bodyHtml, onSave, onDelete, onOpen, deletable }) {
+function showModal({ title, bodyHtml, onSave, onDelete, onOpen, deletable, wide }) {
   document.getElementById('modalTitle').textContent = title;
+  document.getElementById('modalBox').classList.toggle('modal-wide', !!wide);
   document.getElementById('modalBody').innerHTML = bodyHtml;
   const delBtn = document.getElementById('modalDeleteBtn');
   delBtn.classList.toggle('hidden', !deletable);
