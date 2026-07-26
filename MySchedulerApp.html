@@ -467,6 +467,10 @@ html[data-theme="dark"] .fc-daygrid-dot-event:hover { background: #1c1c1c !impor
   top: 0;
   z-index: 1;
 }
+.todo-table thead th.sortable { cursor: pointer; user-select: none; }
+.todo-table thead th.sortable:hover { color: var(--text); background: var(--border); }
+.todo-table thead th.sorted { color: var(--accent); }
+.todo-table thead th .sort-arrow { font-size: 9px; }
 
 .todo-table tbody tr { background: var(--surface); cursor: pointer; }
 .todo-table tbody tr:hover { background: var(--surface-2); }
@@ -1081,6 +1085,7 @@ html[data-theme="dark"] .dash-alert.warn { background: #f2994a26; }
             <button class="segmented-btn active" data-layout="table">표</button>
             <button class="segmented-btn" data-layout="calendar">캘린더</button>
           </div>
+          <button class="btn" id="todoExportBtn" title="현재 목록을 엑셀(CSV)로 내보내기">⬇ 내보내기</button>
           <button class="btn btn-primary" id="addTodoBtn">+ 할 일 추가</button>
         </div>
       </div>
@@ -1130,17 +1135,17 @@ html[data-theme="dark"] .dash-alert.warn { background: #f2994a26; }
           <thead>
             <tr>
               <th class="col-select"><input type="checkbox" id="todoSelectAll" title="이 페이지 전체 선택" /></th>
-              <th class="col-no">No</th>
-              <th class="col-date">등록일</th>
-              <th>대분류</th>
-              <th>세부채널</th>
-              <th>우선순위</th>
-              <th class="col-title">업무내용</th>
-              <th>담당자</th>
-              <th class="col-date">마감일</th>
-              <th>진행상태</th>
+              <th class="col-no sortable" data-sort="no">No</th>
+              <th class="col-date sortable" data-sort="registeredDate">등록일</th>
+              <th class="sortable" data-sort="project">대분류</th>
+              <th class="sortable" data-sort="channel">세부채널</th>
+              <th class="sortable" data-sort="priority">우선순위</th>
+              <th class="col-title sortable" data-sort="text">업무내용</th>
+              <th class="sortable" data-sort="assignee">담당자</th>
+              <th class="col-date sortable" data-sort="dueDate">마감일</th>
+              <th class="sortable" data-sort="status">진행상태</th>
               <th class="col-check">점검필요</th>
-              <th class="col-date">완료일</th>
+              <th class="col-date sortable" data-sort="completedDate">완료일</th>
               <th class="col-notes">진행사항</th>
               <th class="col-notes">비고</th>
               <th class="col-link">산출물</th>
@@ -1860,6 +1865,35 @@ let draggedCardId = null;
 let todoCal = null;
 let todoLayoutMode = 'table';
 let todoPage = 1;
+let todoSort = { key: null, dir: 1 }; // 표 정렬 상태 (null이면 기본: No 순)
+
+const PRIORITY_RANK = { '긴급': 0, '중요': 1, '보통': 2 };
+const STATUS_RANK = { '대기': 0, '진행중': 1, '보류': 2, '완료': 3, '지연완료': 4 };
+function todoSortValue(t, key) {
+  switch (key) {
+    case 'no': return t.no || 0;
+    case 'registeredDate': return t.registeredDate || '9999-99-99';
+    case 'dueDate': return t.dueDate || '9999-99-99';
+    case 'completedDate': return t.completedDate || '9999-99-99';
+    case 'project': { const p = byId(state.projects, t.projectId); return (p && p.name || '').toLowerCase(); }
+    case 'channel': return (t.channel || '').toLowerCase();
+    case 'priority': { const r = PRIORITY_RANK[normalizePriority(t.priority)]; return r === undefined ? 3 : r; }
+    case 'text': return (t.text || '').toLowerCase();
+    case 'assignee': return (t.assignee || '').toLowerCase();
+    case 'status': { const r = STATUS_RANK[todoStatus(t)]; return r === undefined ? 9 : r; }
+    default: return t.no || 0;
+  }
+}
+function sortTodos(items) {
+  if (!todoSort.key) return items;
+  const { key, dir } = todoSort;
+  return items.slice().sort((a, b) => {
+    const va = todoSortValue(a, key), vb = todoSortValue(b, key);
+    if (va < vb) return -1 * dir;
+    if (va > vb) return 1 * dir;
+    return (a.no || 0) - (b.no || 0);
+  });
+}
 
 /* 구글 캘린더의 기본 이벤트 색상 팔레트 (Tomato/Flamingo/Tangerine/Banana/Sage/Basil/Peacock/Blueberry/Lavender/Grape/Graphite) */
 const PALETTE = ['#d50000', '#e67c73', '#f4511e', '#f6bf26', '#33b679', '#0b8043', '#039be5', '#3f51b5', '#7986cb', '#8e24aa', '#616161'];
@@ -2864,6 +2898,51 @@ function setupTodos() {
   document.querySelectorAll('#todoLayout .segmented-btn').forEach((btn) => {
     btn.addEventListener('click', () => setTodoLayout(btn.dataset.layout));
   });
+  document.querySelectorAll('.todo-table thead th.sortable').forEach((th) => {
+    th.addEventListener('click', () => {
+      const key = th.dataset.sort;
+      if (todoSort.key === key) todoSort.dir *= -1;
+      else { todoSort.key = key; todoSort.dir = 1; }
+      todoPage = 1; renderTodos();
+    });
+  });
+  const exportBtn = document.getElementById('todoExportBtn');
+  if (exportBtn) exportBtn.onclick = exportTodosCsv;
+}
+
+// 현재 필터·정렬된 할 일 목록을 CSV(엑셀)로 내보내기. Excel 한글 깨짐 방지 BOM 포함.
+function exportTodosCsv() {
+  const items = filterTodos();
+  const headers = ['No', '등록일', '대분류', '세부채널', '우선순위', '업무내용', '담당자', '마감일', '진행상태', '점검필요', '완료일', '진행사항', '비고', '산출물링크'];
+  const esc = (v) => { const s = (v == null ? '' : String(v)); return /[",\n\r]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
+  const rows = items.map((t) => {
+    const proj = byId(state.projects, t.projectId);
+    return [t.no || '', t.registeredDate || '', proj ? proj.name : '', t.channel || '', t.priority || '',
+      t.text || '', t.assignee || '', t.dueDate || '', todoStatus(t), t.needsCheck || '',
+      t.completedDate || '', t.progress || '', t.remarks || '', todoLinks(t).join(' | ')].map(esc).join(',');
+  });
+  const csv = '﻿' + [headers.join(','), ...rows].join('\r\n');
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = 'SCLM_할일_' + todayStr() + '.csv';
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  toast(`${items.length}건 내보냈어요`);
+}
+
+function updateSortIndicators() {
+  document.querySelectorAll('.todo-table thead th.sortable').forEach((th) => {
+    th.classList.toggle('sorted', th.dataset.sort === todoSort.key);
+    const arrow = th.querySelector('.sort-arrow');
+    if (arrow) arrow.remove();
+    if (th.dataset.sort === todoSort.key) {
+      const s = document.createElement('span');
+      s.className = 'sort-arrow';
+      s.textContent = todoSort.dir === 1 ? ' ▲' : ' ▼';
+      th.appendChild(s);
+    }
+  });
 }
 
 /* 현재 필터(빠른보기·검색·대분류·기간)를 적용한 할 일 목록 (페이지네이션 전) */
@@ -2899,7 +2978,7 @@ function filterTodos() {
 
   let items = state.todos.slice().sort((a, b) => (a.no || 0) - (b.no || 0) || (a.dueDate || '9999').localeCompare(b.dueDate || '9999'));
   if (projVal !== 'all') items = items.filter((t) => t.projectId === projVal);
-  return items.filter(matchesQuick).filter(matchesSearch).filter(matchesDate);
+  return sortTodos(items.filter(matchesQuick).filter(matchesSearch).filter(matchesDate));
 }
 
 /* 표 ↔ 캘린더 레이아웃 전환 */
@@ -2964,6 +3043,7 @@ function renderTodos() {
   projSelect.value = state.projects.some((p) => p.id === prevProj) || prevProj === 'all' ? prevProj : 'all';
 
   const all = filterTodos();
+  updateSortIndicators();
   const total = state.todos.length;
 
   const countEl = document.getElementById('todoCount');
