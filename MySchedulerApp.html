@@ -502,6 +502,13 @@ html[data-theme="dark"] .fc-daygrid-dot-event:hover { background: #1c1c1c !impor
 .todo-bulk .select { margin: 0; }
 .todo-link { color: var(--accent); text-decoration: none; font-size: 12px; white-space: nowrap; }
 .todo-link:hover { text-decoration: underline; }
+.todo-table .col-link a + a { margin-left: 4px; }
+#f-links { display: flex; flex-direction: column; gap: 6px; }
+.link-row { display: flex; gap: 6px; align-items: center; }
+.link-row .f-link-input { flex: 1; border: 1px solid var(--border); background: var(--bg); color: var(--text); padding: 7px 9px; border-radius: 6px; font-size: 13.5px; font-family: inherit; }
+.link-row .f-link-input:focus { outline: none; border-color: var(--accent); }
+.link-row .link-del { flex-shrink: 0; color: var(--text-muted); }
+.link-add-btn { align-self: flex-start; margin-top: 6px; padding: 5px 12px; font-size: 12.5px; }
 
 .status-tag {
   display: inline-block;
@@ -824,6 +831,9 @@ html[data-theme="dark"] .fc-daygrid-dot-event:hover { background: #1c1c1c !impor
   padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px;
   background: var(--surface);
 }
+.ch-swatch { width: 18px; height: 18px; border-radius: 5px; border: 1px solid rgba(0,0,0,0.15); cursor: pointer; flex-shrink: 0; padding: 0; }
+.ch-swatch:hover { transform: scale(1.1); }
+.ch-chip { display: inline-block; padding: 1px 8px; border-radius: 4px; font-size: 11.5px; font-weight: 500; line-height: 1.7; white-space: nowrap; }
 .channel-row .ch-name { font-weight: 600; font-size: 13.5px; min-width: 110px; max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .channel-row .ch-rename-input { width: 150px; padding: 4px 8px; border: 1px solid var(--accent); border-radius: 5px; background: var(--surface); color: var(--text); font-size: 13px; }
 .ch-stats { display: flex; flex-wrap: wrap; gap: 5px; flex: 1; }
@@ -1877,6 +1887,25 @@ function projectColor(projectId) {
   return (p && p.color) || '#1a73e8';
 }
 
+// 세부채널 색상: 명시 지정(state.channelColors)이 있으면 그 색, 없으면 이름 해시로 자동 배정
+const CHANNEL_PALETTE = ['#1a73e8', '#0b8043', '#e8710a', '#8e24aa', '#00897b', '#c2185b', '#3f51b5', '#f9ab00', '#5d4037', '#00acc1', '#7cb342', '#d81b60'];
+function hashStr(s) { let h = 0; for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0; return Math.abs(h); }
+function channelColor(name) {
+  name = (name || '').trim();
+  if (!name) return '#9b9a97';
+  if (state.channelColors && state.channelColors[name]) return state.channelColors[name];
+  return CHANNEL_PALETTE[hashStr(name) % CHANNEL_PALETTE.length];
+}
+function setChannelColor(name, color) {
+  if (!state.channelColors) state.channelColors = {};
+  state.channelColors[name] = color;
+}
+function channelChipHtml(name) {
+  if (!name) return '';
+  const c = channelColor(name);
+  return `<span class="ch-chip" style="background:${c}1f;color:${c}">${escapeHtml(name)}</span>`;
+}
+
 /* 노션 스타일 파스텔 태그(연한 배경 + 진한 글자색) 렌더링 헬퍼 */
 function tagHtml(text, color) {
   return `<span class="tag" style="background:${color}1f;color:${color}">${escapeHtml(text)}</span>`;
@@ -2864,7 +2893,7 @@ function renderTodos() {
       <td class="col-no">${t.no || idx + 1}</td>
       <td class="col-date">${t.registeredDate || ''}</td>
       <td>${proj ? tagHtml(proj.name, proj.color) : ''}</td>
-      <td>${escapeHtml(t.channel || '')}</td>
+      <td>${channelChipHtml(t.channel)}</td>
       <td>${escapeHtml(t.priority || '')}</td>
       <td class="col-title">${escapeHtml(t.text || '')}</td>
       <td>${escapeHtml(t.assignee || '')}</td>
@@ -2874,7 +2903,7 @@ function renderTodos() {
       <td class="col-date">${t.completedDate || ''}</td>
       <td class="col-notes" title="${escapeHtml(t.progress || '')}">${escapeHtml(t.progress || '')}</td>
       <td class="col-notes" title="${escapeHtml(t.remarks || '')}">${escapeHtml(t.remarks || '')}</td>
-      <td class="col-link">${t.link ? `<a class="todo-link" href="${escapeHtml(normalizeUrl(t.link))}" target="_blank" rel="noopener" title="${escapeHtml(t.link)}">🔗 열기</a>` : ''}</td>
+      <td class="col-link">${todoLinksCellHtml(t)}</td>
       <td class="col-actions"><button class="icon-btn del-btn" title="삭제">🗑</button></td>
     `;
     tr.addEventListener('click', (e) => {
@@ -2978,6 +3007,22 @@ function normalizeUrl(u) {
   return 'https://' + s;
 }
 
+// 산출물 링크: 신형 t.links(배열) 우선, 구형 t.link(단일) 호환
+function todoLinks(t) {
+  if (Array.isArray(t.links)) return t.links.filter(Boolean);
+  return t.link ? [t.link] : [];
+}
+function todoLinksCellHtml(t) {
+  const links = todoLinks(t);
+  if (!links.length) return '';
+  return links.map((u, i) =>
+    `<a class="todo-link" href="${escapeHtml(normalizeUrl(u))}" target="_blank" rel="noopener" title="${escapeHtml(u)}">🔗${links.length > 1 ? (i + 1) : ' 열기'}</a>`
+  ).join(' ');
+}
+function linkRowHtml(u) {
+  return `<div class="link-row"><input type="text" class="f-link-input" value="${escapeHtml(u || '')}" placeholder="스프레드시트·드라이브·문서 URL" /><button type="button" class="icon-btn link-del" title="삭제">✕</button></div>`;
+}
+
 function openTodoModal(todo, presets) {
   const isNew = !todo;
   const nextNo = isNew ? Math.max(0, ...state.todos.map((t) => t.no || 0)) + 1 : todo.no;
@@ -3020,7 +3065,10 @@ function openTodoModal(todo, presets) {
       <div class="field"><label>완료일(선택)</label><input type="date" id="f-completed" value="${data.completedDate || ''}" /></div>
       <div class="field"><label>진행사항</label><textarea id="f-progress" placeholder="진행 상황 기록">${escapeHtml(data.progress || '')}</textarea></div>
       <div class="field"><label>비고</label><textarea id="f-remarks" placeholder="기타 메모">${escapeHtml(data.remarks || '')}</textarea></div>
-      <div class="field"><label>산출물 링크 (선택)</label><input type="text" id="f-link" value="${escapeHtml(data.link || '')}" placeholder="스프레드시트·드라이브·문서 URL" /></div>
+      <div class="field"><label>산출물 링크 (선택 · 여러 개 가능)</label>
+        <div id="f-links">${(todoLinks(data).length ? todoLinks(data) : ['']).map((u) => linkRowHtml(u)).join('')}</div>
+        <button type="button" class="btn link-add-btn" id="f-link-add">+ 링크 추가</button>
+      </div>
     `,
     onSave: () => {
       const text = document.getElementById('f-text').value.trim();
@@ -3041,12 +3089,13 @@ function openTodoModal(todo, presets) {
       const completedDate = document.getElementById('f-completed').value;
       const progress = document.getElementById('f-progress').value;
       const remarks = document.getElementById('f-remarks').value;
-      const link = document.getElementById('f-link').value.trim();
+      const links = [...document.querySelectorAll('#f-links .f-link-input')].map((i) => i.value.trim()).filter(Boolean);
+      const link = links[0] || ''; // 구형 호환(구글 동기화 등)
       const done = status === '완료' || status === '지연완료';
       if (isNew) {
-        state.todos.push({ id: uid(), no: nextNo, registeredDate, projectId, channel, priority, text, assignee, dueDate, status, needsCheck, completedDate, progress, remarks, link, done });
+        state.todos.push({ id: uid(), no: nextNo, registeredDate, projectId, channel, priority, text, assignee, dueDate, status, needsCheck, completedDate, progress, remarks, links, link, done });
       } else {
-        Object.assign(todo, { registeredDate, projectId, channel, priority, text, assignee, dueDate, status, needsCheck, completedDate, progress, remarks, link, done });
+        Object.assign(todo, { registeredDate, projectId, channel, priority, text, assignee, dueDate, status, needsCheck, completedDate, progress, remarks, links, link, done });
       }
       persist(); renderAll();
       return true;
@@ -3054,6 +3103,17 @@ function openTodoModal(todo, presets) {
     onDelete: () => {
       state.todos = state.todos.filter((x) => x.id !== todo.id);
       persist(); renderAll();
+    },
+    onOpen: () => {
+      const box = document.getElementById('f-links');
+      const add = document.getElementById('f-link-add');
+      if (add) add.onclick = () => box.insertAdjacentHTML('beforeend', linkRowHtml(''));
+      if (box) box.addEventListener('click', (e) => {
+        if (!e.target.closest('.link-del')) return;
+        const rows = box.querySelectorAll('.link-row');
+        if (rows.length > 1) e.target.closest('.link-row').remove();
+        else box.querySelector('.f-link-input').value = '';
+      });
     }
   });
 }
@@ -3130,7 +3190,7 @@ function renderKanban() {
       card.draggable = true;
       card.dataset.id = t.id;
       card.innerHTML = `<div class="kanban-card-title">${priMark}${chk}${escapeHtml(t.text)}</div>`
-        + (t.channel ? `<div class="kanban-card-meta">${escapeHtml(t.channel)}</div>` : '')
+        + (t.channel ? `<div class="kanban-card-meta">${channelChipHtml(t.channel)}</div>` : '')
         + (t.dueDate ? `<div class="kanban-card-due">📅 ${t.dueDate}</div>` : '');
       card.addEventListener('click', () => openTodoModal(t));
       card.addEventListener('dragstart', () => { draggedCardId = t.id; card.classList.add('dragging'); });
@@ -3555,6 +3615,8 @@ function renderChannelSettings() {
   box.innerHTML = list.map((c) => {
     const s = channelStat(c);
     return `<div class="channel-row" data-ch="${escapeHtml(c)}">
+      <button class="ch-swatch" data-act="color" title="색상 변경" style="background:${channelColor(c)}"></button>
+      <input type="color" class="ch-color-input" value="${channelColor(c)}" hidden />
       <div class="ch-name" title="${escapeHtml(c)}">${escapeHtml(c)}</div>
       <div class="ch-stats">
         <span class="ch-badge">전체 ${s.total}</span>
@@ -3573,6 +3635,12 @@ function renderChannelSettings() {
 
   box.querySelectorAll('.channel-row').forEach((row) => {
     const c = row.getAttribute('data-ch');
+    const colorInput = row.querySelector('.ch-color-input');
+    row.querySelector('[data-act="color"]').onclick = () => colorInput.click();
+    colorInput.onchange = () => {
+      setChannelColor(c, colorInput.value);
+      persist(); renderChannelSettings(); renderTodos(); refreshCalendarEvents();
+    };
     row.querySelector('[data-act="view"]').onclick = () => channelJump(c);
     row.querySelector('[data-act="rename"]').onclick = () => channelStartRename(row, c);
     row.querySelector('[data-act="del"]').onclick = () => channelDelete(c);
@@ -3610,6 +3678,11 @@ function channelApplyRename(oldName, nv) {
   const idx = state.channels.indexOf(oldName);
   if (merging) { if (idx > -1) state.channels.splice(idx, 1); }
   else if (idx > -1) state.channels[idx] = nv;
+  // 색상 키 이전 (합치는 경우 대상 색 유지, 없으면 옛 색 승계)
+  if (state.channelColors && state.channelColors[oldName]) {
+    if (!merging || !state.channelColors[nv]) state.channelColors[nv] = state.channelColors[oldName];
+    delete state.channelColors[oldName];
+  }
   persist(); renderChannelSettings(); renderTodos(); refreshCalendarEvents();
   toast(merging ? `"${oldName}"을(를) "${nv}"에 합쳤어요` : '세부채널 이름을 바꿨어요');
 }
@@ -3618,6 +3691,7 @@ function channelDelete(c) {
   const used = state.todos.filter((t) => ((t.channel || '').trim()) === c).length;
   const i = (state.channels || []).indexOf(c);
   if (i > -1) state.channels.splice(i, 1);
+  if (state.channelColors) delete state.channelColors[c];
   persist(); renderChannelSettings();
   toast(used > 0 ? `"${c}" 목록에서 제거 (할 일 ${used}건은 값 유지)` : `"${c}" 삭제`);
 }
