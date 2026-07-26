@@ -476,8 +476,15 @@ html[data-theme="dark"] .fc-daygrid-dot-event:hover { background: #1c1c1c !impor
 .todo-table tbody tr:hover { background: var(--surface-2); }
 .todo-table tbody tr:last-child td { border-bottom: none; }
 
-.todo-table tbody tr.done { opacity: 0.55; }
+.todo-table tbody tr.done { opacity: 0.5; }
 .todo-table tbody tr.done .col-title { text-decoration: line-through; }
+.todo-table tbody tr.row-overdue .col-due { color: var(--danger); font-weight: 700; }
+.todo-table tbody tr.row-overdue td.col-no { box-shadow: inset 3px 0 0 var(--danger); }
+.todo-table tbody tr.row-today .col-due { color: #b06f00; font-weight: 700; }
+.todo-table tbody tr.row-today td.col-no { box-shadow: inset 3px 0 0 #f6bf26; }
+html[data-theme="dark"] .todo-table tbody tr.row-today .col-due { color: #f6bf26; }
+.todo-hidedone-label { display: inline-flex; align-items: center; gap: 5px; font-size: 12.5px; color: var(--text-muted); cursor: pointer; white-space: nowrap; }
+.todo-hidedone-label input { width: 14px; height: 14px; cursor: pointer; }
 
 .todo-table .col-no { width: 40px; color: var(--text-muted); }
 .todo-table .col-date { width: 92px; }
@@ -669,6 +676,14 @@ html[data-theme="dark"] .fc-daygrid-dot-event:hover { background: #1c1c1c !impor
   box-shadow: var(--shadow-pop);
 }
 .modal.modal-wide { width: 720px; }
+.rep-range { font-size: 12.5px; color: var(--text-muted); margin-bottom: 6px; }
+.rep-sec { margin-bottom: 14px; }
+.rep-sec h4 { margin: 0 0 6px; font-size: 13px; font-weight: 700; }
+.rep-sec h4 span { font-size: 11px; font-weight: 500; color: var(--text-muted); }
+.rep-sec ul { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 3px; }
+.rep-sec li { font-size: 12.8px; line-height: 1.5; }
+.rep-sec .rep-meta { color: var(--text-muted); font-size: 11.5px; margin-left: 4px; }
+.rep-empty { font-size: 12px; color: var(--text-muted); padding-left: 2px; }
 .modal-wide .modal-body { gap: 16px; padding: 20px 22px; }
 .modal-wide .field-row { gap: 16px; }
 .modal-wide .field label { margin-bottom: 1px; }
@@ -1085,6 +1100,7 @@ html[data-theme="dark"] .dash-alert.warn { background: #f2994a26; }
             <button class="segmented-btn active" data-layout="table">표</button>
             <button class="segmented-btn" data-layout="calendar">캘린더</button>
           </div>
+          <button class="btn" id="weeklyReportBtn" title="주간 완료/예정 리포트">📋 주간리포트</button>
           <button class="btn" id="todoExportBtn" title="현재 목록을 엑셀(CSV)로 내보내기">⬇ 내보내기</button>
           <button class="btn btn-primary" id="addTodoBtn">+ 할 일 추가</button>
         </div>
@@ -1120,6 +1136,8 @@ html[data-theme="dark"] .dash-alert.warn { background: #f2994a26; }
           <option value="100">100개</option>
           <option value="all">전체</option>
         </select>
+        <span class="todo-date-sep">|</span>
+        <label class="todo-hidedone-label"><input type="checkbox" id="todoHideDone" /> 완료 숨기기</label>
       </div>
       </div>
       <div id="todoCalendarView" class="hidden"><div id="todoCalendar"></div></div>
@@ -2880,7 +2898,7 @@ function setupTodos() {
   document.getElementById('todoProjectFilter').addEventListener('change', reset);
   document.getElementById('todoSearch').addEventListener('input', reset);
   document.getElementById('todoPageSize').addEventListener('change', reset);
-  ['todoDateField', 'todoDateFrom', 'todoDateTo'].forEach((id) => {
+  ['todoDateField', 'todoDateFrom', 'todoDateTo', 'todoHideDone'].forEach((id) => {
     document.getElementById(id).addEventListener('change', reset);
   });
   document.getElementById('todoDateClear').addEventListener('click', () => {
@@ -2908,6 +2926,84 @@ function setupTodos() {
   });
   const exportBtn = document.getElementById('todoExportBtn');
   if (exportBtn) exportBtn.onclick = exportTodosCsv;
+  const reportBtn = document.getElementById('weeklyReportBtn');
+  if (reportBtn) reportBtn.onclick = openWeeklyReport;
+}
+
+function weekRange(baseStr, weekOffset) {
+  const d = new Date(baseStr + 'T00:00:00');
+  const dow = (d.getDay() + 6) % 7; // 월=0
+  const mon = new Date(d); mon.setDate(d.getDate() - dow + (weekOffset || 0) * 7);
+  const sun = new Date(mon); sun.setDate(mon.getDate() + 6);
+  const fmt = (x) => x.getFullYear() + '-' + String(x.getMonth() + 1).padStart(2, '0') + '-' + String(x.getDate()).padStart(2, '0');
+  return { start: fmt(mon), end: fmt(sun) };
+}
+
+// 주간 리포트: 이번 주 완료 · 다음 주 마감 예정 · 지연. 복사/다운로드 가능.
+function openWeeklyReport() {
+  const today = todayStr();
+  const tw = weekRange(today, 0);
+  const nw = weekRange(today, 1);
+  const projName = (t) => { const p = byId(state.projects, t.projectId); return p ? p.name : ''; };
+  const tag = (t) => '[' + [projName(t), t.channel].filter(Boolean).join('/') + ']';
+  const md = (d) => d ? d.slice(5).replace('-', '/') : '';
+  const daysLate = (d) => Math.round((new Date(today) - new Date(d)) / 864e5);
+
+  const doneThis = state.todos.filter((t) => todoIsDone(t) && t.completedDate && t.completedDate >= tw.start && t.completedDate <= tw.end)
+    .sort((a, b) => (a.completedDate).localeCompare(b.completedDate));
+  const dueNext = state.todos.filter((t) => !todoIsDone(t) && t.dueDate && t.dueDate >= nw.start && t.dueDate <= nw.end)
+    .sort((a, b) => a.dueDate.localeCompare(b.dueDate));
+  const overdue = state.todos.filter((t) => !todoIsDone(t) && t.dueDate && t.dueDate < today)
+    .sort((a, b) => a.dueDate.localeCompare(b.dueDate));
+
+  // 평문(복사/다운로드용)
+  const P = [];
+  P.push(`📋 주간 리포트 (${tw.start} ~ ${tw.end})`);
+  P.push('');
+  P.push(`■ 이번 주 완료 (${doneThis.length}건)`);
+  doneThis.forEach((t) => P.push(`- ${tag(t)} ${t.text}${t.assignee ? ' — ' + t.assignee : ''} (완료 ${md(t.completedDate)})`));
+  if (!doneThis.length) P.push('- (없음)');
+  P.push('');
+  P.push(`■ 다음 주 마감 예정 (${dueNext.length}건)`);
+  dueNext.forEach((t) => P.push(`- ${tag(t)} ${t.text} — ${md(t.dueDate)} 마감 (${todoStatus(t)})`));
+  if (!dueNext.length) P.push('- (없음)');
+  P.push('');
+  P.push(`■ 지연 (${overdue.length}건)`);
+  overdue.forEach((t) => P.push(`- ${tag(t)} ${t.text} — ${md(t.dueDate)} 마감 (${daysLate(t.dueDate)}일 지연)`));
+  if (!overdue.length) P.push('- (없음)');
+  const plain = P.join('\n');
+
+  // HTML(모달 표시용)
+  const sec = (title, items, lineFn, color) =>
+    `<div class="rep-sec"><h4 style="color:${color}">${title} <span>${items.length}건</span></h4>` +
+    (items.length ? '<ul>' + items.map((t) => `<li>${lineFn(t)}</li>`).join('') + '</ul>' : '<div class="rep-empty">없음</div>') + '</div>';
+  const esc = escapeHtml;
+  const html =
+    `<div class="rep-range">${tw.start} ~ ${tw.end}</div>` +
+    sec('✅ 이번 주 완료', doneThis, (t) => `<b>${esc(tag(t))}</b> ${esc(t.text)}${t.assignee ? ' — ' + esc(t.assignee) : ''} <span class="rep-meta">완료 ${md(t.completedDate)}</span>`, '#0b8043') +
+    sec('🗓 다음 주 마감 예정', dueNext, (t) => `<b>${esc(tag(t))}</b> ${esc(t.text)} <span class="rep-meta">${md(t.dueDate)} 마감 · ${esc(todoStatus(t))}</span>`, '#1a73e8') +
+    sec('🔴 지연', overdue, (t) => `<b>${esc(tag(t))}</b> ${esc(t.text)} <span class="rep-meta" style="color:var(--danger)">${md(t.dueDate)} 마감 · ${daysLate(t.dueDate)}일 지연</span>`, '#d93025') +
+    `<div style="margin-top:6px"><button type="button" class="btn" id="reportDownloadBtn">⬇ 텍스트로 저장</button></div>`;
+
+  showModal({
+    title: '주간 리포트',
+    wide: true,
+    saveLabel: '📋 복사',
+    bodyHtml: html,
+    onOpen: () => {
+      const dl = document.getElementById('reportDownloadBtn');
+      if (dl) dl.onclick = () => {
+        const blob = new Blob(['﻿' + plain], { type: 'text/plain;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a'); a.href = url; a.download = 'SCLM_주간리포트_' + today + '.txt';
+        document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 1000);
+      };
+    },
+    onSave: () => {
+      navigator.clipboard.writeText(plain).then(() => toast('리포트를 복사했어요')).catch(() => toast('복사 실패 — 텍스트 저장을 이용하세요'));
+      return false; // 모달 유지
+    }
+  });
 }
 
 // 현재 필터·정렬된 할 일 목록을 CSV(엑셀)로 내보내기. Excel 한글 깨짐 방지 BOM 포함.
@@ -2976,8 +3072,10 @@ function filterTodos() {
     return true;
   };
 
+  const hideDone = !!(document.getElementById('todoHideDone') || {}).checked;
   let items = state.todos.slice().sort((a, b) => (a.no || 0) - (b.no || 0) || (a.dueDate || '9999').localeCompare(b.dueDate || '9999'));
   if (projVal !== 'all') items = items.filter((t) => t.projectId === projVal);
+  if (hideDone) items = items.filter((t) => !todoIsDone(t));
   return sortTodos(items.filter(matchesQuick).filter(matchesSearch).filter(matchesDate));
 }
 
@@ -3062,12 +3160,18 @@ function renderTodos() {
   tbody.innerHTML = '';
   document.getElementById('todoEmpty').classList.toggle('hidden', all.length > 0);
 
+  const today = todayStr();
   pageItems.forEach((t, idx) => {
     const proj = byId(state.projects, t.projectId);
     const status = todoStatus(t);
     const statusColor = TODO_STATUS_COLORS[status] || '#9b9a97';
     const tr = document.createElement('tr');
-    tr.className = todoIsDone(t) ? 'done' : '';
+    let cls = todoIsDone(t) ? 'done' : '';
+    if (!todoIsDone(t) && t.dueDate) {
+      if (t.dueDate < today) cls += ' row-overdue';
+      else if (t.dueDate === today) cls += ' row-today';
+    }
+    tr.className = cls.trim();
     if (todoSelected.has(t.id)) tr.classList.add('row-selected');
     tr.innerHTML = `
       <td class="col-select"><input type="checkbox" class="todo-check" data-id="${escapeHtml(t.id)}" ${todoSelected.has(t.id) ? 'checked' : ''} /></td>
@@ -3078,7 +3182,7 @@ function renderTodos() {
       <td>${escapeHtml(t.priority || '')}</td>
       <td class="col-title">${escapeHtml(t.text || '')}</td>
       <td>${escapeHtml(t.assignee || '')}</td>
-      <td class="col-date">${t.dueDate || ''}</td>
+      <td class="col-date col-due">${t.dueDate || ''}</td>
       <td><span class="status-tag" style="background:${statusColor}1f;color:${statusColor}">${escapeHtml(status)}</span></td>
       <td class="col-check">${escapeHtml(t.needsCheck || '')}</td>
       <td class="col-date">${t.completedDate || ''}</td>
@@ -3951,9 +4055,10 @@ function setupModal() {
 
 let currentModalHandlers = null;
 
-function showModal({ title, bodyHtml, onSave, onDelete, onOpen, deletable, wide }) {
+function showModal({ title, bodyHtml, onSave, onDelete, onOpen, deletable, wide, saveLabel }) {
   document.getElementById('modalTitle').textContent = title;
   document.getElementById('modalBox').classList.toggle('modal-wide', !!wide);
+  document.getElementById('modalSaveBtn').textContent = saveLabel || '저장';
   document.getElementById('modalBody').innerHTML = bodyHtml;
   const delBtn = document.getElementById('modalDeleteBtn');
   delBtn.classList.toggle('hidden', !deletable);
