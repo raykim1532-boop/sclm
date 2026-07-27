@@ -183,15 +183,22 @@ html, body {
 .vault-pw-row input { flex: 1; min-width: 0; }
 .vault-del { color: #d50000; }
 .vault-list { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
-.vault-item { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; cursor: pointer; }
-.vault-item:hover { border-color: var(--accent); }
+.vault-item { display: flex; align-items: center; gap: 12px; padding: 11px 12px; border: 1px solid var(--border); border-radius: 12px; cursor: pointer; transition: border-color .12s, background .12s; }
+.vault-item:hover { border-color: var(--accent); background: rgba(127,127,127,.05); }
+.vault-item .vi-avatar { flex: 0 0 auto; width: 38px; height: 38px; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 16px; color: #fff; }
 .vault-item .vi-main { flex: 1; min-width: 0; }
-.vault-item .vi-site { font-weight: 600; font-size: 14px; }
-.vault-item .vi-sub { font-size: 12px; opacity: .7; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.vault-item .vi-cat { font-size: 11px; padding: 2px 7px; border-radius: 999px; background: var(--chip-bg, rgba(127,127,127,.15)); white-space: nowrap; }
-.vault-copy { border: 1px solid var(--border); border-radius: 8px; background: transparent; padding: 5px 9px; font-size: 12px; cursor: pointer; color: inherit; }
-.vault-copy:hover { border-color: var(--accent); }
+.vault-item .vi-site { font-weight: 600; font-size: 14px; display: flex; align-items: center; gap: 6px; }
+.vault-item .vi-sub { font-size: 12px; margin-top: 2px; display: flex; align-items: center; gap: 10px; min-width: 0; }
+.vault-item .vi-user { opacity: .7; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.vault-item .vi-link { color: var(--accent); text-decoration: none; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 220px; }
+.vault-item .vi-link:hover { text-decoration: underline; }
+.vault-item .vi-cat { font-size: 11px; padding: 2px 8px; border-radius: 999px; background: rgba(127,127,127,.16); white-space: nowrap; font-weight: 500; }
+.vault-item .vi-actions { flex: 0 0 auto; display: flex; gap: 6px; align-items: center; }
+.vault-copy { border: 1px solid var(--border); border-radius: 8px; background: transparent; padding: 5px 10px; font-size: 12px; cursor: pointer; color: inherit; white-space: nowrap; }
+.vault-copy:hover { border-color: var(--accent); color: var(--accent); }
+.vault-copy.vi-open { border-color: var(--accent); color: var(--accent); }
 .vault-empty { padding: 24px; text-align: center; opacity: .6; font-size: 13px; }
+@media (max-width: 620px) { .vault-item .vi-link { max-width: 120px; } .vault-copy { padding: 5px 8px; } }
 
 .view-header {
   display: flex;
@@ -1072,7 +1079,7 @@ html[data-theme="dark"] .dash-alert.warn { background: #f2994a26; }
         <span class="nav-icon">🏷️</span> Channels
       </button>
       <button class="nav-btn" data-view="vault">
-        <span class="nav-icon">🔐</span> 계정 관리
+        <span class="nav-icon">🔐</span> Accounts
       </button>
       <button class="nav-btn" data-view="settings">
         <span class="nav-icon">⚙️</span> Settings
@@ -2621,6 +2628,26 @@ function renderVault() {
   if (unlocked) renderVaultList();
 }
 
+// URL 정규화: 프로토콜 없으면 https:// 붙임
+function vaultUrl(u) {
+  u = (u || '').trim();
+  if (!u) return '';
+  return /^https?:\/\//i.test(u) ? u : 'https://' + u;
+}
+// 표시용: 호스트명만(없으면 원문)
+function vaultUrlLabel(u) {
+  const full = vaultUrl(u);
+  if (!full) return '';
+  try { return new URL(full).hostname.replace(/^www\./, ''); } catch (e) { return (u || '').replace(/^https?:\/\//i, ''); }
+}
+// 사이트명 → 아바타 색(고정 해시)
+function vaultAvatarColor(s) {
+  s = String(s || '?');
+  let h = 0;
+  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0;
+  return 'hsl(' + (h % 360) + ' 55% 48%)';
+}
+
 function renderVaultList() {
   const list = document.getElementById('vaultList');
   const q = (document.getElementById('vaultSearch').value || '').trim().toLowerCase();
@@ -2634,19 +2661,30 @@ function renderVaultList() {
   }
   list.innerHTML = '';
   for (const e of items) {
+    const url = vaultUrl(e.url);
+    const letter = (e.site || '?').trim().charAt(0).toUpperCase();
     const row = document.createElement('div');
     row.className = 'vault-item';
-    const sub = [e.user ? ('👤 ' + e.user) : '', e.url || ''].filter(Boolean).join('  ·  ');
     row.innerHTML =
-      '<div class="vi-main">'
-      + '<div class="vi-site">' + escapeHtml(e.site) + '</div>'
-      + (sub ? '<div class="vi-sub">' + escapeHtml(sub) + '</div>' : '')
+      '<div class="vi-avatar" style="background:' + vaultAvatarColor(e.site) + '">' + escapeHtml(letter) + '</div>'
+      + '<div class="vi-main">'
+      +   '<div class="vi-site">' + escapeHtml(e.site) + (e.category ? '<span class="vi-cat">' + escapeHtml(e.category) + '</span>' : '') + '</div>'
+      +   '<div class="vi-sub">'
+      +     (e.user ? '<span class="vi-user">👤 ' + escapeHtml(e.user) + '</span>' : '')
+      +     (url ? '<a class="vi-link" data-act="link" href="' + escapeHtml(url) + '" target="_blank" rel="noopener noreferrer">🔗 ' + escapeHtml(vaultUrlLabel(e.url)) + '</a>' : '')
+      +   '</div>'
       + '</div>'
-      + (e.category ? '<span class="vi-cat">' + escapeHtml(e.category) + '</span>' : '')
-      + '<button class="vault-copy" data-act="user">아이디</button>'
-      + '<button class="vault-copy" data-act="pass">비번</button>';
-    row.querySelector('[data-act="user"]').onclick = (ev) => { ev.stopPropagation(); vaultCopy(e.user, '아이디'); };
-    row.querySelector('[data-act="pass"]').onclick = (ev) => { ev.stopPropagation(); vaultCopy(e.pass, '비밀번호'); };
+      + '<div class="vi-actions">'
+      +   (e.user ? '<button class="vault-copy" data-act="user" title="아이디 복사">아이디</button>' : '')
+      +   (e.pass ? '<button class="vault-copy" data-act="pass" title="비밀번호 복사">비번</button>' : '')
+      +   (url ? '<button class="vault-copy vi-open" data-act="open" title="사이트 열기">열기 ↗</button>' : '')
+      + '</div>';
+    const wire = (sel, fn) => { const el = row.querySelector(sel); if (el) el.onclick = (ev) => { ev.stopPropagation(); fn(); }; };
+    wire('[data-act="user"]', () => vaultCopy(e.user, '아이디'));
+    wire('[data-act="pass"]', () => vaultCopy(e.pass, '비밀번호'));
+    wire('[data-act="open"]', () => window.open(url, '_blank', 'noopener'));
+    const link = row.querySelector('[data-act="link"]');
+    if (link) link.addEventListener('click', (ev) => ev.stopPropagation()); // 링크 기본 이동은 유지, 편집 열림만 방지
     row.onclick = () => openVaultEdit(e.id);
     list.appendChild(row);
   }
