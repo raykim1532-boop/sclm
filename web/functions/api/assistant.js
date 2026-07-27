@@ -1,9 +1,9 @@
-// /api/assistant — 자연어 일정 비서. Claude(opus-5) tool-use로 D1의 todos/events를 조회·생성.
-// 앱 비밀번호(Bearer) 보호. ANTHROPIC_API_KEY(secret) 필요.
+// /api/assistant — 자연어 일정 비서. Google Gemini(무료 등급) function-calling으로 D1의 todos/events를 조회·생성.
+// 앱 비밀번호(Bearer) 보호. GEMINI_API_KEY(secret) 필요.
 import { authed, unauthorized } from './_auth.js';
 
-const MODEL = 'claude-opus-5';
-const API = 'https://api.anthropic.com/v1/messages';
+const MODEL = 'gemini-2.5-flash';
+const API = (key) => `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent?key=${encodeURIComponent(key)}`;
 
 function kstToday() { return new Date(Date.now() + 9 * 3600e3).toISOString().slice(0, 10); }
 function addDays(dateStr, n) {
@@ -28,17 +28,17 @@ async function saveState(env, s) {
     .bind(JSON.stringify(s), Date.now()).run();
 }
 
-// ---- 도구 정의 ----
-const TOOLS = [
+// ---- 도구 정의 (Gemini functionDeclarations) ----
+const FUNCTIONS = [
   {
     name: 'list_schedule',
     description: '지정한 기간의 할 일과 일정을 조회한다. "내일 뭐 있어?", "이번 주 마감" 같은 질문에 사용.',
-    input_schema: {
-      type: 'object',
+    parameters: {
+      type: 'OBJECT',
       properties: {
-        date_from: { type: 'string', description: '시작일 YYYY-MM-DD (포함)' },
-        date_to: { type: 'string', description: '종료일 YYYY-MM-DD (포함)' },
-        include_done: { type: 'boolean', description: '완료 항목 포함 여부(기본 false)' }
+        date_from: { type: 'STRING', description: '시작일 YYYY-MM-DD (포함)' },
+        date_to: { type: 'STRING', description: '종료일 YYYY-MM-DD (포함)' },
+        include_done: { type: 'BOOLEAN', description: '완료 항목 포함 여부(기본 false)' }
       },
       required: ['date_from', 'date_to']
     }
@@ -46,12 +46,12 @@ const TOOLS = [
   {
     name: 'find_free_slots',
     description: '특정 날짜에 시간이 지정된 일정 사이의 빈 시간대를 찾는다. 미팅을 잡기 전에 먼저 호출.',
-    input_schema: {
-      type: 'object',
+    parameters: {
+      type: 'OBJECT',
       properties: {
-        date: { type: 'string', description: '날짜 YYYY-MM-DD' },
-        part_of_day: { type: 'string', enum: ['morning', 'afternoon', 'evening', 'day'], description: '오전(09-12)/오후(13-18)/저녁(18-21)/하루(09-18)' },
-        duration_minutes: { type: 'number', description: '필요한 시간(분), 기본 60' }
+        date: { type: 'STRING', description: '날짜 YYYY-MM-DD' },
+        part_of_day: { type: 'STRING', enum: ['morning', 'afternoon', 'evening', 'day'], description: '오전(09-12)/오후(13-18)/저녁(18-21)/하루(09-18)' },
+        duration_minutes: { type: 'NUMBER', description: '필요한 시간(분), 기본 60' }
       },
       required: ['date']
     }
@@ -59,14 +59,14 @@ const TOOLS = [
   {
     name: 'add_event',
     description: '캘린더에 일정(미팅 등)을 추가한다.',
-    input_schema: {
-      type: 'object',
+    parameters: {
+      type: 'OBJECT',
       properties: {
-        title: { type: 'string' },
-        date: { type: 'string', description: '날짜 YYYY-MM-DD' },
-        start_time: { type: 'string', description: '시작 HH:MM (24h). 생략 시 종일 일정' },
-        end_time: { type: 'string', description: '종료 HH:MM (선택)' },
-        notes: { type: 'string' }
+        title: { type: 'STRING' },
+        date: { type: 'STRING', description: '날짜 YYYY-MM-DD' },
+        start_time: { type: 'STRING', description: '시작 HH:MM (24h). 생략 시 종일 일정' },
+        end_time: { type: 'STRING', description: '종료 HH:MM (선택)' },
+        notes: { type: 'STRING' }
       },
       required: ['title', 'date']
     }
@@ -74,15 +74,15 @@ const TOOLS = [
   {
     name: 'add_todo',
     description: '할 일(업무)을 추가한다.',
-    input_schema: {
-      type: 'object',
+    parameters: {
+      type: 'OBJECT',
       properties: {
-        text: { type: 'string', description: '업무 내용' },
-        due_date: { type: 'string', description: '마감일 YYYY-MM-DD (선택)' },
-        priority: { type: 'string', enum: ['긴급', '중요', '보통'], description: '선택' },
-        project_name: { type: 'string', description: '대분류 이름 (선택, 기존 목록에서)' },
-        channel: { type: 'string', description: '세부채널 (선택)' },
-        assignee: { type: 'string', description: '담당자 (선택)' }
+        text: { type: 'STRING', description: '업무 내용' },
+        due_date: { type: 'STRING', description: '마감일 YYYY-MM-DD (선택)' },
+        priority: { type: 'STRING', enum: ['긴급', '중요', '보통'], description: '선택' },
+        project_name: { type: 'STRING', description: '대분류 이름 (선택, 기존 목록에서)' },
+        channel: { type: 'STRING', description: '세부채널 (선택)' },
+        assignee: { type: 'STRING', description: '담당자 (선택)' }
       },
       required: ['text']
     }
@@ -90,9 +90,9 @@ const TOOLS = [
   {
     name: 'complete_todo',
     description: '내용이 일치하는 미완료 할 일을 완료 처리한다.',
-    input_schema: {
-      type: 'object',
-      properties: { text_contains: { type: 'string', description: '완료할 할 일 내용(부분 일치)' } },
+    parameters: {
+      type: 'OBJECT',
+      properties: { text_contains: { type: 'STRING', description: '완료할 할 일 내용(부분 일치)' } },
       required: ['text_contains']
     }
   }
@@ -100,7 +100,6 @@ const TOOLS = [
 
 // ---- 도구 실행 ----
 function runTool(name, input, s) {
-  const today = kstToday();
   if (name === 'list_schedule') {
     const from = input.date_from, to = input.date_to, incDone = !!input.include_done;
     const todos = s.todos.filter((t) => t.dueDate && t.dueDate >= from && t.dueDate <= to && (incDone || !isDone(t)))
@@ -170,35 +169,33 @@ function systemPrompt(s) {
   const projects = s.projects.map((p) => p.name).join(', ') || '(없음)';
   const channels = (s.channels || []).slice(0, 40).join(', ') || '(없음)';
   return [
-    '너는 "SCLM" 일정 관리 앱의 한국어 AI 비서다. 사용자의 자연어 요청을 이해해 도구로 일정·할 일을 조회하거나 등록한다.',
+    '너는 "SCLM" 일정 관리 앱의 한국어 AI 비서다. 사용자의 자연어 요청을 이해해 함수(도구)로 일정·할 일을 조회하거나 등록한다.',
     `오늘은 ${today} (${dow}요일), 한국 시간(KST) 기준이다. "내일"="${addDays(today, 1)}", "다음 주"는 다음 주 월~일.`,
     `대분류(프로젝트) 목록: ${projects}`,
     `세부채널 목록: ${channels}`,
     '규칙:',
-    '- 미팅/일정을 "잡아줘"라고 하면 먼저 find_free_slots로 빈 시간을 확인하고, 적절한 시간을 골라 add_event로 등록한 뒤 결과를 알려준다. 시간을 특정하지 않았으면 오후 첫 빈 슬롯을 기본으로 잡되, 어떤 시간에 잡았는지 명확히 말한다.',
+    '- 미팅/일정을 "잡아줘"라고 하면 먼저 find_free_slots로 빈 시간을 확인하고, 적절한 시간을 골라 add_event로 등록한 뒤 결과를 알려준다. 시간을 특정하지 않았으면 지정 시간대의 첫 빈 슬롯을 기본으로 잡되, 어떤 시간에 잡았는지 명확히 말한다.',
     '- "뭐 있어/일정 알려줘"류는 list_schedule로 조회 후 간결히 요약한다.',
     '- 할 일 추가는 add_todo, 완료 처리는 complete_todo.',
-    '- 날짜·시간은 반드시 도구 인자로 YYYY-MM-DD, HH:MM(24h)로 변환해 넘긴다.',
+    '- 날짜·시간은 반드시 함수 인자로 YYYY-MM-DD, HH:MM(24h)로 변환해 넘긴다.',
     '- 답변은 짧고 명확한 한국어로. 실행한 내용(추가/완료/시간)을 한 줄로 확인해준다. 정보가 정말 애매할 때만 한 가지만 되묻는다.',
     '- 도구로 확인되지 않은 내용을 지어내지 않는다.'
   ].join('\n');
 }
 
-async function callClaude(env, body) {
-  const r = await fetch(API, {
-    method: 'POST',
-    headers: { 'x-api-key': env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
-    body: JSON.stringify(body)
+async function callGemini(env, body) {
+  const r = await fetch(API(env.GEMINI_API_KEY), {
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body)
   });
   const j = await r.json();
-  if (!r.ok) throw new Error('claude ' + r.status + ': ' + JSON.stringify(j).slice(0, 200));
+  if (!r.ok) throw new Error('gemini ' + r.status + ': ' + (j.error && j.error.message || JSON.stringify(j)).slice(0, 200));
   return j;
 }
 
 export async function onRequestPost(context) {
   const { env } = context;
   if (!authed(context)) return unauthorized();
-  if (!env.ANTHROPIC_API_KEY) return Response.json({ error: 'no_api_key', reply: '⚠ AI 비서가 아직 설정되지 않았어요 (ANTHROPIC_API_KEY 필요).' }, { status: 200 });
+  if (!env.GEMINI_API_KEY) return Response.json({ error: 'no_api_key', reply: '⚠ AI 비서가 아직 설정되지 않았어요 (GEMINI_API_KEY 필요).' }, { status: 200 });
 
   let payload = {};
   try { payload = await context.request.json(); } catch (e) {}
@@ -209,32 +206,36 @@ export async function onRequestPost(context) {
   const s = await loadState(env);
   let changed = false;
 
-  const messages = [...history.map((m) => ({ role: m.role === 'assistant' ? 'assistant' : 'user', content: String(m.content || '').slice(0, 2000) })), { role: 'user', content: userMsg }];
+  // Gemini contents: role user/model, parts [{text}] | [{functionCall}] | [{functionResponse}]
+  const contents = history
+    .map((m) => ({ role: m.role === 'assistant' ? 'model' : 'user', parts: [{ text: String(m.content || '').slice(0, 2000) }] }))
+    .filter((c) => c.parts[0].text);
+  contents.push({ role: 'user', parts: [{ text: userMsg }] });
 
   const base = {
-    model: MODEL,
-    max_tokens: 4096,
-    output_config: { effort: 'low' },
-    system: systemPrompt(s),
-    tools: TOOLS
+    systemInstruction: { parts: [{ text: systemPrompt(s) }] },
+    tools: [{ functionDeclarations: FUNCTIONS }],
+    generationConfig: { temperature: 0.2, maxOutputTokens: 1024 }
   };
 
   let reply = '';
   try {
     for (let iter = 0; iter < 6; iter++) {
-      const resp = await callClaude(env, { ...base, messages });
-      messages.push({ role: 'assistant', content: resp.content });
-      const toolUses = (resp.content || []).filter((b) => b.type === 'tool_use');
-      const texts = (resp.content || []).filter((b) => b.type === 'text').map((b) => b.text).join('\n').trim();
+      const resp = await callGemini(env, { ...base, contents });
+      const cand = resp.candidates && resp.candidates[0];
+      const parts = (cand && cand.content && cand.content.parts) || [];
+      contents.push({ role: 'model', parts });
+      const calls = parts.filter((p) => p.functionCall);
+      const texts = parts.filter((p) => p.text).map((p) => p.text).join('\n').trim();
       if (texts) reply = texts;
-      if (resp.stop_reason !== 'tool_use' || !toolUses.length) break;
-      const results = [];
-      for (const tu of toolUses) {
-        const out = runTool(tu.name, tu.input || {}, s);
+      if (!calls.length) break;
+      const responseParts = [];
+      for (const c of calls) {
+        const out = runTool(c.functionCall.name, c.functionCall.args || {}, s);
         if (out.changed) changed = true;
-        results.push({ type: 'tool_result', tool_use_id: tu.id, content: JSON.stringify(out.result) });
+        responseParts.push({ functionResponse: { name: c.functionCall.name, response: out.result } });
       }
-      messages.push({ role: 'user', content: results });
+      contents.push({ role: 'user', parts: responseParts });
     }
   } catch (e) {
     return Response.json({ reply: '⚠ 비서 처리 중 오류: ' + String(e.message || e).slice(0, 160) }, { status: 200 });
