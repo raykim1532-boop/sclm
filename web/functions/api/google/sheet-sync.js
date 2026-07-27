@@ -20,8 +20,13 @@ export async function onRequestPost(context) {
   return Response.json(out);
 }
 
+// ⚠️ 안전 차단: full-rewrite 방식이 실사용 시트(제목행·수식·여백열)를 훼손하는 문제로 임시 비활성.
+// 비파괴(행별 부분 업데이트) 방식으로 재설계 후 해제 예정.
+const SHEET_SYNC_DISABLED = true;
+
 // 공용 동기화 로직(크론/데일리에서도 재사용). 설정 없으면 {skipped} 반환, 실패 시 {error}.
 export async function runSheetSync(env) {
+  if (SHEET_SYNC_DISABLED) return { error: 'sheet_sync_disabled' };
   const tok = await getAccessToken(env);
   if (!tok) return { error: 'not_connected' };
   const token = tok.access_token;

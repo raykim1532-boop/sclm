@@ -2349,6 +2349,7 @@ async function setupSheet() {
       } else if (!silent) {
         const msg = j.error === 'not_connected' ? '구글 캘린더를 먼저 연결해주세요'
           : j.error === 'no_sheet_configured' ? '시트 URL을 먼저 저장해주세요'
+          : j.error === 'sheet_sync_disabled' ? '시트 동기화는 안전 재설계를 위해 잠시 중단됐어요'
           : (j.error || '');
         toast('시트 동기화 실패: ' + msg);
         if (resultEl) { resultEl.style.display = 'block'; resultEl.textContent = '실패: ' + msg; }
