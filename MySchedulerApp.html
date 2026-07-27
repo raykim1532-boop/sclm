@@ -1464,7 +1464,7 @@ body.is-offline .offline-bar { display: inline-flex; }
           </div>
         </div>
         <div class="settings-row" id="googleAutoRow" style="display:none">
-          <label class="sheet-clear-label"><input type="checkbox" id="googleAutoSync" /> 자동 동기화 (앱 열 때 + 15분마다)</label>
+          <label class="sheet-clear-label"><input type="checkbox" id="googleAutoSync" /> 자동 동기화 (앱 열 때 · 매일 08:00 서버에서도 실행)</label>
         </div>
         <p class="hint">구글 캘린더와 <b>양방향 동기화</b>합니다(생성·수정·삭제). 전용 <b>"SCLM"</b> 캘린더에만 반영돼 개인 일정은 안전합니다. ⚠️ 구글에서 SCLM 업무를 삭제하면 다음 동기화 때 SCLM에서도 지워집니다. 리프레시 토큰은 서버(D1)에만 보관됩니다.</p>
         <p class="hint" id="googleSyncResult" style="display:none;white-space:pre-line"></p>
@@ -1483,7 +1483,7 @@ body.is-offline .offline-bar { display: inline-flex; }
           <button class="btn" id="sheetSaveBtn">시트 저장</button>
         </div>
         <div class="settings-row" id="sheetAutoRow" style="display:none">
-          <label class="sheet-clear-label"><input type="checkbox" id="sheetAutoSync" /> 자동 동기화 (앱 열 때 + 15분마다)</label>
+          <label class="sheet-clear-label"><input type="checkbox" id="sheetAutoSync" /> 자동 동기화 (앱 열 때 · 매일 08:00 서버에서도 실행)</label>
         </div>
         <p class="hint">구글 시트(업무 트래커)를 <b>읽기 전용으로 가져옵니다</b> (시트→앱). 시트에는 <b>아무것도 쓰지 않아</b> 수식·서식이 안전합니다. 할 일은 <b>시트에서 관리</b>하시면 되고, 여기서 동기화하면 앱과 매일 알림에 반영됩니다. 위 구글 캘린더 연결이 먼저 필요합니다.<br />※ 앱에서 직접 추가한 할 일은 <b>지워지지 않고 유지</b>되지만, <b>시트로는 올라가지 않습니다</b>(읽기 전용).</p>
         <p class="hint" id="sheetSyncResult" style="display:none;white-space:pre-line"></p>
@@ -2650,11 +2650,11 @@ async function setupGoogle() {
       if (autoChk.checked) runSync(true);
     };
   }
+  // 앱 열 때 1회만 동기화. 주기적 폴링(기존 15분)은 제거하고 매일 08:00 서버(크론)가 대신 처리한다.
   if (!setupGoogle._autoStarted) {
     setupGoogle._autoStarted = true;
     const autoOn = () => localStorage.getItem('googleAutoSync') !== '0';
     setTimeout(() => { if (connected && autoOn()) runSync(true); }, 3500);
-    setInterval(() => { if (connected && autoOn()) runSync(true); }, 15 * 60 * 1000);
   }
 
   connectBtn.onclick = async () => {
@@ -2777,11 +2777,11 @@ async function setupSheet() {
       if (autoChk.checked) runSync(true);
     };
   }
+  // 앱 열 때 1회만 동기화. 주기적 폴링(기존 15분)은 제거하고 매일 08:00 서버(크론)가 대신 처리한다.
   if (!setupSheet._autoStarted) {
     setupSheet._autoStarted = true;
     const autoOn = () => localStorage.getItem('sheetAutoSync') === '1';
     setTimeout(() => { if (configured && autoOn()) runSync(true); }, 5000);
-    setInterval(() => { if (configured && autoOn()) runSync(true); }, 15 * 60 * 1000);
   }
 
   refresh();

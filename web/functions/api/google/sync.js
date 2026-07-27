@@ -84,12 +84,26 @@ function sig(res) {
   return JSON.stringify([res.summary, res.description, res.start, res.end]);
 }
 
-export async function onRequestPost(context) {
-  const { env } = context;
-  if (!authed(context)) return unauthorized();
+// 앱 비밀번호(Bearer) 또는 크론 시크릿(X-Cron-Secret)이면 허용.
+// 크론 워커가 매일 서버에서 캘린더를 갱신할 수 있게 한다(탭이 안 열려 있어도 최신 유지).
+function allowed(context) {
+  const secret = context.env.CRON_SECRET;
+  const got = context.request.headers.get('X-Cron-Secret') || '';
+  if (secret && got && got === secret) return true;
+  return authed(context);
+}
 
+export async function onRequestPost(context) {
+  if (!allowed(context)) return unauthorized();
+  const out = await runCalendarSync(context.env);
+  const status = out.error ? (out.error === 'not_connected' ? 400 : 500) : 200;
+  return Response.json(out, { status });
+}
+
+// 공용 캘린더 동기화(엔드포인트/크론 공용). 실패 시 { error } 반환.
+export async function runCalendarSync(env) {
   const tok = await getAccessToken(env);
-  if (!tok) return Response.json({ error: 'not_connected' }, { status: 400 });
+  if (!tok) return { error: 'not_connected' };
   const token = tok.access_token;
   const gdoc = await readGoogleDoc(env);
 
@@ -228,8 +242,8 @@ export async function onRequestPost(context) {
       .bind(JSON.stringify(state), Date.now())
       .run();
 
-    return Response.json({ ok: true, pushed, updated, pulled, deletedLocal, deletedRemote, truncated, calendarId: calId, errors: errors.slice(0, 5) });
+    return { ok: true, pushed, updated, pulled, deletedLocal, deletedRemote, truncated, calendarId: calId, errors: errors.slice(0, 5) };
   } catch (err) {
-    return Response.json({ error: String(err.message || err), pushed, updated, pulled, deletedLocal, deletedRemote, errors: errors.slice(0, 5) }, { status: 500 });
+    return { error: String(err.message || err), pushed, updated, pulled, deletedLocal, deletedRemote, errors: errors.slice(0, 5) };
   }
 }
