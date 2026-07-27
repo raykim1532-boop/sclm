@@ -18,8 +18,8 @@
 ## 주요 구조
 - `web/functions/api/` — Pages Functions(파일 기반 라우팅). 앱 비밀번호(Bearer) 인증.
   - `_auth.js`(공용 인증), `health.js`(클라우드 감지 핑), `data.js`(상태 load/save), `snapshots.js`(D1 백업/복원)
-  - `google/*` — 구글 캘린더 OAuth + 양방향 동기화(생성/수정/삭제). 전용 "SCLM" 구글 캘린더에만 반영.
-  - `push/*` — 웹푸시(aes128gcm+VAPID): `subscribe`, `test`, `run-daily`, `_webpush.js`, `_send.js`. `public/sw.js`=서비스워커.
+  - `google/*` — 구글 OAuth(`_util.js`, 스코프 `calendar`+`spreadsheets`) + 캘린더 양방향 동기화(`sync.js`, 전용 "SCLM" 캘린더) + **시트 양방향 동기화**(`_sheets.js`, `sheet-config.js` 대상시트 저장, `sheet-sync.js` 병합). 시트 동기화는 각 행 `SCLM_ID` 열로 매칭, 스냅샷 기준 3-way 병합(충돌 시 시트 우선), 공용 `runSheetSync(env)`를 엔드포인트와 `push/run-daily`가 함께 사용.
+  - `push/*` — 웹푸시(aes128gcm+VAPID) + 카카오 '나에게 보내기': `subscribe`, `test`, `run-daily`(알림 전 `runSheetSync`로 시트 먼저 동기화), `kakao-test`, `_webpush.js`, `_send.js`, `_kakao.js`. `public/sw.js`=서비스워커.
 - `web/wrangler.toml` — D1 바인딩(`DB` = scheduler-db). `web/schema.sql`, `web/seed.sql`.
 - 데이터 스키마(D1 documents id='main' JSON): `{ settings, projects, events, todos, channels, tasks }`. 실제 업무는 `todos`. `tasks`는 미사용(칸반이 todos 기반).
 

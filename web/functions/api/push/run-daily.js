@@ -4,6 +4,7 @@
 import { authed } from '../_auth.js';
 import { sendToAll, computeSummary } from './_send.js';
 import { kakaoConfigured, sendKakaoMessages, buildKakaoMessages } from './_kakao.js';
+import { runSheetSync } from '../google/sheet-sync.js';
 
 function allowed(context) {
   const secret = context.env.CRON_SECRET;
@@ -16,11 +17,15 @@ export async function onRequestPost(context) {
   const { env } = context;
   if (!allowed(context)) return new Response(JSON.stringify({ error: 'unauthorized' }), { status: 401 });
 
+  // 0) 구글 시트가 연결돼 있으면 알림 전에 먼저 동기화(앱을 안 켜도 최신 시트 기준으로 알림)
+  let sheet = { skipped: 'not_run' };
+  try { sheet = await runSheetSync(env); } catch (e) { sheet = { error: String((e && e.message) || e).slice(0, 200) }; }
+
   const s = await computeSummary(env);
 
   // 알릴 것이 없으면(지연·오늘·임박 모두 0) 발송하지 않음
   if (s.overdue === 0 && s.dueToday === 0 && s.upcoming === 0) {
-    return Response.json({ ok: true, skipped: 'nothing_due', summary: summaryCounts(s) });
+    return Response.json({ ok: true, skipped: 'nothing_due', sheet, summary: summaryCounts(s) });
   }
 
   // 1) 웹푸시 (지연/오늘/임박 요약)
@@ -47,7 +52,7 @@ export async function onRequestPost(context) {
     }
   }
 
-  return Response.json({ ok: true, push, kakao, parts: messages.length, summary: summaryCounts(s) });
+  return Response.json({ ok: true, push, kakao, sheet, parts: messages.length, summary: summaryCounts(s) });
 }
 
 function summaryCounts(s) {

@@ -1251,6 +1251,25 @@ html[data-theme="dark"] .dash-alert.warn { background: #f2994a26; }
         <p class="hint" id="googleSyncResult" style="display:none;white-space:pre-line"></p>
       </div>
 
+      <div class="settings-card hidden" id="sheetCard">
+        <h2>구글 시트 동기화</h2>
+        <div class="settings-row">
+          <span id="sheetStatusText">상태 확인 중…</span>
+          <div class="sync-btn-group">
+            <button class="btn btn-primary hidden" id="sheetSyncBtn">지금 동기화</button>
+          </div>
+        </div>
+        <div class="settings-row">
+          <input type="text" id="sheetUrlInput" class="f-link-input" placeholder="구글 시트 URL 붙여넣기 (https://docs.google.com/spreadsheets/d/…)" style="flex:1;min-width:0" />
+          <button class="btn" id="sheetSaveBtn">시트 저장</button>
+        </div>
+        <div class="settings-row" id="sheetAutoRow" style="display:none">
+          <label class="sheet-clear-label"><input type="checkbox" id="sheetAutoSync" /> 자동 동기화 (앱 열 때 + 15분마다)</label>
+        </div>
+        <p class="hint">구글 시트(업무 트래커)와 <b>양방향 동기화</b>합니다. 각 행 오른쪽 <b>SCLM_ID</b> 열은 앱이 행을 알아보는 키라 <b>지우거나 편집하지 마세요</b>. 같은 항목을 양쪽에서 동시에 고치면 <b>시트 값이 우선</b>합니다. 위 구글 캘린더 연결이 먼저 필요합니다.</p>
+        <p class="hint" id="sheetSyncResult" style="display:none;white-space:pre-line"></p>
+      </div>
+
       <div class="settings-card hidden" id="pushCard">
         <h2>푸시 알림</h2>
         <div class="settings-row">
@@ -1998,7 +2017,7 @@ async function init() {
   setupModal();
   setupScrollTop();
   renderAll();
-  if (cloudMode) { setupCloudUI(); setupGoogle(); setupBackup(); setupPush(); }
+  if (cloudMode) { setupCloudUI(); setupGoogle(); setupSheet(); setupBackup(); setupPush(); }
 }
 
 /* ---------- 푸시 알림 (클라우드 전용, Web Push) ---------- */
@@ -2278,6 +2297,102 @@ async function setupGoogle() {
     toast(msg);
     history.replaceState({}, '', location.pathname);
   }
+  refresh();
+}
+
+/* ---------- 구글 시트 양방향 동기화 ---------- */
+async function setupSheet() {
+  const card = document.getElementById('sheetCard');
+  if (!card || !window.CloudSync || !CloudSync.authFetch) return;
+  card.classList.remove('hidden');
+
+  const statusText = document.getElementById('sheetStatusText');
+  const syncBtn = document.getElementById('sheetSyncBtn');
+  const urlInput = document.getElementById('sheetUrlInput');
+  const saveBtn = document.getElementById('sheetSaveBtn');
+  const resultEl = document.getElementById('sheetSyncResult');
+  const autoRow = document.getElementById('sheetAutoRow');
+  const autoChk = document.getElementById('sheetAutoSync');
+
+  let configured = false;
+
+  async function refresh() {
+    try {
+      const r = await CloudSync.authFetch('/api/google/sheet-config');
+      const j = await r.json();
+      configured = !!j.configured;
+      if (configured && j.spreadsheetId) {
+        urlInput.value = `https://docs.google.com/spreadsheets/d/${j.spreadsheetId}/edit#gid=${j.gid || 0}`;
+        const when = j.lastSync ? new Date(j.lastSync).toLocaleString() : '없음';
+        statusText.textContent = `✅ 시트 연결됨${j.title ? ' (' + j.title + ')' : ''} · 마지막 동기화: ${when}`;
+        syncBtn.classList.remove('hidden');
+        if (autoRow) autoRow.style.display = '';
+      } else {
+        statusText.textContent = '시트 URL을 저장하면 동기화할 수 있어요';
+        syncBtn.classList.add('hidden');
+        if (autoRow) autoRow.style.display = 'none';
+      }
+    } catch (e) { statusText.textContent = '상태 확인 실패'; }
+  }
+
+  async function runSync(silent) {
+    try {
+      const r = await CloudSync.authFetch('/api/google/sheet-sync', { method: 'POST' });
+      const j = await r.json();
+      if (j.ok) {
+        const changed = j.pushed + j.pulled + j.deletedLocal + j.deletedRemote;
+        if (changed > 0) { state = await window.api.loadData(); applyTheme(); renderAll(); }
+        let summary = `보냄 ${j.pushed} · 가져옴 ${j.pulled} · 삭제 ${j.deletedLocal + j.deletedRemote}`;
+        if (j.conflicts && j.conflicts.length) summary += `\n⚠ 충돌(시트값 적용) ${j.conflicts.length}건: ${j.conflicts.slice(0, 3).join(', ')}`;
+        if (!silent || changed > 0) toast('시트 동기화 — 보냄 ' + j.pushed + ' · 가져옴 ' + j.pulled);
+        if (resultEl) { resultEl.style.display = 'block'; resultEl.textContent = '마지막 동기화: ' + summary; }
+      } else if (!silent) {
+        const msg = j.error === 'not_connected' ? '구글 캘린더를 먼저 연결해주세요'
+          : j.error === 'no_sheet_configured' ? '시트 URL을 먼저 저장해주세요'
+          : (j.error || '');
+        toast('시트 동기화 실패: ' + msg);
+        if (resultEl) { resultEl.style.display = 'block'; resultEl.textContent = '실패: ' + msg; }
+      }
+    } catch (e) { if (!silent) toast('시트 동기화 요청 실패'); }
+  }
+
+  saveBtn.onclick = async () => {
+    const url = (urlInput.value || '').trim();
+    if (!url) { toast('시트 URL을 입력해주세요'); return; }
+    saveBtn.disabled = true;
+    try {
+      const r = await CloudSync.authFetch('/api/google/sheet-config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ url }) });
+      const j = await r.json();
+      if (j.ok) { toast('시트를 저장했어요'); await refresh(); }
+      else toast('저장 실패: ' + (j.error || ''));
+    } catch (e) { toast('저장 요청 실패'); }
+    saveBtn.disabled = false;
+  };
+
+  syncBtn.onclick = async () => {
+    syncBtn.disabled = true;
+    const prev = statusText.textContent;
+    statusText.textContent = '🔄 시트 동기화 중…';
+    if (resultEl) resultEl.style.display = 'none';
+    await runSync(false);
+    syncBtn.disabled = false;
+    await refresh();
+  };
+
+  if (autoChk) {
+    autoChk.checked = localStorage.getItem('sheetAutoSync') === '1';
+    autoChk.onchange = () => {
+      localStorage.setItem('sheetAutoSync', autoChk.checked ? '1' : '0');
+      if (autoChk.checked) runSync(true);
+    };
+  }
+  if (!setupSheet._autoStarted) {
+    setupSheet._autoStarted = true;
+    const autoOn = () => localStorage.getItem('sheetAutoSync') === '1';
+    setTimeout(() => { if (configured && autoOn()) runSync(true); }, 5000);
+    setInterval(() => { if (configured && autoOn()) runSync(true); }, 15 * 60 * 1000);
+  }
+
   refresh();
 }
 

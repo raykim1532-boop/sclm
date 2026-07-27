@@ -62,4 +62,5 @@ export async function getAccessToken(env) {
   return j.access_token ? { access_token: j.access_token, expires_in: j.expires_in } : null;
 }
 
-export const GOOGLE_SCOPE = 'https://www.googleapis.com/auth/calendar';
+// 캘린더 + 스프레드시트(양방향 시트 동기화). 스코프를 바꾸면 구글 재연결(재동의) 1회 필요.
+export const GOOGLE_SCOPE = 'https://www.googleapis.com/auth/calendar https://www.googleapis.com/auth/spreadsheets';
