@@ -2,7 +2,7 @@
 // 전송 로직 한 곳. subscribe/test/run-daily 및 별도 Cron 워커에서 공용으로 사용.
 
 // VAPID 공개키(공개값). 개인키(JWK)는 env.VAPID_PRIVATE_KEY(secret)로 주입.
-export const VAPID_PUBLIC = 'BAAEnE9TX5dzdS79zuw2AJcANU-HQmCZWDb7paanIbjdIKSmwT0IwONF3RYSNAcHQ8EYrSgYuCB9CZLwOi_kDmU';
+export const VAPID_PUBLIC = 'BERIQAI4bVo7Wr1uOIg_zZv6nXtl9xXSyl0VjNOp3BIfxD7dRPFeFkq1YeQ9YTctNPxrJx_qWcHnZE-TJb5cot8';
 
 const enc = new TextEncoder();
 
