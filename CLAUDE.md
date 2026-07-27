@@ -13,7 +13,11 @@
 
 ## 배포물이 2개다 (중요)
 1. **Pages `sclm`** — 앱 + Functions(`web/functions/api/**`). 배포: `cd web && npm run deploy`.
-2. **별도 Worker `sclm-push-cron`** (`web/push-cron/`) — 매일 08:00 KST(cron `0 23 * * *`)에 Pages `/api/push/run-daily`를 `X-Cron-Secret`으로 호출해 마감/지연 요약 푸시 발송. 배포: `cd web/push-cron && npx wrangler deploy`.
+2. **별도 Worker `sclm-push-cron`** (`web/push-cron/`) — 매일 08:00 KST(cron `0 23 * * *`)에 **두 엔드포인트를 각각** `X-Cron-Secret`으로 호출. 배포: `cd web/push-cron && npx wrangler deploy`.
+   - `/api/push/run-daily` — 시트 동기화 + 마감/지연 요약 푸시·카카오 발송
+   - `/api/google/sync` — 캘린더 양방향 동기화(`truncated`면 최대 3회 이어서). URL은 `CAL_URL` 또는 `TARGET_URL`에서 자동 유추.
+   - ⚠️ 요청을 나눈 이유: Cloudflare **서브리퀘스트 한도(요청당 50)**를 각각 따로 쓰기 위해. 한 요청에 합치지 말 것.
+   - 클라이언트의 15분 주기 폴링은 **제거**됨(앱 열 때 1회 + 수동 버튼만). 정기 갱신은 이 크론이 담당하므로, 탭을 안 켜도 캘린더가 최신 유지된다.
 
 ## 주요 구조
 - `web/functions/api/` — Pages Functions(파일 기반 라우팅). 앱 비밀번호(Bearer) 인증.
