@@ -18,7 +18,7 @@
 ## 주요 구조
 - `web/functions/api/` — Pages Functions(파일 기반 라우팅). 앱 비밀번호(Bearer) 인증.
   - `_auth.js`(공용 인증), `health.js`(클라우드 감지 핑), `data.js`(상태 load/save), `snapshots.js`(D1 백업/복원)
-  - `google/*` — 구글 OAuth(`_util.js`, 스코프 `calendar`+`spreadsheets`) + 캘린더 양방향 동기화(`sync.js`, 전용 "SCLM" 캘린더) + **시트 양방향 동기화**(`_sheets.js`, `sheet-config.js` 대상시트 저장, `sheet-sync.js` 병합). 시트 동기화는 각 행 `SCLM_ID` 열로 매칭, 스냅샷 기준 3-way 병합(충돌 시 시트 우선), 공용 `runSheetSync(env)`를 엔드포인트와 `push/run-daily`가 함께 사용.
+  - `google/*` — 구글 OAuth(`_util.js`, 스코프 `calendar`+`spreadsheets`) + 캘린더 양방향 동기화(`sync.js`, 전용 "SCLM" 캘린더) + **시트 읽기 전용 가져오기**(`_sheets.js`, `sheet-config.js` 대상시트 저장, `sheet-sync.js`). 시트 동기화는 **시트에 쓰지 않고**(수식·구조 보존) 고정 열 위치로 파싱, 헤더 구조 가드 후 `todos`를 시트 기준으로 교체(id=등록일+업무내용 해시로 안정, `googleId` 보존). 공용 `runSheetSync(env)`를 엔드포인트와 `push/run-daily`가 함께 사용. ⚠️ 과거 양방향(full-rewrite)이 실사용 시트를 훼손해 읽기 전용으로 전환함.
   - `push/*` — 웹푸시(aes128gcm+VAPID) + 카카오 '나에게 보내기': `subscribe`, `test`, `run-daily`(알림 전 `runSheetSync`로 시트 먼저 동기화), `kakao-test`, `_webpush.js`, `_send.js`, `_kakao.js`. `public/sw.js`=서비스워커.
 - `web/wrangler.toml` — D1 바인딩(`DB` = scheduler-db). `web/schema.sql`, `web/seed.sql`.
 - 데이터 스키마(D1 documents id='main' JSON): `{ settings, projects, events, todos, channels, tasks }`. 실제 업무는 `todos`. `tasks`는 미사용(칸반이 todos 기반).
