@@ -452,6 +452,41 @@ html[data-theme="dark"] .fc-daygrid-dot-event:hover { background: #1c1c1c !impor
 }
 .scroll-top:hover { border-color: var(--accent); transform: translateY(-2px); }
 
+/* ---------- AI 비서 ---------- */
+.asst-fab {
+  position: fixed; right: 26px; bottom: 78px; z-index: 61;
+  width: 52px; height: 52px; border-radius: 50%;
+  border: none; background: var(--accent); color: #fff;
+  font-size: 24px; line-height: 1; cursor: pointer;
+  box-shadow: 0 4px 14px rgba(26,115,232,0.4);
+  transition: transform 0.15s;
+}
+.asst-fab:hover { transform: translateY(-2px) scale(1.05); }
+.asst-panel {
+  position: fixed; right: 26px; bottom: 26px; z-index: 62;
+  width: 380px; max-width: calc(100vw - 32px); height: 520px; max-height: calc(100vh - 52px);
+  display: flex; flex-direction: column;
+  background: var(--surface); border: 1px solid var(--border); border-radius: 14px;
+  box-shadow: var(--shadow-pop); overflow: hidden;
+}
+.asst-head {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 12px 14px; border-bottom: 1px solid var(--border);
+  font-weight: 700; font-size: 14px; background: var(--surface-2);
+}
+.asst-msgs { flex: 1; overflow-y: auto; padding: 14px; display: flex; flex-direction: column; gap: 9px; }
+.asst-msg { max-width: 82%; padding: 8px 12px; border-radius: 12px; font-size: 13.5px; line-height: 1.5; white-space: pre-wrap; word-break: break-word; }
+.asst-msg.user { align-self: flex-end; background: var(--accent); color: #fff; border-bottom-right-radius: 4px; }
+.asst-msg.assistant { align-self: flex-start; background: var(--surface-2); color: var(--text); border-bottom-left-radius: 4px; }
+.asst-input-row { display: flex; gap: 8px; padding: 10px; border-top: 1px solid var(--border); }
+.asst-input { flex: 1; min-width: 0; border: 1px solid var(--border); background: var(--bg); color: var(--text); border-radius: 8px; padding: 9px 11px; font-size: 13.5px; font-family: inherit; }
+.asst-input:focus { outline: none; border-color: var(--accent); }
+.asst-input-row .btn-primary { flex-shrink: 0; }
+@media (max-width: 480px) {
+  .asst-panel { right: 8px; bottom: 8px; width: calc(100vw - 16px); height: calc(100vh - 80px); }
+  .asst-fab { right: 16px; bottom: 70px; }
+}
+
 .select {
   border: 1px solid var(--border);
   background: var(--surface);
@@ -1455,6 +1490,20 @@ html[data-theme="dark"] .dash-alert.warn { background: #f2994a26; }
 
 <button id="scrollTopBtn" class="scroll-top hidden" title="맨 위로">↑</button>
 
+<!-- AI 비서 (클라우드 전용) -->
+<button id="asstFab" class="asst-fab hidden" title="AI 비서">🤖</button>
+<div id="asstPanel" class="asst-panel hidden">
+  <div class="asst-head">
+    <span>🤖 일정 비서</span>
+    <button id="asstClose" class="icon-btn" title="닫기">✕</button>
+  </div>
+  <div id="asstMsgs" class="asst-msgs"></div>
+  <div class="asst-input-row">
+    <input type="text" id="asstInput" class="asst-input" placeholder="예) 다음 주 화 오후 미팅 잡아줘 / 내일 뭐 있어?" />
+    <button id="asstSend" class="btn btn-primary">전송</button>
+  </div>
+</div>
+
 <div id="toast" class="toast hidden"></div>
 
 <script>
@@ -2109,7 +2158,64 @@ async function init() {
   setupModal();
   setupScrollTop();
   renderAll();
-  if (cloudMode) { setupCloudUI(); setupGoogle(); setupSheet(); setupBackup(); setupPush(); }
+  if (cloudMode) { setupCloudUI(); setupGoogle(); setupSheet(); setupBackup(); setupPush(); setupAssistant(); }
+}
+
+/* ---------- AI 일정 비서 (클라우드 전용) ---------- */
+let asstHistory = [];
+function setupAssistant() {
+  const fab = document.getElementById('asstFab');
+  const panel = document.getElementById('asstPanel');
+  if (!fab || !panel || !window.CloudSync || !CloudSync.authFetch) return;
+  fab.classList.remove('hidden');
+  const msgs = document.getElementById('asstMsgs');
+  const input = document.getElementById('asstInput');
+  const sendBtn = document.getElementById('asstSend');
+
+  const open = () => {
+    panel.classList.remove('hidden'); fab.classList.add('hidden');
+    if (!msgs.children.length) addAsstMsg('assistant', '안녕하세요! 일정·할 일을 도와드릴게요.\n예) "다음 주 화 오후 미팅 잡아줘", "내일 뭐 있어?", "쿠팡 정산 자료 준비 할일 추가"');
+    setTimeout(() => input.focus(), 50);
+  };
+  const close = () => { panel.classList.add('hidden'); fab.classList.remove('hidden'); };
+  fab.onclick = open;
+  document.getElementById('asstClose').onclick = close;
+
+  function addAsstMsg(role, text) {
+    const d = document.createElement('div');
+    d.className = 'asst-msg ' + role;
+    d.textContent = text;
+    msgs.appendChild(d);
+    msgs.scrollTop = msgs.scrollHeight;
+    return d;
+  }
+
+  async function send() {
+    const text = input.value.trim();
+    if (!text || sendBtn.disabled) return;
+    input.value = '';
+    addAsstMsg('user', text);
+    asstHistory.push({ role: 'user', content: text });
+    const typing = addAsstMsg('assistant', '…');
+    sendBtn.disabled = true; input.disabled = true;
+    try {
+      const r = await CloudSync.authFetch('/api/assistant', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: text, history: asstHistory.slice(-8) })
+      });
+      const j = await r.json();
+      const reply = j.reply || '(응답 없음)';
+      typing.textContent = reply;
+      asstHistory.push({ role: 'assistant', content: reply });
+      if (asstHistory.length > 16) asstHistory = asstHistory.slice(-16);
+      if (j.changed) { state = await window.api.loadData(); renderAll(); }
+    } catch (e) {
+      typing.textContent = '⚠ 연결 실패 — 잠시 후 다시 시도해주세요.';
+    }
+    sendBtn.disabled = false; input.disabled = false; input.focus();
+  }
+  sendBtn.onclick = send;
+  input.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); send(); } });
 }
 
 /* ---------- 푸시 알림 (클라우드 전용, Web Push) ---------- */
