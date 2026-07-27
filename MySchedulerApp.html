@@ -190,7 +190,20 @@ html, body {
 .vault-pw-row input { flex: 1; min-width: 0; }
 .vault-del { color: #d50000; }
 #view-vault .channel-toolbar { gap: 12px; align-items: center; }
-#vaultOpen .settings-card { max-width: 960px; }
+/* 목록 카드도 화면 가운데로 (잠금해제 카드와 같은 배치) */
+#vaultOpen .settings-card { max-width: 960px; margin-left: auto; margin-right: auto; padding: 20px 22px; }
+/* 검색창 확대 + 앱 테마 적용 (기본 흰 배경이 다크모드에서 튄다) */
+#vaultSearch {
+  padding: 12px 16px;
+  font-size: 15px;
+  font-family: inherit;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface-2);
+  color: var(--text);
+}
+#vaultSearch:focus { outline: none; border-color: var(--accent); }
+#view-vault .channel-toolbar .btn { padding: 11px 18px; font-size: 14px; }
 .vault-list { display: flex; flex-direction: column; gap: 13px; margin-top: 20px; }
 .vault-item { display: flex; align-items: center; gap: 18px; padding: 20px 20px; border: 1px solid var(--border); border-radius: 14px; cursor: pointer; transition: border-color .12s, background .12s; }
 .vault-item:hover { border-color: var(--accent); background: rgba(127,127,127,.05); }
