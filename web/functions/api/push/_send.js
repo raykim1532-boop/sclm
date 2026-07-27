@@ -45,6 +45,7 @@ export async function computeSummary(env) {
 }
 
 // 모든 구독에 발송. 404/410(만료)이면 삭제.
+// 403(VAPID 키 불일치)도 삭제한다 — 키 로테이션 이전에 등록된 구독은 현재 키로 영구히 발송 불가.
 export async function sendToAll(env, payload) {
   const subs = (await env.DB.prepare("SELECT endpoint, p256dh, auth FROM push_subs").all()).results || [];
   let sent = 0, removed = 0;
@@ -52,7 +53,7 @@ export async function sendToAll(env, payload) {
   for (const s of subs) {
     try {
       const r = await sendPush(env, s, payload);
-      if (r.status === 404 || r.status === 410) {
+      if (r.status === 404 || r.status === 410 || r.status === 403) {
         await env.DB.prepare("DELETE FROM push_subs WHERE endpoint = ?1").bind(s.endpoint).run();
         removed++;
       } else if (r.ok || r.status === 201) {
