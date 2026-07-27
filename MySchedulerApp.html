@@ -176,6 +176,22 @@ html, body {
 
 .view { display: none; }
 .view.active { display: block; }
+/* 계정 관리(금고) */
+.vault-form { display: flex; flex-direction: column; gap: 8px; max-width: 520px; }
+.vault-form input, .vault-form textarea { width: 100%; }
+.vault-pw-row { display: flex; gap: 8px; align-items: center; }
+.vault-pw-row input { flex: 1; min-width: 0; }
+.vault-del { color: #d50000; }
+.vault-list { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
+.vault-item { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; cursor: pointer; }
+.vault-item:hover { border-color: var(--accent); }
+.vault-item .vi-main { flex: 1; min-width: 0; }
+.vault-item .vi-site { font-weight: 600; font-size: 14px; }
+.vault-item .vi-sub { font-size: 12px; opacity: .7; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.vault-item .vi-cat { font-size: 11px; padding: 2px 7px; border-radius: 999px; background: var(--chip-bg, rgba(127,127,127,.15)); white-space: nowrap; }
+.vault-copy { border: 1px solid var(--border); border-radius: 8px; background: transparent; padding: 5px 9px; font-size: 12px; cursor: pointer; color: inherit; }
+.vault-copy:hover { border-color: var(--accent); }
+.vault-empty { padding: 24px; text-align: center; opacity: .6; font-size: 13px; }
 
 .view-header {
   display: flex;
@@ -1055,6 +1071,9 @@ html[data-theme="dark"] .dash-alert.warn { background: #f2994a26; }
       <button class="nav-btn" data-view="channels">
         <span class="nav-icon">🏷️</span> Channels
       </button>
+      <button class="nav-btn" data-view="vault">
+        <span class="nav-icon">🔐</span> 계정 관리
+      </button>
       <button class="nav-btn" data-view="settings">
         <span class="nav-icon">⚙️</span> Settings
       </button>
@@ -1206,6 +1225,69 @@ html[data-theme="dark"] .dash-alert.warn { background: #f2994a26; }
         <div class="settings-row" style="border:none;padding-top:10px;gap:8px">
           <input type="text" id="newChannelInput" placeholder="새 세부채널 이름 (예: 마리오아울렛)" />
           <button class="btn btn-primary" id="addChannelBtn">추가</button>
+        </div>
+      </div>
+    </section>
+
+    <section id="view-vault" class="view">
+      <div class="view-header">
+        <h1>계정 관리</h1>
+        <div class="view-header-actions">
+          <button class="btn hidden" id="vaultLockBtn">🔒 잠금</button>
+        </div>
+      </div>
+
+      <div class="settings-card hidden" id="vaultSetupCard">
+        <h2>🔐 금고 만들기</h2>
+        <p class="hint" style="margin-top:0">채널·몰 로그인 등 계정 정보를 <b>마스터 비밀번호로 암호화</b>해 보관합니다. 암·복호화는 <b>이 브라우저 안에서만</b> 일어나고 서버(D1)엔 암호문만 저장돼요. ⚠️ 마스터 비밀번호는 <b>어디에도 저장되지 않으며 잊으면 복구할 수 없습니다.</b></p>
+        <div class="vault-form">
+          <input type="password" id="vaultNewPw" placeholder="마스터 비밀번호 (8자 이상)" autocomplete="new-password" />
+          <input type="password" id="vaultNewPw2" placeholder="한 번 더 입력" autocomplete="new-password" />
+          <button class="btn btn-primary" id="vaultCreateBtn">금고 만들기</button>
+          <p class="hint" id="vaultSetupMsg" style="display:none"></p>
+        </div>
+      </div>
+
+      <div class="settings-card hidden" id="vaultUnlockCard">
+        <h2>🔒 잠긴 금고</h2>
+        <p class="hint" style="margin-top:0">마스터 비밀번호를 입력해 잠금을 해제하세요.</p>
+        <div class="vault-form">
+          <div class="vault-pw-row">
+            <input type="password" id="vaultPw" placeholder="마스터 비밀번호" autocomplete="current-password" />
+            <button class="btn btn-primary" id="vaultUnlockBtn">잠금 해제</button>
+          </div>
+          <p class="hint" id="vaultUnlockMsg" style="display:none"></p>
+        </div>
+      </div>
+
+      <div class="hidden" id="vaultOpen">
+        <div class="settings-card">
+          <div class="channel-toolbar">
+            <span class="todo-count" id="vaultCount"></span>
+            <input type="text" id="vaultSearch" placeholder="🔍 사이트·아이디 검색" style="flex:1;min-width:120px" />
+            <button class="btn btn-primary" id="vaultAddBtn">+ 계정 추가</button>
+          </div>
+          <div id="vaultList" class="vault-list"></div>
+        </div>
+      </div>
+
+      <div class="settings-card hidden" id="vaultEditCard">
+        <h2 id="vaultEditTitle">계정 추가</h2>
+        <div class="vault-form">
+          <input type="text" id="vfSite" placeholder="사이트/서비스명 (예: 마리오아울렛 백오피스)" />
+          <input type="text" id="vfUrl" placeholder="URL (선택)" />
+          <input type="text" id="vfUser" placeholder="아이디" autocomplete="off" />
+          <div class="vault-pw-row">
+            <input type="password" id="vfPass" placeholder="비밀번호" autocomplete="off" />
+            <button type="button" class="btn" id="vfPassToggle" title="표시/숨김">👁</button>
+          </div>
+          <input type="text" id="vfCategory" placeholder="분류 (선택, 예: 정산·영업)" />
+          <textarea id="vfMemo" placeholder="메모 (선택)" rows="2" style="resize:vertical"></textarea>
+          <div class="settings-row" style="border:none;padding-top:6px;gap:8px">
+            <button class="btn btn-primary" id="vfSaveBtn">저장</button>
+            <button class="btn" id="vfCancelBtn">취소</button>
+            <button class="btn vault-del" id="vfDeleteBtn" style="margin-left:auto">삭제</button>
+          </div>
         </div>
       </div>
     </section>
@@ -1763,7 +1845,8 @@ window.FC_KO_LOCALE = {
       events: Array.isArray(d.events) ? d.events : [],
       todos: Array.isArray(d.todos) ? d.todos : [],
       channels: Array.isArray(d.channels) ? d.channels : uniqueChannels(d.todos),
-      tasks: Array.isArray(d.tasks) ? d.tasks : []
+      tasks: Array.isArray(d.tasks) ? d.tasks : [],
+      vault: d.vault || undefined // 계정 금고(암호문). 있으면 그대로 보존.
     };
   }
 
@@ -2396,6 +2479,179 @@ async function setupSheet() {
   refresh();
 }
 
+/* ---------- 계정 관리(금고): 마스터 비밀번호 클라이언트 암호화 ---------- */
+/* 암·복호화는 브라우저 안에서만. D1엔 암호문(state.vault)만 저장. 마스터 비번은 메모리에도 남기지 않음(CryptoKey만 보관). */
+const VAULT_ITER = 210000;
+let vaultKey = null;        // 잠금 해제 중일 때의 CryptoKey (비추출)
+let vaultSalt = null;       // Uint8Array
+let vaultIter = VAULT_ITER;
+let vaultEntries = [];      // 복호화된 항목(메모리 전용)
+let vaultEditId = null;
+let vaultWired = false;
+
+function vB64e(buf) { return btoa(String.fromCharCode.apply(null, new Uint8Array(buf))); }
+function vB64d(s) { return Uint8Array.from(atob(s), (c) => c.charCodeAt(0)); }
+async function vaultDeriveKey(password, salt, iter) {
+  const km = await crypto.subtle.importKey('raw', new TextEncoder().encode(password), 'PBKDF2', false, ['deriveKey']);
+  return crypto.subtle.deriveKey(
+    { name: 'PBKDF2', salt, iterations: iter, hash: 'SHA-256' },
+    km, { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']
+  );
+}
+async function vaultSave() {
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const pt = new TextEncoder().encode(JSON.stringify(vaultEntries));
+  const ct = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, vaultKey, pt);
+  state.vault = { v: 1, kdf: 'PBKDF2', iterations: vaultIter, salt: vB64e(vaultSalt), iv: vB64e(iv), ct: vB64e(ct) };
+  await window.api.saveData(state);
+}
+function vaultLock() {
+  vaultKey = null; vaultSalt = null; vaultEntries = []; vaultEditId = null;
+  renderVault();
+}
+
+function setupVault() {
+  if (vaultWired) return;
+  vaultWired = true;
+  const $ = (id) => document.getElementById(id);
+
+  $('vaultCreateBtn').onclick = async () => {
+    const pw = $('vaultNewPw').value, pw2 = $('vaultNewPw2').value;
+    const msg = $('vaultSetupMsg');
+    const warn = (t) => { msg.style.display = 'block'; msg.style.color = '#d50000'; msg.textContent = t; };
+    if (pw.length < 8) return warn('마스터 비밀번호는 8자 이상이어야 해요.');
+    if (pw !== pw2) return warn('두 비밀번호가 일치하지 않아요.');
+    vaultSalt = crypto.getRandomValues(new Uint8Array(16));
+    vaultIter = VAULT_ITER;
+    vaultKey = await vaultDeriveKey(pw, vaultSalt, vaultIter);
+    vaultEntries = [];
+    await vaultSave();
+    $('vaultNewPw').value = ''; $('vaultNewPw2').value = ''; msg.style.display = 'none';
+    toast('금고를 만들었어요 🔐');
+    renderVault();
+  };
+
+  $('vaultUnlockBtn').onclick = async () => {
+    const pw = $('vaultPw').value;
+    const msg = $('vaultUnlockMsg');
+    if (!pw) return;
+    try {
+      const b = state.vault;
+      const salt = vB64d(b.salt), iv = vB64d(b.iv), ct = vB64d(b.ct);
+      const key = await vaultDeriveKey(pw, salt, b.iterations || VAULT_ITER);
+      const pt = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, key, ct); // 틀리면 예외
+      vaultEntries = JSON.parse(new TextDecoder().decode(pt));
+      vaultKey = key; vaultSalt = salt; vaultIter = b.iterations || VAULT_ITER;
+      $('vaultPw').value = ''; msg.style.display = 'none';
+      renderVault();
+    } catch (e) {
+      msg.style.display = 'block'; msg.style.color = '#d50000';
+      msg.textContent = '비밀번호가 틀렸어요.';
+    }
+  };
+  $('vaultPw').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('vaultUnlockBtn').click(); });
+
+  $('vaultLockBtn').onclick = vaultLock;
+  $('vaultAddBtn').onclick = () => openVaultEdit(null);
+  $('vaultSearch').addEventListener('input', renderVaultList);
+
+  $('vfPassToggle').onclick = () => {
+    const el = $('vfPass'); el.type = el.type === 'password' ? 'text' : 'password';
+  };
+  $('vfCancelBtn').onclick = () => { $('vaultEditCard').classList.add('hidden'); $('vaultOpen').classList.remove('hidden'); };
+  $('vfDeleteBtn').onclick = async () => {
+    if (!vaultEditId) return;
+    if (!confirm('이 계정을 삭제할까요?')) return;
+    vaultEntries = vaultEntries.filter((e) => e.id !== vaultEditId);
+    await vaultSave();
+    toast('삭제했어요');
+    $('vaultEditCard').classList.add('hidden'); renderVault();
+  };
+  $('vfSaveBtn').onclick = async () => {
+    const site = $('vfSite').value.trim();
+    if (!site) { toast('사이트/서비스명을 입력해주세요'); return; }
+    const entry = {
+      id: vaultEditId || ('v_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6)),
+      site, url: $('vfUrl').value.trim(), user: $('vfUser').value, pass: $('vfPass').value,
+      category: $('vfCategory').value.trim(), memo: $('vfMemo').value, updatedAt: Date.now(),
+    };
+    if (vaultEditId) {
+      const i = vaultEntries.findIndex((e) => e.id === vaultEditId);
+      if (i >= 0) vaultEntries[i] = entry; else vaultEntries.push(entry);
+    } else vaultEntries.push(entry);
+    await vaultSave();
+    toast('저장했어요');
+    $('vaultEditCard').classList.add('hidden'); renderVault();
+  };
+}
+
+function openVaultEdit(id) {
+  const $ = (id) => document.getElementById(id);
+  vaultEditId = id;
+  const e = id ? vaultEntries.find((x) => x.id === id) : null;
+  $('vaultEditTitle').textContent = e ? '계정 편집' : '계정 추가';
+  $('vfSite').value = e ? e.site : '';
+  $('vfUrl').value = e ? (e.url || '') : '';
+  $('vfUser').value = e ? (e.user || '') : '';
+  $('vfPass').value = e ? (e.pass || '') : '';
+  $('vfPass').type = 'password';
+  $('vfCategory').value = e ? (e.category || '') : '';
+  $('vfMemo').value = e ? (e.memo || '') : '';
+  $('vfDeleteBtn').style.display = e ? '' : 'none';
+  $('vaultOpen').classList.add('hidden');
+  $('vaultEditCard').classList.remove('hidden');
+  $('vfSite').focus();
+}
+
+async function vaultCopy(text, label) {
+  try { await navigator.clipboard.writeText(text || ''); toast((label || '') + ' 복사됨'); }
+  catch (e) { toast('복사 실패 — 브라우저 권한을 확인해주세요'); }
+}
+
+function renderVault() {
+  setupVault();
+  const $ = (id) => document.getElementById(id);
+  const has = !!(state && state.vault && state.vault.ct);
+  const unlocked = !!vaultKey;
+  $('vaultSetupCard').classList.toggle('hidden', has);
+  $('vaultUnlockCard').classList.toggle('hidden', !(has && !unlocked));
+  $('vaultOpen').classList.toggle('hidden', !unlocked);
+  $('vaultLockBtn').classList.toggle('hidden', !unlocked);
+  if (!unlocked) $('vaultEditCard').classList.add('hidden');
+  if (unlocked) renderVaultList();
+}
+
+function renderVaultList() {
+  const list = document.getElementById('vaultList');
+  const q = (document.getElementById('vaultSearch').value || '').trim().toLowerCase();
+  const items = vaultEntries
+    .filter((e) => !q || (e.site + ' ' + (e.user || '') + ' ' + (e.category || '')).toLowerCase().includes(q))
+    .sort((a, b) => (a.site || '').localeCompare(b.site || '', 'ko'));
+  document.getElementById('vaultCount').textContent = vaultEntries.length + '개';
+  if (!items.length) {
+    list.innerHTML = '<div class="vault-empty">' + (vaultEntries.length ? '검색 결과가 없어요.' : '아직 저장된 계정이 없어요. “+ 계정 추가”로 시작하세요.') + '</div>';
+    return;
+  }
+  list.innerHTML = '';
+  for (const e of items) {
+    const row = document.createElement('div');
+    row.className = 'vault-item';
+    const sub = [e.user ? ('👤 ' + e.user) : '', e.url || ''].filter(Boolean).join('  ·  ');
+    row.innerHTML =
+      '<div class="vi-main">'
+      + '<div class="vi-site">' + escapeHtml(e.site) + '</div>'
+      + (sub ? '<div class="vi-sub">' + escapeHtml(sub) + '</div>' : '')
+      + '</div>'
+      + (e.category ? '<span class="vi-cat">' + escapeHtml(e.category) + '</span>' : '')
+      + '<button class="vault-copy" data-act="user">아이디</button>'
+      + '<button class="vault-copy" data-act="pass">비번</button>';
+    row.querySelector('[data-act="user"]').onclick = (ev) => { ev.stopPropagation(); vaultCopy(e.user, '아이디'); };
+    row.querySelector('[data-act="pass"]').onclick = (ev) => { ev.stopPropagation(); vaultCopy(e.pass, '비밀번호'); };
+    row.onclick = () => openVaultEdit(e.id);
+    list.appendChild(row);
+  }
+}
+
 /* 맨 아래로 내려가면 나타나는 "위로 가기" 버튼 (스크롤 컨테이너는 .main) */
 function setupScrollTop() {
   const main = document.querySelector('.main');
@@ -2476,6 +2732,7 @@ function setupNav() {
       if (view === 'projects') renderKanban();
       if (view === 'channels') renderChannelSettings();
       if (view === 'dashboard') renderDashboard();
+      if (view === 'vault') renderVault();
     });
   });
 }
