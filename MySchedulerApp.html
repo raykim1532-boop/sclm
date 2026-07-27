@@ -209,6 +209,56 @@ html, body {
 .vault-empty { padding: 24px; text-align: center; opacity: .6; font-size: 13px; }
 @media (max-width: 620px) { .vault-item .vi-link { max-width: 120px; } .vault-copy { padding: 5px 8px; } }
 
+/* 금고 잠금해제 / 생성 카드 — 화면 가운데에 크게 */
+#vaultUnlockCard, #vaultSetupCard {
+  max-width: 560px;
+  margin: 56px auto 14px;
+  padding: 44px 40px;
+  border-radius: 16px;
+  text-align: center;
+}
+#vaultUnlockCard h2, #vaultSetupCard h2 {
+  font-size: 23px;
+  font-weight: 700;
+  color: var(--text);
+  text-transform: none;
+  letter-spacing: 0;
+  margin: 0 0 12px;
+}
+#vaultUnlockCard .hint, #vaultSetupCard .hint { font-size: 13.5px; line-height: 1.65; }
+#vaultSetupCard > .hint { text-align: left; } /* 긴 경고 문단은 왼쪽 정렬이 읽기 좋다 */
+#vaultUnlockCard .vault-form, #vaultSetupCard .vault-form {
+  max-width: 340px;
+  margin: 26px auto 0;
+  gap: 10px;
+}
+#vaultUnlockCard .vault-pw-row { flex-direction: column; gap: 10px; }
+/* 입력칸도 로그인 게이트와 같은 테마로 (기본 흰 배경이 다크모드에서 튄다) */
+#vaultUnlockCard .vault-form input, #vaultSetupCard .vault-form input {
+  padding: 12px 14px;
+  font-size: 15px;
+  text-align: center;
+  font-family: inherit;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+  color: var(--text);
+}
+#vaultUnlockCard .vault-form input:focus, #vaultSetupCard .vault-form input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+#vaultUnlockCard .vault-form .btn, #vaultSetupCard .vault-form .btn {
+  width: 100%;
+  justify-content: center;
+  padding: 12px 16px;
+  font-size: 15px;
+}
+@media (max-width: 620px) {
+  #vaultUnlockCard, #vaultSetupCard { margin-top: 24px; padding: 32px 22px; }
+  #vaultUnlockCard h2, #vaultSetupCard h2 { font-size: 20px; }
+}
+
 .view-header {
   display: flex;
   align-items: center;
