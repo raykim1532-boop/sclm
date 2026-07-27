@@ -3854,6 +3854,17 @@ function openTodoModal(todo, presets) {
         <div class="field"><label>등록일</label><input type="date" id="f-registered" value="${data.registeredDate || ''}" /></div>
         <div class="field"><label>마감(예정)일</label><input type="date" id="f-due" value="${data.dueDate || ''}" /></div>
       </div>
+      ${isNew ? `
+      <div class="field-row">
+        <div class="field"><label>반복 (마감일 기준)</label><select id="f-todo-recur">
+          <option value="none">없음</option>
+          <option value="daily">매일</option>
+          <option value="weekly">매주</option>
+          <option value="biweekly">2주마다</option>
+          <option value="monthly">매월</option>
+        </select></div>
+        <div class="field hidden" id="f-todo-recur-until-wrap"><label>반복 종료일</label><input type="date" id="f-todo-recur-until" /></div>
+      </div>` : (data.recurGroup ? '<div class="field"><span class="hint">🔁 반복 할일 중 하나입니다. 삭제 시 전체/개별 선택 가능.</span></div>' : '')}
       <div class="field-row">
         <div class="field"><label>진행상태</label>
           <select id="f-status">${TODO_STATUS_OPTIONS.map((s) => `<option value="${s}" ${todoStatus(data) === s ? 'selected' : ''}>${s}</option>`).join('')}</select>
@@ -3898,6 +3909,20 @@ function openTodoModal(todo, presets) {
       const links = [...document.querySelectorAll('#f-links .f-link-input')].map((i) => i.value.trim()).filter(Boolean);
       const link = links[0] || ''; // 구형 호환(구글 동기화 등)
       const done = status === '완료' || status === '지연완료';
+      const recur = isNew && document.getElementById('f-todo-recur') ? document.getElementById('f-todo-recur').value : 'none';
+      if (isNew && recur !== 'none') {
+        if (!dueDate) { toast('반복 할일은 마감일이 필요해요'); return false; }
+        const until = document.getElementById('f-todo-recur-until').value;
+        const dates = generateRecurrence(dueDate, recur, until);
+        const group = 'rg' + uid();
+        let no = nextNo;
+        dates.forEach((d) => {
+          state.todos.push({ id: uid(), no: no++, registeredDate, projectId, channel, priority, text, assignee, dueDate: d, status: '대기', needsCheck, completedDate: '', progress, remarks, links, link, done: false, recurGroup: group });
+        });
+        persist(); renderAll();
+        toast(`반복 할일 ${dates.length}개를 추가했어요`);
+        return true;
+      }
       if (isNew) {
         state.todos.push({ id: uid(), no: nextNo, registeredDate, projectId, channel, priority, text, assignee, dueDate, status, needsCheck, completedDate, progress, remarks, links, link, done });
       } else {
@@ -3907,7 +3932,17 @@ function openTodoModal(todo, presets) {
       return true;
     },
     onDelete: () => {
-      state.todos = state.todos.filter((x) => x.id !== todo.id);
+      if (todo.recurGroup) {
+        const cnt = state.todos.filter((x) => x.recurGroup === todo.recurGroup).length;
+        if (cnt > 1 && confirm(`반복 할일입니다. 전체 ${cnt}개를 삭제할까요?\n(확인=전체 / 취소=이 항목 1개만)`)) {
+          state.todos = state.todos.filter((x) => x.recurGroup !== todo.recurGroup);
+          toast(`반복 할일 ${cnt}개를 삭제했어요`);
+        } else {
+          state.todos = state.todos.filter((x) => x.id !== todo.id);
+        }
+      } else {
+        state.todos = state.todos.filter((x) => x.id !== todo.id);
+      }
       persist(); renderAll();
     },
     onOpen: () => {
@@ -3920,6 +3955,13 @@ function openTodoModal(todo, presets) {
         if (rows.length > 1) e.target.closest('.link-row').remove();
         else box.querySelector('.f-link-input').value = '';
       });
+      const recur = document.getElementById('f-todo-recur');
+      if (recur) {
+        const wrap = document.getElementById('f-todo-recur-until-wrap');
+        const sync = () => wrap.classList.toggle('hidden', recur.value === 'none');
+        sync();
+        recur.addEventListener('change', sync);
+      }
     }
   });
 }

@@ -95,6 +95,35 @@ const FUNCTIONS = [
       properties: { text_contains: { type: 'STRING', description: '완료할 할 일 내용(부분 일치)' } },
       required: ['text_contains']
     }
+  },
+  {
+    name: 'update_todo',
+    description: '내용이 일치하는 할 일의 상태·마감일·우선순위·진행사항을 수정한다. "미루기/변경/진행중으로" 등에 사용.',
+    parameters: {
+      type: 'OBJECT',
+      properties: {
+        text_contains: { type: 'STRING', description: '수정할 할 일 내용(부분 일치)' },
+        new_status: { type: 'STRING', enum: ['대기', '진행중', '완료', '지연완료', '보류'] },
+        new_due_date: { type: 'STRING', description: '새 마감일 YYYY-MM-DD' },
+        new_priority: { type: 'STRING', enum: ['긴급', '중요', '보통'] },
+        progress_note: { type: 'STRING', description: '진행사항에 덧붙일 메모' }
+      },
+      required: ['text_contains']
+    }
+  },
+  {
+    name: 'delete_todo',
+    description: '내용이 일치하는 할 일을 삭제한다.',
+    parameters: {
+      type: 'OBJECT',
+      properties: { text_contains: { type: 'STRING', description: '삭제할 할 일 내용(부분 일치)' } },
+      required: ['text_contains']
+    }
+  },
+  {
+    name: 'weekly_report',
+    description: '주간 리포트용 데이터를 만든다. 이번 주 완료 / 다음 주 마감 예정 / 지연 항목을 반환. "이번 주 한 일 정리해줘/주간보고 써줘"에 사용.',
+    parameters: { type: 'OBJECT', properties: { week_offset: { type: 'NUMBER', description: '0=이번주(기본), -1=지난주' } } }
   }
 ];
 
@@ -160,6 +189,42 @@ function runTool(name, input, s) {
     const t = cand[0]; t.status = '완료'; t.done = true; if (!t.completedDate) t.completedDate = kstToday();
     return { changed: true, result: { 완료처리: t.text } };
   }
+  if (name === 'update_todo') {
+    const q = (input.text_contains || '').toLowerCase();
+    const cand = s.todos.filter((t) => (t.text || '').toLowerCase().includes(q));
+    if (!cand.length) return { changed: false, result: { 오류: '일치하는 할 일을 찾지 못했어요' } };
+    if (cand.length > 1) return { changed: false, result: { 여러개: cand.slice(0, 5).map((t) => t.text), 안내: '더 구체적으로 지정해 주세요' } };
+    const t = cand[0]; const chg = {};
+    if (input.new_status) { t.status = input.new_status; t.done = isDone(t); if (t.done && !t.completedDate) t.completedDate = kstToday(); chg.상태 = input.new_status; }
+    if (input.new_due_date) { t.dueDate = input.new_due_date; chg.마감 = input.new_due_date; }
+    if (input.new_priority) { t.priority = input.new_priority; chg.우선순위 = input.new_priority; }
+    if (input.progress_note) { t.progress = (t.progress ? t.progress + '\n' : '') + input.progress_note; chg.진행 = input.progress_note; }
+    return { changed: Object.keys(chg).length > 0, result: { 수정됨: t.text, 변경: chg } };
+  }
+  if (name === 'delete_todo') {
+    const q = (input.text_contains || '').toLowerCase();
+    const cand = s.todos.filter((t) => (t.text || '').toLowerCase().includes(q));
+    if (!cand.length) return { changed: false, result: { 오류: '일치하는 할 일을 찾지 못했어요' } };
+    if (cand.length > 1) return { changed: false, result: { 여러개: cand.slice(0, 5).map((t) => t.text), 안내: '더 구체적으로 지정해 주세요' } };
+    const t = cand[0]; s.todos = s.todos.filter((x) => x.id !== t.id);
+    return { changed: true, result: { 삭제됨: t.text } };
+  }
+  if (name === 'weekly_report') {
+    const off = input.week_offset || 0;
+    const today = kstToday();
+    const d = new Date(today + 'T00:00:00Z'); const dow = (d.getUTCDay() + 6) % 7;
+    const mon = new Date(d); mon.setUTCDate(d.getUTCDate() - dow + off * 7);
+    const sun = new Date(mon); sun.setUTCDate(mon.getUTCDate() + 6);
+    const nmon = new Date(mon); nmon.setUTCDate(mon.getUTCDate() + 7);
+    const nsun = new Date(nmon); nsun.setUTCDate(nmon.getUTCDate() + 6);
+    const fmt = (x) => x.toISOString().slice(0, 10);
+    const ws = fmt(mon), we = fmt(sun), ns = fmt(nmon), ne = fmt(nsun);
+    const tag = (t) => { const p = (s.projects.find((x) => x.id === t.projectId) || {}).name; return [p, t.channel].filter(Boolean).join('/'); };
+    const done = s.todos.filter((t) => isDone(t) && t.completedDate >= ws && t.completedDate <= we).map((t) => ({ 업무: t.text, 분류: tag(t), 완료: t.completedDate }));
+    const next = s.todos.filter((t) => !isDone(t) && t.dueDate >= ns && t.dueDate <= ne).map((t) => ({ 업무: t.text, 분류: tag(t), 마감: t.dueDate, 상태: t.status }));
+    const overdue = s.todos.filter((t) => !isDone(t) && t.dueDate && t.dueDate < today).map((t) => ({ 업무: t.text, 분류: tag(t), 마감: t.dueDate }));
+    return { changed: false, result: { 이번주: ws + '~' + we, 이번주완료: done, 다음주예정: next, 지연: overdue } };
+  }
   return { changed: false, result: { 오류: 'unknown_tool' } };
 }
 
@@ -176,7 +241,10 @@ function systemPrompt(s) {
     '규칙:',
     '- 미팅/일정을 "잡아줘"라고 하면 먼저 find_free_slots로 빈 시간을 확인하고, 적절한 시간을 골라 add_event로 등록한 뒤 결과를 알려준다. 시간을 특정하지 않았으면 지정 시간대의 첫 빈 슬롯을 기본으로 잡되, 어떤 시간에 잡았는지 명확히 말한다.',
     '- "뭐 있어/일정 알려줘"류는 list_schedule로 조회 후 간결히 요약한다.',
-    '- 할 일 추가는 add_todo, 완료 처리는 complete_todo.',
+    '- 할 일 추가는 add_todo, 완료는 complete_todo, 수정(미루기/상태변경/우선순위)은 update_todo, 삭제는 delete_todo.',
+    '- 여러 건을 한 번에 추가/처리하라고 하면 해당 함수를 여러 번 병렬 호출한다.',
+    '- "주간보고/이번 주 한 일 정리" 요청은 weekly_report로 데이터를 받아, 보기 좋은 불릿 형식(■ 이번 주 완료 / ■ 다음 주 예정 / ■ 지연)으로 정리해준다.',
+    '- "뭐부터 할까/우선순위" 질문엔 list_schedule로 지연·오늘·임박을 확인해 지연·긴급 우선으로 짧게 추천한다.',
     '- 날짜·시간은 반드시 함수 인자로 YYYY-MM-DD, HH:MM(24h)로 변환해 넘긴다.',
     '- 답변은 짧고 명확한 한국어로. 실행한 내용(추가/완료/시간)을 한 줄로 확인해준다. 정보가 정말 애매할 때만 한 가지만 되묻는다.',
     '- 도구로 확인되지 않은 내용을 지어내지 않는다.'
