@@ -4,7 +4,15 @@ import { sendPush } from './_webpush.js';
 function todayStrKST() {
   return new Date(Date.now() + 9 * 3600e3).toISOString().slice(0, 10);
 }
+// 'YYYY-MM-DD' 기준 n일 뒤 날짜 문자열
+function addDaysIso(iso, n) {
+  const d = new Date(iso + 'T00:00:00Z');
+  d.setUTCDate(d.getUTCDate() + n);
+  return d.toISOString().slice(0, 10);
+}
 const isIso = (d) => /^\d{4}-\d{2}-\d{2}$/.test(d || '');
+// 임박 판정 기준: 오늘 이후 며칠까지를 '곧 마감'으로 볼지
+const SOON_DAYS = 3;
 function isDone(t) {
   const s = t.status || (t.done ? '완료' : '대기');
   return s === '완료' || s === '지연완료';
@@ -17,10 +25,23 @@ export async function computeSummary(env) {
   try { state = JSON.parse(row.data); } catch (e) {}
   const todos = Array.isArray(state.todos) ? state.todos : [];
   const today = todayStrKST();
+  const soonLimit = addDaysIso(today, SOON_DAYS);
   const open = todos.filter((t) => !isDone(t) && isIso(t.dueDate));
   const overdue = open.filter((t) => t.dueDate < today);
   const dueToday = open.filter((t) => t.dueDate === today);
-  return { today, overdue: overdue.length, dueToday: dueToday.length, overdueList: overdue, todayList: dueToday };
+  // 임박: 오늘 이후 ~ SOON_DAYS 일 이내 (오늘/지연 제외)
+  const upcoming = open
+    .filter((t) => t.dueDate > today && t.dueDate <= soonLimit)
+    .sort((a, b) => (a.dueDate < b.dueDate ? -1 : 1));
+  return {
+    today,
+    overdue: overdue.length,
+    dueToday: dueToday.length,
+    upcoming: upcoming.length,
+    overdueList: overdue,
+    todayList: dueToday,
+    upcomingList: upcoming,
+  };
 }
 
 // 모든 구독에 발송. 404/410(만료)이면 삭제.
