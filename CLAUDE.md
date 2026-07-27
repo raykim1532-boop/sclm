@@ -20,8 +20,11 @@
   - `_auth.js`(공용 인증), `health.js`(클라우드 감지 핑), `data.js`(상태 load/save), `snapshots.js`(D1 백업/복원)
   - `google/*` — 구글 OAuth(`_util.js`, 스코프 `calendar`+`spreadsheets`) + 캘린더 양방향 동기화(`sync.js`, 전용 "SCLM" 캘린더) + **시트 읽기 전용 가져오기**(`_sheets.js`, `sheet-config.js` 대상시트 저장, `sheet-sync.js`). 시트 동기화는 **시트에 쓰지 않고**(수식·구조 보존) 고정 열 위치로 파싱, 헤더 구조 가드 후 `todos`를 시트 기준으로 교체(id=등록일+업무내용 해시로 안정, `googleId` 보존). 공용 `runSheetSync(env)`를 엔드포인트와 `push/run-daily`가 함께 사용. ⚠️ 과거 양방향(full-rewrite)이 실사용 시트를 훼손해 읽기 전용으로 전환함.
   - `push/*` — 웹푸시(aes128gcm+VAPID) + 카카오 '나에게 보내기': `subscribe`, `test`, `run-daily`(알림 전 `runSheetSync`로 시트 먼저 동기화), `kakao-test`, `_webpush.js`, `_send.js`, `_kakao.js`. `public/sw.js`=서비스워커.
+  - `files/[[path]].js` — **파일 첨부**(R2 버킷 `sclm-files`, 바인딩 `FILES`). POST 업로드(multipart, 25MB) / GET 다운로드(`?t=<APP_PASSWORD>` 쿼리도 허용 — `<a href>`용) / DELETE. 키는 서버 생성 + 형식 검증. 할일의 `files:[{key,name,size}]`에 저장, 표에 📎N 배지. ⚠️ `wrangler r2 bucket info`의 object_count는 반영이 지연되니, 검증은 `wrangler r2 object get`으로.
   - `assistant.js` — **AI 일정 비서**(자연어 채팅). **무료 Google Gemini**(`gemini-2.5-flash`) function-calling으로 D1 직접 조회·생성. 도구: list_schedule/find_free_slots/add_event/add_todo/complete_todo. 프론트는 우하단 🤖 위젯(`setupAssistant`, 클라우드 전용), 실행 시 상태 자동 새로고침. `GEMINI_API_KEY` 필요. (유료 Claude로 바꾸려면 이 파일의 API 호출부만 교체.)
-- `web/wrangler.toml` — D1 바인딩(`DB` = scheduler-db). `web/schema.sql`, `web/seed.sql`.
+- `web/wrangler.toml` — D1 바인딩(`DB` = scheduler-db) + R2 바인딩(`FILES` = sclm-files). `web/schema.sql`, `web/seed.sql`.
+- `web/static/` — **배포용 정적 자산(추적됨)**: `manifest.webmanifest`, `icon-192/512/180.png`, `sw.js`. `build.js`가 `static/* → public/`으로 복사한다. `web/public/`은 gitignore이므로 **배포에 필요한 파일은 반드시 static/에 두고 커밋**할 것.
+- **PWA**: manifest + apple-touch-icon + standalone 메타로 홈 화면 설치 지원(아이폰은 설치해야 푸시 가능).
 - 데이터 스키마(D1 documents id='main' JSON): `{ settings, projects, events, todos, channels, tasks }`. 실제 업무는 `todos`. `tasks`는 미사용(칸반이 todos 기반).
 
 ## 시크릿 (저장소에 없음 — Cloudflare에만)
