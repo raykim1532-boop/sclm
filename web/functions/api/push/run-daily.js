@@ -3,7 +3,7 @@
 // 웹푸시 + 카카오톡('나에게 보내기')을 함께 발송한다(각각 설정돼 있을 때만).
 import { authed } from '../_auth.js';
 import { sendToAll, computeSummary } from './_send.js';
-import { kakaoConfigured, sendKakaoMemo, buildKakaoText } from './_kakao.js';
+import { kakaoConfigured, sendKakaoMessages, buildKakaoMessages } from './_kakao.js';
 
 function allowed(context) {
   const secret = context.env.CRON_SECRET;
@@ -17,7 +17,6 @@ export async function onRequestPost(context) {
   if (!allowed(context)) return new Response(JSON.stringify({ error: 'unauthorized' }), { status: 401 });
 
   const s = await computeSummary(env);
-  const kakaoPreview = buildKakaoText(s);
 
   // 알릴 것이 없으면(지연·오늘·임박 모두 0) 발송하지 않음
   if (s.overdue === 0 && s.dueToday === 0 && s.upcoming === 0) {
@@ -37,17 +36,18 @@ export async function onRequestPost(context) {
   };
   const push = await sendToAll(env, payload);
 
-  // 2) 카카오톡 메모 (설정돼 있을 때만; 실패해도 푸시 결과는 유지)
+  // 2) 카카오톡 메모 (설정돼 있을 때만; 길면 자동 분할 발송. 실패해도 푸시 결과는 유지)
+  const messages = buildKakaoMessages(s);
   let kakao = { skipped: 'not_configured' };
   if (kakaoConfigured(env)) {
     try {
-      kakao = await sendKakaoMemo(env, kakaoPreview);
+      kakao = await sendKakaoMessages(env, messages);
     } catch (e) {
       kakao = { ok: false, error: String((e && e.message) || e).slice(0, 200) };
     }
   }
 
-  return Response.json({ ok: true, push, kakao, summary: summaryCounts(s) });
+  return Response.json({ ok: true, push, kakao, parts: messages.length, summary: summaryCounts(s) });
 }
 
 function summaryCounts(s) {
