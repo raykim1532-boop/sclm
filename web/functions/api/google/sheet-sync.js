@@ -114,8 +114,11 @@ export async function runSheetSync(env) {
     if (parsed.length === 0) return { error: 'no_rows_parsed', status: 422 };
 
     // ---- 시트를 원천으로 todos 교체(googleId는 위에서 보존) ----
+    // 단, 앱에서 직접 추가한 할 일(id가 'sh_'가 아님)은 시트에 없더라도 보존한다.
+    // (전부 교체하면 앱의 '할 일 추가'로 만든 항목이 다음 동기화 때 사라짐)
     const before = state.todos.length;
-    state.todos = parsed;
+    const appOwned = state.todos.filter((t) => t && typeof t.id === 'string' && !t.id.startsWith('sh_'));
+    state.todos = parsed.concat(appOwned);
     await env.DB
       .prepare("INSERT INTO documents (id, data, updated_at) VALUES ('main', ?1, ?2) ON CONFLICT(id) DO UPDATE SET data = ?1, updated_at = ?2")
       .bind(JSON.stringify(state), Date.now())
@@ -125,7 +128,7 @@ export async function runSheetSync(env) {
     gdoc.sheet = cfg;
     await writeGoogleDoc(env, gdoc);
 
-    return { ok: true, mode: 'readonly', imported: parsed.length, before, title };
+    return { ok: true, mode: 'readonly', imported: parsed.length, kept: appOwned.length, before, title };
   } catch (err) {
     return { error: String((err && err.message) || err), status: (err && err.status) || 500 };
   }

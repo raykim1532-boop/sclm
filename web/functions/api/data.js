@@ -42,12 +42,33 @@ export async function onRequestGet(context) {
 
 export async function onRequestPut(context) {
   if (!authed(context)) return unauthorized();
-  const body = await context.request.text();
-  try { JSON.parse(body); } catch (e) {
+  const raw = await context.request.text();
+  let incoming;
+  try { incoming = JSON.parse(raw); } catch (e) {
     return new Response(JSON.stringify({ error: 'invalid json' }), {
       status: 400, headers: { 'Content-Type': 'application/json' }
     });
   }
+
+  // 금고(vault) 보호: 저장 요청에 vault가 없으면 기존 암호문을 유지한다.
+  // (금고 생성 전에 열어둔 오래된 탭이 저장하면 암호문이 지워져 복구 불가해지는 것을 막음)
+  // 의도적으로 지울 때는 vault:null 을 명시해서 보낸다.
+  let body = raw;
+  if (!('vault' in incoming)) {
+    const cur = await context.env.DB.prepare("SELECT data FROM documents WHERE id = 'main'").first();
+    let prevVault;
+    if (cur && cur.data) {
+      try { prevVault = JSON.parse(cur.data).vault; } catch (e) {}
+    }
+    if (prevVault) {
+      incoming.vault = prevVault;
+      body = JSON.stringify(incoming);
+    }
+  } else if (incoming.vault === null) {
+    delete incoming.vault; // 명시적 삭제
+    body = JSON.stringify(incoming);
+  }
+
   await context.env.DB
     .prepare(
       "INSERT INTO documents (id, data, updated_at) VALUES ('main', ?1, ?2) " +

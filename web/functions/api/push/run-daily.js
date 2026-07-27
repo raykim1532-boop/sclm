@@ -54,6 +54,17 @@ export async function onRequestPost(context) {
     } catch (e) {
       kakao = { ok: false, error: String((e && e.message) || e).slice(0, 200) };
     }
+    // 카카오가 실패하면 조용히 끊기지 않도록 웹푸시로 알린다(토큰 만료 등).
+    if (!kakao.ok) {
+      try {
+        await sendToAll(env, {
+          title: '⚠️ 카카오 알림 실패',
+          body: '카카오톡 발송이 실패했어요. 설정에서 카카오 연결을 확인해주세요.',
+          tag: 'sclm-kakao-fail',
+          url: '/',
+        });
+      } catch (e2) {}
+    }
   }
 
   return Response.json({ ok: true, push, kakao, sheet, parts: messages.length, summary: summaryCounts(s) });

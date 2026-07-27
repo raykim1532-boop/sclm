@@ -6,16 +6,39 @@ const MEMO_URL = 'https://kapi.kakao.com/v2/api/talk/memo/default/send';
 const APP_URL = 'https://sclm.pages.dev';
 const MSG_LIMIT = 200; // 텍스트 템플릿 text 최대 길이
 
+// REST 키만 확인(동기). refresh_token은 D1(회전분) 또는 시크릿에 있을 수 있어
+// 실제 존재 여부는 getAccessToken이 판단하고, 없으면 kakao_no_refresh_token 으로 실패한다.
 export function kakaoConfigured(env) {
-  return !!(env.KAKAO_REST_API_KEY && env.KAKAO_REFRESH_TOKEN);
+  return !!env.KAKAO_REST_API_KEY;
 }
 
-// refresh_token 으로 access_token 재발급. 카카오가 새 refresh_token을 함께 줄 수도 있음(만료 임박 시).
+// 카카오 상태(회전된 refresh_token 등)는 D1 documents id='kakao' 한 행에 보관한다.
+// 시크릿(env)은 최초 부트스트랩용이고, 이후에는 D1의 값이 우선한다.
+export async function readKakaoDoc(env) {
+  try {
+    const row = await env.DB.prepare("SELECT data FROM documents WHERE id = 'kakao'").first();
+    if (row && row.data) return JSON.parse(row.data);
+  } catch (e) {}
+  return {};
+}
+export async function writeKakaoDoc(env, obj) {
+  await env.DB
+    .prepare("INSERT INTO documents (id, data, updated_at) VALUES ('kakao', ?1, ?2) ON CONFLICT(id) DO UPDATE SET data = ?1, updated_at = ?2")
+    .bind(JSON.stringify(obj), Date.now())
+    .run();
+}
+
+// refresh_token 으로 access_token 재발급.
+// 카카오는 refresh_token 만료가 가까우면 새 refresh_token을 함께 준다 → 반드시 저장해야 알림이 끊기지 않는다.
 export async function getAccessToken(env) {
+  const doc = await readKakaoDoc(env);
+  const refresh = doc.refresh_token || env.KAKAO_REFRESH_TOKEN;
+  if (!refresh) throw new Error('kakao_no_refresh_token');
+
   const body = new URLSearchParams({
     grant_type: 'refresh_token',
     client_id: env.KAKAO_REST_API_KEY,
-    refresh_token: env.KAKAO_REFRESH_TOKEN,
+    refresh_token: refresh,
   });
   if (env.KAKAO_CLIENT_SECRET) body.set('client_secret', env.KAKAO_CLIENT_SECRET);
   const r = await fetch(TOKEN_URL, {
@@ -25,8 +48,17 @@ export async function getAccessToken(env) {
   });
   const j = await r.json().catch(() => ({}));
   if (!r.ok || !j.access_token) {
-    throw new Error('kakao_token_refresh_failed(' + r.status + '): ' + JSON.stringify(j).slice(0, 200));
+    doc.lastError = ('(' + r.status + ') ' + JSON.stringify(j)).slice(0, 200);
+    doc.lastErrorAt = Date.now();
+    try { await writeKakaoDoc(env, doc); } catch (e) {}
+    throw new Error('kakao_token_refresh_failed' + doc.lastError);
   }
+  // 회전된 refresh_token 저장(+ 성공 기록). 실패해도 발송은 계속 진행.
+  const next = { ...doc, lastOkAt: Date.now() };
+  delete next.lastError; delete next.lastErrorAt;
+  if (j.refresh_token && j.refresh_token !== doc.refresh_token) next.refresh_token = j.refresh_token;
+  else if (!doc.refresh_token) next.refresh_token = refresh; // 최초 1회 D1로 승격
+  try { await writeKakaoDoc(env, next); } catch (e) {}
   return j; // { access_token, expires_in, [refresh_token], ... }
 }
 
