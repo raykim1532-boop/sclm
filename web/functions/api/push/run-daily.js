@@ -28,17 +28,21 @@ export async function onRequestPost(context) {
     return Response.json({ ok: true, skipped: 'nothing_due', sheet, summary: summaryCounts(s) });
   }
 
-  // 1) 웹푸시 (지연/오늘/임박 요약)
+  // 1) 웹푸시 (지연/오늘/임박 — 항목명까지 나열)
   const parts = [];
-  if (s.overdue) parts.push(`지연 ${s.overdue}건`);
-  if (s.dueToday) parts.push(`오늘 마감 ${s.dueToday}건`);
-  if (s.upcoming) parts.push(`임박 ${s.upcoming}건`);
-  const payload = {
-    title: '📌 오늘의 할 일',
-    body: parts.join(' · ') + ' — 확인해 보세요',
-    tag: 'sclm-daily',
-    url: '/',
-  };
+  if (s.overdue) parts.push(`지연 ${s.overdue}`);
+  if (s.dueToday) parts.push(`오늘 ${s.dueToday}`);
+  if (s.upcoming) parts.push(`임박 ${s.upcoming}`);
+  const short = (t) => { const x = String(t.text || '').replace(/^\s*\[[^\]]*\]\s*/, '').trim(); return x.length > 24 ? x.slice(0, 24) + '…' : x; };
+  const md = (iso) => (iso ? iso.slice(5).replace('-', '/') : '');
+  const lines = [];
+  (s.overdueList || []).slice(0, 3).forEach((t) => lines.push(`⏰ ${short(t)} (${md(t.dueDate)} 지연)`));
+  (s.todayList || []).slice(0, 3).forEach((t) => lines.push(`📅 ${short(t)} 오늘 마감`));
+  (s.upcomingList || []).slice(0, 3).forEach((t) => lines.push(`🔜 ${short(t)} (${md(t.dueDate)})`));
+  const shown = lines.length;
+  const more = (s.overdue + s.dueToday + s.upcoming) - shown;
+  const body = (parts.join(' · ') + '건') + (lines.length ? '\n' + lines.join('\n') : '') + (more > 0 ? `\n외 ${more}건` : '');
+  const payload = { title: '📌 오늘의 할 일', body: body.slice(0, 320), tag: 'sclm-daily', url: '/' };
   const push = await sendToAll(env, payload);
 
   // 2) 카카오톡 메모 (설정돼 있을 때만; 길면 자동 분할 발송. 실패해도 푸시 결과는 유지)
