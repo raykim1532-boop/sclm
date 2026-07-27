@@ -583,6 +583,11 @@ html[data-theme="dark"] .todo-table tbody tr.row-today .col-due { color: #f6bf26
 .todo-link:hover { text-decoration: underline; }
 .todo-table .col-link a + a { margin-left: 4px; }
 #f-links { display: flex; flex-direction: column; gap: 6px; }
+#f-files { display: flex; flex-direction: column; gap: 6px; }
+.file-row { display: flex; align-items: center; gap: 8px; padding: 6px 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface-2); }
+.file-row .file-name { flex: 1; min-width: 0; font-size: 12.8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.file-row .file-size { font-size: 11px; color: var(--text-muted); flex-shrink: 0; }
+.todo-file-badge { display: inline-block; margin-left: 4px; font-size: 11.5px; color: var(--text-muted); white-space: nowrap; }
 .link-row { display: flex; gap: 6px; align-items: center; }
 .link-row .f-link-input { flex: 1; border: 1px solid var(--border); background: var(--bg); color: var(--text); padding: 7px 9px; border-radius: 6px; font-size: 13.5px; font-family: inherit; }
 .link-row .f-link-input:focus { outline: none; border-color: var(--accent); }
@@ -2036,7 +2041,7 @@ window.FC_KO_LOCALE = {
     return fetch(path, Object.assign({}, opts, { headers: authHeaders(opts.headers) }));
   }
 
-  window.CloudSync = { detect, ensureAuth, logout, api: cloudApi, authFetch };
+  window.CloudSync = { detect, ensureAuth, logout, api: cloudApi, authFetch, token: () => token || '' };
 })();
 </script>
 <script>
@@ -3713,7 +3718,7 @@ function renderTodos() {
       <td class="col-date">${t.completedDate || ''}</td>
       <td class="col-notes" title="${escapeHtml(t.progress || '')}">${escapeHtml(t.progress || '')}</td>
       <td class="col-notes" title="${escapeHtml(t.remarks || '')}">${escapeHtml(t.remarks || '')}</td>
-      <td class="col-link">${todoLinksCellHtml(t)}</td>
+      <td class="col-link">${todoLinksCellHtml(t)}${todoFilesCellHtml(t)}</td>
       <td class="col-actions"><button class="icon-btn del-btn" title="삭제">🗑</button></td>
     `;
     tr.addEventListener('click', (e) => {
@@ -3833,6 +3838,27 @@ function linkRowHtml(u) {
   return `<div class="link-row"><input type="text" class="f-link-input" value="${escapeHtml(u || '')}" placeholder="스프레드시트·드라이브·문서 URL" /><button type="button" class="icon-btn link-del" title="삭제">✕</button></div>`;
 }
 
+/* ---------- 첨부 파일 (R2, 클라우드 전용) ---------- */
+function fmtBytes(n) {
+  n = Number(n) || 0;
+  if (n < 1024) return n + 'B';
+  if (n < 1048576) return (n / 1024).toFixed(0) + 'KB';
+  return (n / 1048576).toFixed(1) + 'MB';
+}
+function fileRowHtml(f) {
+  return `<div class="file-row" data-key="${escapeHtml(f.key)}" data-name="${escapeHtml(f.name)}" data-size="${f.size || 0}">
+    <span class="file-name" title="${escapeHtml(f.name)}">📎 ${escapeHtml(f.name)}</span>
+    <span class="file-size">${fmtBytes(f.size)}</span>
+    <button type="button" class="icon-btn file-open" title="다운로드">⬇</button>
+    <button type="button" class="icon-btn file-del" title="삭제">✕</button>
+  </div>`;
+}
+function todoFilesCellHtml(t) {
+  const fs = Array.isArray(t.files) ? t.files : [];
+  if (!fs.length) return '';
+  return `<span class="todo-file-badge" title="${escapeHtml(fs.map((f) => f.name).join(', '))}">📎${fs.length}</span>`;
+}
+
 function openTodoModal(todo, presets) {
   const isNew = !todo;
   const nextNo = isNew ? Math.max(0, ...state.todos.map((t) => t.no || 0)) + 1 : todo.no;
@@ -3893,6 +3919,12 @@ function openTodoModal(todo, presets) {
         <div id="f-links">${(todoLinks(data).length ? todoLinks(data) : ['']).map((u) => linkRowHtml(u)).join('')}</div>
         <button type="button" class="btn link-add-btn" id="f-link-add">+ 링크 추가</button>
       </div>
+      ${cloudMode ? `
+      <div class="field"><label>첨부 파일 (선택 · 최대 25MB)</label>
+        <div id="f-files">${(Array.isArray(data.files) ? data.files : []).map(fileRowHtml).join('')}</div>
+        <input type="file" id="f-file-input" class="hidden" />
+        <button type="button" class="btn link-add-btn" id="f-file-add">+ 파일 첨부</button>
+      </div>` : ''}
     `,
     onSave: () => {
       const text = document.getElementById('f-text').value.trim();
@@ -3915,6 +3947,9 @@ function openTodoModal(todo, presets) {
       const remarks = document.getElementById('f-remarks').value;
       const links = [...document.querySelectorAll('#f-links .f-link-input')].map((i) => i.value.trim()).filter(Boolean);
       const link = links[0] || ''; // 구형 호환(구글 동기화 등)
+      const files = [...document.querySelectorAll('#f-files .file-row')].map((r) => ({
+        key: r.dataset.key, name: r.dataset.name, size: Number(r.dataset.size) || 0
+      }));
       const done = status === '완료' || status === '지연완료';
       const recur = isNew && document.getElementById('f-todo-recur') ? document.getElementById('f-todo-recur').value : 'none';
       if (isNew && recur !== 'none') {
@@ -3924,16 +3959,16 @@ function openTodoModal(todo, presets) {
         const group = 'rg' + uid();
         let no = nextNo;
         dates.forEach((d) => {
-          state.todos.push({ id: uid(), no: no++, registeredDate, projectId, channel, priority, text, assignee, dueDate: d, status: '대기', needsCheck, completedDate: '', progress, remarks, links, link, done: false, recurGroup: group });
+          state.todos.push({ id: uid(), no: no++, registeredDate, projectId, channel, priority, text, assignee, dueDate: d, status: '대기', needsCheck, completedDate: '', progress, remarks, links, link, files, done: false, recurGroup: group });
         });
         persist(); renderAll();
         toast(`반복 할일 ${dates.length}개를 추가했어요`);
         return true;
       }
       if (isNew) {
-        state.todos.push({ id: uid(), no: nextNo, registeredDate, projectId, channel, priority, text, assignee, dueDate, status, needsCheck, completedDate, progress, remarks, links, link, done });
+        state.todos.push({ id: uid(), no: nextNo, registeredDate, projectId, channel, priority, text, assignee, dueDate, status, needsCheck, completedDate, progress, remarks, links, link, files, done });
       } else {
-        Object.assign(todo, { registeredDate, projectId, channel, priority, text, assignee, dueDate, status, needsCheck, completedDate, progress, remarks, links, link, done });
+        Object.assign(todo, { registeredDate, projectId, channel, priority, text, assignee, dueDate, status, needsCheck, completedDate, progress, remarks, links, link, files, done });
       }
       persist(); renderAll();
       return true;
@@ -3968,6 +4003,40 @@ function openTodoModal(todo, presets) {
         const sync = () => wrap.classList.toggle('hidden', recur.value === 'none');
         sync();
         recur.addEventListener('change', sync);
+      }
+      // 첨부 파일: 선택 즉시 업로드 → 행 추가. 저장 시 t.files로 반영.
+      const fbox = document.getElementById('f-files');
+      const fadd = document.getElementById('f-file-add');
+      const finput = document.getElementById('f-file-input');
+      if (fadd && finput && fbox) {
+        fadd.onclick = () => finput.click();
+        finput.onchange = async () => {
+          const file = finput.files && finput.files[0];
+          finput.value = '';
+          if (!file) return;
+          if (file.size > 25 * 1024 * 1024) { toast('25MB 이하 파일만 첨부할 수 있어요'); return; }
+          fadd.disabled = true; fadd.textContent = '업로드 중…';
+          try {
+            const fd = new FormData(); fd.append('file', file);
+            const r = await CloudSync.authFetch('/api/files', { method: 'POST', body: fd });
+            const j = await r.json();
+            if (j.ok) { fbox.insertAdjacentHTML('beforeend', fileRowHtml(j)); toast('첨부했어요'); }
+            else toast('업로드 실패: ' + (j.error || ''));
+          } catch (e) { toast('업로드 실패'); }
+          fadd.disabled = false; fadd.textContent = '+ 파일 첨부';
+        };
+        fbox.addEventListener('click', async (e) => {
+          const row = e.target.closest('.file-row');
+          if (!row) return;
+          if (e.target.closest('.file-open')) {
+            const url = '/api/files/' + row.dataset.key + '?t=' + encodeURIComponent(CloudSync.token());
+            window.open(url, '_blank', 'noopener');
+          } else if (e.target.closest('.file-del')) {
+            const key = row.dataset.key;
+            row.remove();
+            try { await CloudSync.authFetch('/api/files/' + key, { method: 'DELETE' }); } catch (err) {}
+          }
+        });
       }
     }
   });

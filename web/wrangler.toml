@@ -8,6 +8,11 @@ binding = "DB"
 database_name = "scheduler-db"
 database_id = "2bc9bf74-675c-4665-9830-cf2bf4369c83"
 
+# R2 버킷 바인딩 — 할 일 산출물 파일 첨부 저장소.
+[[r2_buckets]]
+binding = "FILES"
+bucket_name = "sclm-files"
+
 # 비밀번호(APP_PASSWORD)는 소스에 두지 말 것.
 # 로컬:  web/.dev.vars 에 APP_PASSWORD=... (git 무시됨)
 # 배포후: npx wrangler pages secret put APP_PASSWORD --project-name raymond-scheduler
