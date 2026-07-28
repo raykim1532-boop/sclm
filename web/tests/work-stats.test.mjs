@@ -7,6 +7,7 @@ const html = readFileSync(new URL('../../MySchedulerApp.html', import.meta.url),
 const grab = (re, name) => { const m = html.match(re); if (!m) throw new Error('함수 추출 실패: ' + name); return m[0]; };
 const computeWorkStats = new Function(grab(/function computeWorkStats\([\s\S]*?\n}/, 'computeWorkStats') + '; return computeWorkStats;')();
 const computeTrend = new Function(grab(/function computeTrend\([\s\S]*?\n}/, 'computeTrend') + '; return computeTrend;')();
+const computeDataIssues = new Function(grab(/function computeDataIssues\([\s\S]*?\n}/, 'computeDataIssues') + '; return computeDataIssues;')();
 
 const TODAY = '2026-07-28';
 const T = (o) => Object.assign({ id: Math.random().toString(36).slice(2), text: '업무' }, o);
@@ -113,6 +114,34 @@ section('월별 추이 (computeTrend)');
   check('등록된 달부터 잔량에 반영', fut.rows[2].backlog === 1);
 
   check('데이터가 없어도 빈 달을 채운다', computeTrend([], TODAY, 6).rows.length === 6);
+}
+
+section('데이터 점검 (computeDataIssues)');
+{
+  const todos = [
+    T({ status: '완료', registeredDate: '2026-07-01', dueDate: '2026-07-10', completedDate: '2026-07-08' }), // 정상
+    T({ status: '완료', registeredDate: '2026-06-01', dueDate: '2026-06-10' }),                              // 완료일 없음
+    T({ status: '지연완료', registeredDate: '2026-05-01', dueDate: '2026-05-20' }),                          // 완료일 없음
+    T({ status: '완료', registeredDate: '2026-07-10', dueDate: '2026-07-20', completedDate: '2026-07-01' }), // 날짜 역전
+    T({ status: '진행중', registeredDate: '2026-07-02', dueDate: '2026-07-15', completedDate: '2026-07-09' }), // 완료일만 있음
+    T({ status: '대기', registeredDate: '2026-07-03' })                                                       // 마감일 없음
+  ];
+  const i = computeDataIssues(todos);
+  check('완료인데 완료일 없음 2건', i.doneNoDate.length === 2);
+  check('지연완료도 완료로 본다', i.doneNoDate.some((t) => t.status === '지연완료'));
+  check('날짜 역전 1건', i.reversed.length === 1);
+  check('완료일만 있고 미완료 1건', i.dateButOpen.length === 1);
+  check('미완료인데 마감일 없음 1건', i.openNoDue.length === 1);
+  check('정상 건은 어디에도 안 잡힘', i.total === 5);
+
+  check('결함 없으면 total 0', computeDataIssues([todos[0]]).total === 0);
+  check('빈 배열도 안전', computeDataIssues([]).total === 0);
+  check('배열이 아니어도 안전', computeDataIssues(null).total === 0);
+
+  // 완료일 누락 건이 지표를 어떻게 왜곡하는지 — 점검 카드를 만든 이유
+  const s = computeWorkStats(todos, TODAY);
+  check('완료일 없는 완료 건은 소요일 분모에서 빠짐', s.avgLead === 7);         // 정상 1건만 계산
+  check('완료일 없는 완료 건은 준수율 분모에서도 빠짐', s.onTimeBase === 2);    // 정상 + 역전 건
 }
 
 section('구형 데이터 호환');
