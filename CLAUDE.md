@@ -6,6 +6,9 @@
 - **클라우드 배포**: Cloudflare Pages + D1(SQLite). 여러 기기에서 같은 데이터 공유.
 - **라이브 주소**: https://sclm.pages.dev (Pages 프로젝트명 `sclm`).
 
+## 문서
+`docs/TECH-SPEC.md`(기술 스펙·IA — 시스템 구성/API 명세/데이터 모델/보안), `docs/USER-GUIDE.md`(사용자 가이드). **구조·API·화면을 바꾸면 해당 문서도 갱신할 것.**
+
 ## 소스/작업 규칙
 - 앱 로직은 **오직 `MySchedulerApp.html`만 수정**한다. `web/public/index.html`은 빌드 산출물(`web/build.js`가 복사)이라 직접 수정 금지 — gitignore됨.
 - **FullCalendar 임베드 번들(HTML 내 대용량 `<script>`/`<style>` 블록)은 수정하지 말 것.**

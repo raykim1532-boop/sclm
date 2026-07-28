@@ -2,6 +2,8 @@
 
 단일 HTML 파일로 동작하는 개인 일정관리 앱. 설치 없이 `MySchedulerApp.html`을 브라우저로 열면 바로 실행된다.
 
+> 📚 **문서**: [기술 스펙 & IA](docs/TECH-SPEC.md) · [사용자 가이드](docs/USER-GUIDE.md) · [구글 연동 설정](web/GOOGLE-SETUP.md) · [알림 설정](web/PUSH-SETUP.md)
+
 ## 기능
 - **캘린더** — FullCalendar(내장). 일정(events) + 할일(todos, 마감일) + 프로젝트 태스크(tasks, 마감일)를 한 화면에 표시
 - **할 일** — 투두 리스트 (프로젝트/상태 필터)
