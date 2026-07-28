@@ -118,6 +118,25 @@ section('구조 가드');
   check('앱 데이터는 건드리지 않음', docs.main === original);
 }
 
+section('연동 종료(disabled) 가드');
+{
+  // 2026-07-28 시트 연동 종료. 플래그가 켜져 있으면 어떤 경로로 불려도 실행되지 않아야 한다.
+  const original = JSON.stringify({ todos: [{ id: 'sh_keep', text: '앱이 원천', status: '완료' }], projects: [] });
+  const docs = {
+    main: original,
+    google: JSON.stringify({ refresh_token: 'r', sheet: { spreadsheetId: 'S', gid: 1, title: '업무리스트', disabled: true } }),
+  };
+  const calls = mockFetch([
+    GOOGLE_TOKEN_ROUTE,
+    { match: '?fields=sheets', reply: { sheets: [{ properties: { sheetId: 1, title: '업무리스트' } }] } },
+    { match: '/values/', reply: { values: baseSheet } },
+  ]);
+  const out = await runSheetSync({ GOOGLE_CLIENT_ID: 'c', GOOGLE_CLIENT_SECRET: 's', DB: mockDB(docs) });
+  check('disabled면 실행 거부', out.error === 'sheet_sync_disabled');
+  check('앱 데이터 그대로', docs.main === original);
+  check('구글 API를 호출하지도 않음', calls.length === 0);
+}
+
 section('미설정 처리');
 {
   const docs = { main: '{}', google: JSON.stringify({ refresh_token: 'r' }) }; // sheet 설정 없음

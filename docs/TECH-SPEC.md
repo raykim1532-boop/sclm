@@ -10,13 +10,13 @@
 
 | 항목 | 내용 |
 |---|---|
-| 목적 | 구글 시트로 관리하던 업무 리스트를 앱·알림·캘린더로 자동 연결하는 개인 업무 비서 |
+| 목적 | 업무 리스트를 앱 한 곳에서 관리하고 알림·캘린더·리포트로 연결하는 개인 업무 비서 |
 | 사용자 모델 | **단일 사용자** (앱 비밀번호 1개, 데이터 문서 1개) |
 | 프런트엔드 | 단일 HTML 배포물(~5,500줄) — CSS·JS·FullCalendar 인라인. 소스는 `src/` 조각을 빌드 때 병합 |
 | 백엔드 | Cloudflare Pages Functions (파일 기반 라우팅, API 16개) |
 | 저장소 | Cloudflare D1(SQLite) + R2(파일) |
 | 자동화 | 별도 Cron Worker(`sclm-push-cron`) — 매일 08:00 KST |
-| 설계 원칙 | ① 시트에는 쓰지 않는다(읽기 전용) ② 기존 업무 방식(시트)을 바꾸지 않는다 ③ 데이터 유실 방지 우선 |
+| 설계 원칙 | ① **원천은 하나(앱)** ② 데이터 유실 방지 우선 ③ 파괴적 동작은 되돌릴 수 있게(스냅샷·확인) |
 
 ---
 
@@ -42,7 +42,7 @@
 └───────────────────────────────────────────────┘
    │                │               │
    ▼                ▼               ▼
-구글 시트(읽기)   구글 캘린더(양방향)  카카오톡 · 웹푸시
+구글 캘린더(양방향)   카카오톡 · 웹푸시
                                   Gemini(AI 비서)
 ```
 
@@ -59,7 +59,7 @@
 SCLM (로그인 게이트: 앱 비밀번호)
 ├─ 🏠 Dashboard        오늘/지연/진행 현황 요약, 분석 위젯
 ├─ 📆 Calendar         FullCalendar 월·주 뷰 (일정 + 할 일 마감일)
-├─ ✅ To-do List       시트와 동일한 표 뷰 (필터·정렬·파일첨부 📎)
+├─ ✅ To-do List       표 뷰 · 업무 추가/수정의 기본 화면 (필터·정렬·파일첨부 📎)
 ├─ 📁 Projects         칸반 보드 (대분류=프로젝트 단위)
 ├─ 🏷️ Channels         세부채널(거래처) 관리 — 이름변경 시 할 일 일괄 반영
 ├─ 🔐 Passwords        Password 관리자 (마스터 비밀번호 암호화)
@@ -69,7 +69,7 @@ SCLM (로그인 게이트: 앱 비밀번호)
 ├─ ⚙️ Settings
 │    ├─ 테마 (라이트/다크 · 강조색)
 │    ├─ 구글 캘린더 연동 (연결 · 지금 동기화 · 자동 동기화)
-│    ├─ 구글 시트 동기화 (URL 저장 · 지금 동기화 · 자동 동기화)
+│    ├─ 구글 시트 연동 (2026-07-28 종료 — 안내만 표시)
 │    ├─ 푸시 알림 (켜기/끄기 · 테스트 발송)
 │    ├─ 백업 & 복구 (스냅샷 목록 · 지금 백업 · 복원)
 │    └─ 데이터 (내보내기 / 불러오기)
@@ -99,7 +99,7 @@ SCLM (로그인 게이트: 앱 비밀번호)
   "channels": ["마리오아울렛", "..."],
   "events":   [{ "id", "title", "start", "end", "allDay", "startTime", "endTime",
                  "projectId", "notes", "googleId", "gSig" }],
-  "todos":    [{ "id",              // 시트 유래: "sh_"+해시(등록일+업무내용) / 앱 생성: uid()
+  "todos":    [{ "id",              // "sh_"+해시 = 과거 시트 유래(연동 종료로 이제 앱 소유) / uid() = 앱 생성
                  "no", "registeredDate", "projectId", "channel", "priority",
                  "text", "assignee", "dueDate", "status", "needsCheck",
                  "completedDate", "progress", "remarks", "done",
@@ -111,7 +111,7 @@ SCLM (로그인 게이트: 앱 비밀번호)
 }
 ```
 
-**id 규칙이 곧 소유권**: `sh_` 접두 = 시트가 원천(동기화 때 교체됨), 그 외 = 앱이 원천(동기화에도 보존됨).
+**소유권**: 2026-07-28 시트 연동 종료 이후 **모든 항목의 원천은 앱**이다. `sh_` 접두는 과거 시트에서 유래했다는 흔적일 뿐이며, 연동을 되살리지 않는 한 교체되지 않는다.
 
 ---
 
@@ -138,8 +138,8 @@ SCLM (로그인 게이트: 앱 비밀번호)
 | `GET /api/google/status` | 연결 상태 / `DELETE` 연결 해제 | |
 | `GET /api/google/token` | 단기 access_token 발급(프런트용) | |
 | `POST /api/google/sync` | **캘린더 양방향 동기화** | `X-Cron-Secret`도 허용. 전용 "SCLM" 캘린더만 사용, 쓰기 45회 상한(`truncated` 반환 시 이어서 호출) |
-| `GET/POST /api/google/sheet-config` | 대상 시트 조회/저장(`{url}`) | URL에서 spreadsheetId·gid 파싱 |
-| `POST /api/google/sheet-sync` | **시트 → 앱 읽기 전용 가져오기** | 아래 4.4 참조 |
+| `GET/POST /api/google/sheet-config` | 대상 시트 조회/저장(`{url}`) | ⚠️ 연동 종료(`sheet.disabled`) — 복구용으로만 유지 |
+| `POST /api/google/sheet-sync` | ~~시트 → 앱 읽기 전용 가져오기~~ | 🛑 **2026-07-28 종료** — `sheet.disabled`면 `410 sheet_sync_disabled`. 알고리즘은 4.4 참조(복구용) |
 
 ### 4.3 알림·파일·AI
 
@@ -148,18 +148,20 @@ SCLM (로그인 게이트: 앱 비밀번호)
 | `POST/DELETE /api/push/subscribe` | 웹푸시 구독 등록/해제 | |
 | `POST /api/push/test` | 푸시 테스트 발송 | |
 | `POST /api/push/kakao-test` | 카카오 즉시 테스트 | |
-| `POST /api/push/run-daily` | **데일리 파이프라인**: 시트 동기화 → 요약 계산 → 웹푸시+카카오 발송 | `X-Cron-Secret`도 허용. 지연·오늘·임박 0건이면 발송 생략. 카카오 실패 시 웹푸시로 경고 |
+| `POST /api/push/run-daily` | **데일리 파이프라인**: 요약 계산 → 웹푸시+카카오 발송 | `X-Cron-Secret`도 허용. 지연·오늘·임박 0건이면 발송 생략. 카카오 실패 시 웹푸시로 경고. `X-Cron-Source`로 호출자 기록 |
 | `POST /api/files/<key>` | 첨부 업로드(multipart, 25MB) | R2 저장, 키는 서버 생성 |
 | `GET /api/files/<key>` | 다운로드 | `?t=<APP_PASSWORD>` 쿼리 인증도 허용(`<a href>`용) |
 | `DELETE /api/files/<key>` | 삭제 | |
 | `POST /api/assistant` | AI 비서 채팅 | Gemini 2.5 Flash function-calling. 도구: `list_schedule` `find_free_slots` `add_event` `add_todo` `update_todo` `complete_todo` `delete_todo` `weekly_report` |
 
-### 4.4 시트 동기화 알고리즘 (`sheet-sync.js`)
+### 4.4 시트 동기화 알고리즘 (`sheet-sync.js`) — 🛑 2026-07-28 종료, 복구용 기록
+
+> 시트가 원천이면 앱에서 바꾼 상태·첨부·링크가 다음 동기화에 되돌아간다(실제 사고 2건). 앱 전용 기능(첨부·반복·캘린더·AI 등록)은 시트에 담을 수도 없어 연동을 종료하고 **앱을 유일한 원천**으로 삼았다.
 
 1. gid로 탭 제목 확인 → 탭 전체 값 읽기 (`FORMATTED_VALUE`)
 2. **구조 가드**: 상위 6행 내에서 5열=`대분류`, 10열=`업무내용` 헤더 행 탐지. 실패 시 `422 sheet_structure_unrecognized` — **앱 데이터 불변**
 3. 고정 열 위치 파싱(0-index): `0 No · 1 등록일 · 2 마감(예정)일 · 3 완료일 · 4 담당자 · 5 대분류 · 6 세부채널 · 7 우선순위 · 8 진행상태 · 9 점검필요 · 10 업무내용 · 11 진행사항 · 13 비고` (14·15열 D-Day·소요일수는 수식 → 무시)
-4. id = `sh_` + 해시(등록일+업무내용) — 시트 행 재정렬에도 안정. 기존 todo의 `googleId`/`gSig` 보존
+4. id = `sh_` + 해시(등록일+업무내용) — 시트 행 재정렬에도 안정. 기존 todo의 **앱 전용 필드(`googleId`·`gSig`·`files`·`links`) 보존** ⚠️ 이 복원을 빠뜨려 첨부파일이 유실된 사고가 있었다(2026-07-28)
 5. `todos` = 파싱 결과 + **앱 소유 항목(`sh_` 아닌 id) 전부 보존**
 6. `대분류` 이름이 앱에 없으면 프로젝트 자동 생성
 7. **시트에는 어떤 쓰기 호출도 하지 않음** (테스트로 강제: 쓰기 0건 검증)
@@ -181,8 +183,7 @@ SCLM (로그인 게이트: 앱 비밀번호)
 ```
 GitHub Actions / sclm-push-cron (cron, UTC)
  ├─ ① POST /api/push/run-daily        (X-Cron-Secret)
- │     1. runSheetSync(env)            시트 → 앱 최신화
- │     2. computeSummary               지연 / 오늘 마감 / 임박(3일 내) 분류
+ │     1. computeSummary               지연 / 오늘 마감 / 임박(3일 내) 분류
  │     3. (0건이면 여기서 종료)
  │     4. sendToAll                    웹푸시 — 항목명 + D-n 나열
  │     5. sendKakaoMessages            카카오 '나에게 보내기'

@@ -4,7 +4,6 @@
 import { authed } from '../_auth.js';
 import { sendToAll, computeSummary } from './_send.js';
 import { kakaoConfigured, sendKakaoMessages, buildKakaoMessages } from './_kakao.js';
-import { runSheetSync } from '../google/sheet-sync.js';
 
 // 'cron' | 'auth' | false — 호출 주체 구분(크론 재시도 중복 방지에 사용)
 function allowed(context) {
@@ -69,16 +68,13 @@ export async function onRequestPost(context) {
     }
   }
 
-  // 0) 구글 시트가 연결돼 있으면 알림 전에 먼저 동기화(앱을 안 켜도 최신 시트 기준으로 알림)
-  let sheet = { skipped: 'not_run' };
-  try { sheet = await runSheetSync(env); } catch (e) { sheet = { error: String((e && e.message) || e).slice(0, 200) }; }
-
+  // 시트 동기화는 2026-07-28 종료(앱이 원천). 알림 전 선동기화 단계도 함께 제거했다.
   const s = await computeSummary(env);
 
   // 알릴 것이 없으면(지연·오늘·임박 모두 0) 발송하지 않음
   if (s.overdue === 0 && s.dueToday === 0 && s.upcoming === 0) {
     try { await recordAttempt(env, source, 'nothing_due'); } catch (e) {}
-    return Response.json({ ok: true, skipped: 'nothing_due', sheet, source, summary: summaryCounts(s) });
+    return Response.json({ ok: true, skipped: 'nothing_due', source, summary: summaryCounts(s) });
   }
 
   // 1) 웹푸시 (지연/오늘/임박 — 항목명까지 나열)
@@ -123,7 +119,7 @@ export async function onRequestPost(context) {
   // 오늘 발송 완료 기록(크론 2차 발사가 중복 발송하지 않도록)
   try { await recordAttempt(env, source, 'sent'); } catch (e) {}
 
-  return Response.json({ ok: true, push, kakao, sheet, source, parts: messages.length, summary: summaryCounts(s) });
+  return Response.json({ ok: true, push, kakao, source, parts: messages.length, summary: summaryCounts(s) });
 }
 
 function summaryCounts(s) {

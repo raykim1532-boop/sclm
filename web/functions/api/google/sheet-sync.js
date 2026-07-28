@@ -33,13 +33,19 @@ export async function onRequestPost(context) {
   return Response.json(out);
 }
 
-// 공용 읽기 전용 동기화(크론/데일리에서도 재사용). 설정 없으면/실패 시 {error}.
+// 공용 읽기 전용 동기화. 설정 없으면/실패 시 {error}.
+// ⚠️ 2026-07-28 시트 연동 종료 — 이제 앱이 업무 데이터의 원천이다.
+// 시트가 원천이면 앱에서 바꾼 상태·첨부파일이 다음 동기화 때 되돌아가기 때문.
+// 코드는 복구용으로 남겨두되, google 문서의 sheet.disabled 플래그로 실행을 막는다.
 export async function runSheetSync(env) {
+  const gdocPre = await readGoogleDoc(env);
+  if (gdocPre.sheet && gdocPre.sheet.disabled) return { error: 'sheet_sync_disabled', status: 410 };
+
   const tok = await getAccessToken(env);
   if (!tok) return { error: 'not_connected' };
   const token = tok.access_token;
 
-  const gdoc = await readGoogleDoc(env);
+  const gdoc = gdocPre;
   const cfg = gdoc.sheet || {};
   if (!cfg.spreadsheetId) return { error: 'no_sheet_configured' };
 

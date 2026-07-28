@@ -354,22 +354,11 @@
       </div>
 
       <div class="settings-card hidden" id="sheetCard">
-        <h2>구글 시트 동기화</h2>
-        <div class="settings-row">
-          <span id="sheetStatusText">상태 확인 중…</span>
-          <div class="sync-btn-group">
-            <button class="btn btn-primary hidden" id="sheetSyncBtn">지금 동기화</button>
-          </div>
-        </div>
-        <div class="settings-row">
-          <input type="text" id="sheetUrlInput" class="f-link-input" placeholder="구글 시트 URL 붙여넣기 (https://docs.google.com/spreadsheets/d/…)" style="flex:1;min-width:0" />
-          <button class="btn" id="sheetSaveBtn">시트 저장</button>
-        </div>
-        <div class="settings-row" id="sheetAutoRow" style="display:none">
-          <label class="sheet-clear-label"><input type="checkbox" id="sheetAutoSync" /> 자동 동기화 (앱 열 때 · 매일 08:00 서버에서도 실행)</label>
-        </div>
-        <p class="hint">구글 시트(업무 트래커)를 <b>읽기 전용으로 가져옵니다</b> (시트→앱). 시트에는 <b>아무것도 쓰지 않아</b> 수식·서식이 안전합니다. 할 일은 <b>시트에서 관리</b>하시면 되고, 여기서 동기화하면 앱과 매일 알림에 반영됩니다. 위 구글 캘린더 연결이 먼저 필요합니다.<br />※ 앱에서 직접 추가한 할 일은 <b>지워지지 않고 유지</b>되지만, <b>시트로는 올라가지 않습니다</b>(읽기 전용).</p>
-        <p class="hint" id="sheetSyncResult" style="display:none;white-space:pre-line"></p>
+        <h2>구글 시트 연동 (종료됨)</h2>
+        <p class="hint">이제 <b>이 앱이 업무 데이터의 원천</b>입니다. 구글 시트에서 가져오던 동기화는 <b>2026-07-28에 종료</b>했어요.
+          시트가 원천이던 시절엔 앱에서 바꾼 상태·첨부파일이 다음 동기화 때 시트 값으로 되돌아갔습니다.<br />
+          기존 업무는 그대로 있고, 앞으로 추가·수정은 <b>To-do List에서 직접</b> 하시면 됩니다. 시트는 과거 기록으로 남겨두세요.</p>
+        <p class="hint">필요하면 <b>내보내기</b>로 CSV·백업 파일을 만들 수 있습니다.</p>
       </div>
 
       <div class="settings-card hidden" id="pushCard">

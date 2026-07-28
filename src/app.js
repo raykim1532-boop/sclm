@@ -530,99 +530,14 @@ async function setupGoogle() {
 }
 
 /* ---------- 구글 시트 양방향 동기화 ---------- */
-async function setupSheet() {
+// 구글 시트 동기화는 2026-07-28 종료. 이제 이 앱이 업무 데이터의 원천이다.
+// 시트가 원천이던 시절엔 앱에서 바꾼 상태·첨부가 다음 동기화 때 되돌아갔다.
+// (서버의 sheet-config/sheet-sync 엔드포인트는 남아 있지만 disabled 로 거부한다)
+function setupSheet() {
   const card = document.getElementById('sheetCard');
-  if (!card || !window.CloudSync || !CloudSync.authFetch) return;
+  if (!card || !window.CloudSync) return;
   card.classList.remove('hidden');
-
-  const statusText = document.getElementById('sheetStatusText');
-  const syncBtn = document.getElementById('sheetSyncBtn');
-  const urlInput = document.getElementById('sheetUrlInput');
-  const saveBtn = document.getElementById('sheetSaveBtn');
-  const resultEl = document.getElementById('sheetSyncResult');
-  const autoRow = document.getElementById('sheetAutoRow');
-  const autoChk = document.getElementById('sheetAutoSync');
-
-  let configured = false;
-
-  async function refresh() {
-    try {
-      const r = await CloudSync.authFetch('/api/google/sheet-config');
-      const j = await r.json();
-      configured = !!j.configured;
-      if (configured && j.spreadsheetId) {
-        urlInput.value = `https://docs.google.com/spreadsheets/d/${j.spreadsheetId}/edit#gid=${j.gid || 0}`;
-        const when = j.lastSync ? new Date(j.lastSync).toLocaleString() : '없음';
-        statusText.textContent = `✅ 시트 연결됨${j.title ? ' (' + j.title + ')' : ''} · 마지막 동기화: ${when}`;
-        syncBtn.classList.remove('hidden');
-        if (autoRow) autoRow.style.display = '';
-      } else {
-        statusText.textContent = '시트 URL을 저장하면 동기화할 수 있어요';
-        syncBtn.classList.add('hidden');
-        if (autoRow) autoRow.style.display = 'none';
-      }
-    } catch (e) { statusText.textContent = '상태 확인 실패'; }
-  }
-
-  async function runSync(silent) {
-    try {
-      const r = await CloudSync.authFetch('/api/google/sheet-sync', { method: 'POST' });
-      const j = await r.json();
-      if (j.ok) {
-        state = await window.api.loadData(); applyTheme(); renderAll();
-        const summary = `시트에서 ${j.imported}건 불러옴` + (j.kept ? ` · 앱에서 추가한 ${j.kept}건 유지` : '');
-        if (!silent) toast('시트 동기화 — ' + summary);
-        if (resultEl) { resultEl.style.display = 'block'; resultEl.textContent = '마지막 동기화: ' + summary; }
-      } else if (!silent) {
-        const msg = j.error === 'not_connected' ? '구글 캘린더를 먼저 연결해주세요'
-          : j.error === 'no_sheet_configured' ? '시트 URL을 먼저 저장해주세요'
-          : j.error === 'sheet_structure_unrecognized' ? '시트 구조를 인식 못했어요(헤더 행 확인 필요) — 안전하게 중단했습니다'
-          : j.error === 'no_rows_parsed' ? '가져올 업무 행을 못 찾았어요'
-          : (j.error || '');
-        toast('시트 동기화 실패: ' + msg);
-        if (resultEl) { resultEl.style.display = 'block'; resultEl.textContent = '실패: ' + msg; }
-      }
-    } catch (e) { if (!silent) toast('시트 동기화 요청 실패'); }
-  }
-
-  saveBtn.onclick = async () => {
-    const url = (urlInput.value || '').trim();
-    if (!url) { toast('시트 URL을 입력해주세요'); return; }
-    saveBtn.disabled = true;
-    try {
-      const r = await CloudSync.authFetch('/api/google/sheet-config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ url }) });
-      const j = await r.json();
-      if (j.ok) { toast('시트를 저장했어요'); await refresh(); }
-      else toast('저장 실패: ' + (j.error || ''));
-    } catch (e) { toast('저장 요청 실패'); }
-    saveBtn.disabled = false;
-  };
-
-  syncBtn.onclick = async () => {
-    syncBtn.disabled = true;
-    const prev = statusText.textContent;
-    statusText.textContent = '🔄 시트 동기화 중…';
-    if (resultEl) resultEl.style.display = 'none';
-    await runSync(false);
-    syncBtn.disabled = false;
-    await refresh();
-  };
-
-  if (autoChk) {
-    autoChk.checked = localStorage.getItem('sheetAutoSync') === '1';
-    autoChk.onchange = () => {
-      localStorage.setItem('sheetAutoSync', autoChk.checked ? '1' : '0');
-      if (autoChk.checked) runSync(true);
-    };
-  }
-  // 앱 열 때 1회만 동기화. 주기적 폴링(기존 15분)은 제거하고 매일 08:00 서버(크론)가 대신 처리한다.
-  if (!setupSheet._autoStarted) {
-    setupSheet._autoStarted = true;
-    const autoOn = () => localStorage.getItem('sheetAutoSync') === '1';
-    setTimeout(() => { if (configured && autoOn()) runSync(true); }, 5000);
-  }
-
-  refresh();
+  try { localStorage.removeItem('sheetAutoSync'); } catch (e) {}
 }
 
 /* ---------- 계정 관리(금고): 마스터 비밀번호 클라이언트 암호화 ---------- */
