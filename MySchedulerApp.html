@@ -1405,6 +1405,32 @@ body.is-offline .offline-bar { display: inline-flex; }
             <button class="btn btn-primary" id="vaultAddBtn">+ 계정 추가</button>
           </div>
           <div id="vaultList" class="vault-list"></div>
+          <div class="settings-row" style="border:none;padding-top:14px;gap:10px;flex-wrap:wrap">
+            <label class="sheet-clear-label" style="gap:6px">자동 잠금
+              <select id="vaultIdleSel" class="select">
+                <option value="5">5분</option>
+                <option value="10">10분</option>
+                <option value="30">30분</option>
+                <option value="0">사용 안 함</option>
+              </select>
+            </label>
+            <button class="btn" id="vaultChangePwBtn" style="margin-left:auto">🔑 마스터 비번 변경</button>
+          </div>
+          <p class="hint">자리를 비우면 설정한 시간 뒤 자동으로 잠깁니다(브라우저에만 적용). 마스터 비밀번호는 서버에 저장되지 않습니다.</p>
+        </div>
+      </div>
+
+      <div class="settings-card hidden" id="vaultChangePwCard">
+        <h2>마스터 비밀번호 변경</h2>
+        <p class="hint" style="margin-top:0">새 비밀번호로 <b>저장된 계정 전체를 다시 암호화</b>합니다. ⚠️ 새 비밀번호도 분실하면 복구할 수 없어요.</p>
+        <div class="vault-form">
+          <input type="password" id="vcpNew" placeholder="새 마스터 비밀번호 (8자 이상)" autocomplete="new-password" />
+          <input type="password" id="vcpNew2" placeholder="한 번 더 입력" autocomplete="new-password" />
+          <div class="settings-row" style="border:none;padding-top:6px;gap:8px">
+            <button class="btn btn-primary" id="vcpSaveBtn">변경</button>
+            <button class="btn" id="vcpCancelBtn">취소</button>
+          </div>
+          <p class="hint" id="vcpMsg" style="display:none"></p>
         </div>
       </div>
 
@@ -1417,6 +1443,7 @@ body.is-offline .offline-bar { display: inline-flex; }
           <div class="vault-pw-row">
             <input type="password" id="vfPass" placeholder="비밀번호" autocomplete="off" />
             <button type="button" class="btn" id="vfPassToggle" title="표시/숨김">👁</button>
+            <button type="button" class="btn" id="vfPassGen" title="강력한 비밀번호 생성">🎲 생성</button>
           </div>
           <input type="text" id="vfCategory" placeholder="분류 (선택, 예: 정산·영업)" />
           <textarea id="vfMemo" placeholder="메모 (선택)" rows="2" style="resize:vertical"></textarea>
@@ -2815,7 +2842,46 @@ async function vaultSave() {
 }
 function vaultLock() {
   vaultKey = null; vaultSalt = null; vaultEntries = []; vaultEditId = null;
+  const cp = document.getElementById('vaultChangePwCard');
+  if (cp) cp.classList.add('hidden');
   renderVault();
+}
+
+/* 자동 잠금: 잠금 해제 상태에서 일정 시간 입력이 없으면 잠근다(브라우저 로컬 설정). */
+const VAULT_IDLE_KEY = 'vaultIdleMin';
+let vaultLastActivity = Date.now();
+function vaultIdleMinutes() {
+  const v = localStorage.getItem(VAULT_IDLE_KEY);
+  return v === null ? 10 : Number(v); // 기본 10분, 0이면 사용 안 함
+}
+function setupVaultIdleLock() {
+  if (setupVaultIdleLock._started) return;
+  setupVaultIdleLock._started = true;
+  const touch = () => { vaultLastActivity = Date.now(); };
+  ['mousedown', 'keydown', 'touchstart', 'focus'].forEach((ev) => window.addEventListener(ev, touch, true));
+  setInterval(() => {
+    const min = vaultIdleMinutes();
+    if (!vaultKey || !min) return;
+    if (Date.now() - vaultLastActivity >= min * 60 * 1000) {
+      vaultLock();
+      toast('🔒 자리를 비워 금고를 잠갔어요');
+    }
+  }, 30 * 1000);
+}
+
+/* 강력한 비밀번호 생성 (헷갈리는 문자 제외, 각 종류 1개 이상 보장) */
+function vaultGeneratePassword(len = 18) {
+  const sets = ['ABCDEFGHJKLMNPQRSTUVWXYZ', 'abcdefghijkmnopqrstuvwxyz', '23456789', '!@#$%^&*-_=+?'];
+  const all = sets.join('');
+  const pick = (s) => s[crypto.getRandomValues(new Uint32Array(1))[0] % s.length];
+  const out = sets.map(pick);
+  while (out.length < len) out.push(pick(all));
+  // Fisher-Yates 셔플(암호학적 난수)
+  for (let i = out.length - 1; i > 0; i--) {
+    const j = crypto.getRandomValues(new Uint32Array(1))[0] % (i + 1);
+    [out[i], out[j]] = [out[j], out[i]];
+  }
+  return out.join('');
 }
 
 function setupVault() {
@@ -2835,6 +2901,7 @@ function setupVault() {
     vaultEntries = [];
     await vaultSave();
     $('vaultNewPw').value = ''; $('vaultNewPw2').value = ''; msg.style.display = 'none';
+    vaultLastActivity = Date.now();
     toast('금고를 만들었어요 🔐');
     renderVault();
   };
@@ -2851,6 +2918,7 @@ function setupVault() {
       vaultEntries = JSON.parse(new TextDecoder().decode(pt));
       vaultKey = key; vaultSalt = salt; vaultIter = b.iterations || VAULT_ITER;
       $('vaultPw').value = ''; msg.style.display = 'none';
+      vaultLastActivity = Date.now(); // 자동 잠금 타이머 초기화
       renderVault();
     } catch (e) {
       msg.style.display = 'block'; msg.style.color = '#d50000';
@@ -2865,6 +2933,51 @@ function setupVault() {
 
   $('vfPassToggle').onclick = () => {
     const el = $('vfPass'); el.type = el.type === 'password' ? 'text' : 'password';
+  };
+  $('vfPassGen').onclick = () => {
+    const el = $('vfPass');
+    el.value = vaultGeneratePassword();
+    el.type = 'text'; // 생성 결과는 확인할 수 있게 표시
+    toast('강력한 비밀번호를 생성했어요');
+  };
+
+  // 자동 잠금 시간 설정
+  const idleSel = $('vaultIdleSel');
+  if (idleSel) {
+    idleSel.value = String(vaultIdleMinutes());
+    idleSel.onchange = () => {
+      localStorage.setItem(VAULT_IDLE_KEY, idleSel.value);
+      vaultLastActivity = Date.now();
+      toast(idleSel.value === '0' ? '자동 잠금을 껐어요' : `${idleSel.value}분 후 자동 잠금`);
+    };
+  }
+  setupVaultIdleLock();
+
+  // 마스터 비밀번호 변경 (잠금 해제 상태에서만 — 전체 재암호화)
+  $('vaultChangePwBtn').onclick = () => {
+    $('vcpNew').value = ''; $('vcpNew2').value = ''; $('vcpMsg').style.display = 'none';
+    $('vaultChangePwCard').classList.remove('hidden');
+    $('vcpNew').focus();
+  };
+  $('vcpCancelBtn').onclick = () => $('vaultChangePwCard').classList.add('hidden');
+  $('vcpSaveBtn').onclick = async () => {
+    const pw = $('vcpNew').value, pw2 = $('vcpNew2').value, msg = $('vcpMsg');
+    const warn = (t) => { msg.style.display = 'block'; msg.style.color = '#d50000'; msg.textContent = t; };
+    if (!vaultKey) return warn('금고가 잠겨 있어요. 먼저 잠금을 해제해주세요.');
+    if (pw.length < 8) return warn('8자 이상으로 정해주세요.');
+    if (pw !== pw2) return warn('두 비밀번호가 일치하지 않아요.');
+    const prevKey = vaultKey, prevSalt = vaultSalt, prevIter = vaultIter;
+    try {
+      vaultSalt = crypto.getRandomValues(new Uint8Array(16));
+      vaultIter = VAULT_ITER;
+      vaultKey = await vaultDeriveKey(pw, vaultSalt, vaultIter);
+      await vaultSave(); // 메모리의 항목들을 새 키로 재암호화해 저장
+      $('vaultChangePwCard').classList.add('hidden');
+      toast('마스터 비밀번호를 변경했어요 🔑');
+    } catch (e) {
+      vaultKey = prevKey; vaultSalt = prevSalt; vaultIter = prevIter; // 실패 시 원복
+      warn('변경에 실패했어요. 다시 시도해주세요.');
+    }
   };
   $('vfCancelBtn').onclick = () => { $('vaultEditCard').classList.add('hidden'); $('vaultOpen').classList.remove('hidden'); };
   $('vfDeleteBtn').onclick = async () => {
@@ -2925,7 +3038,7 @@ function renderVault() {
   $('vaultUnlockCard').classList.toggle('hidden', !(has && !unlocked));
   $('vaultOpen').classList.toggle('hidden', !unlocked);
   $('vaultLockBtn').classList.toggle('hidden', !unlocked);
-  if (!unlocked) $('vaultEditCard').classList.add('hidden');
+  if (!unlocked) { $('vaultEditCard').classList.add('hidden'); $('vaultChangePwCard').classList.add('hidden'); }
   if (unlocked) renderVaultList();
 }
 

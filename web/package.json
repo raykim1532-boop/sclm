@@ -5,6 +5,7 @@
   "description": "나의 스케줄러 — Cloudflare Pages 배포 (정적 앱 + Functions API + D1)",
   "scripts": {
     "build": "node build.js",
+    "test": "node tests/run.mjs",
     "dev": "node build.js && wrangler pages dev public --compatibility-date=2024-09-23",
     "deploy": "node build.js && wrangler pages deploy public --project-name sclm --branch=main",
     "db:init:local": "wrangler d1 execute scheduler-db --local --file=schema.sql",
