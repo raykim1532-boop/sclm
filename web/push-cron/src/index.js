@@ -19,7 +19,9 @@ async function post(url, env) {
 }
 
 async function run(env) {
+  console.log('cron fired, calling run-daily:', env.TARGET_URL);
   const daily = await post(env.TARGET_URL, env);
+  console.log('run-daily result:', JSON.stringify(daily).slice(0, 300));
 
   // 캘린더는 한 번에 처리 못 하면(truncated) 이어서 최대 3회까지 호출
   const calUrl = calendarUrl(env);

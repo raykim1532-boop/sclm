@@ -174,10 +174,12 @@ SCLM (로그인 게이트: 앱 비밀번호)
 
 ---
 
-## 5. 자동화 파이프라인 (매일 08:00 KST)
+## 5. 자동화 파이프라인 (매일 아침)
+
+**주 스케줄러: GitHub Actions** (`.github/workflows/daily-alarm.yml`, 07:57·08:12 KST) — 이 Cloudflare 계정의 크론이 이벤트를 발사하지 않는 문제(2026-07-28 tail로 확정)로 이관. Cloudflare Worker(08:00·08:10)는 백업으로 유지하며, `run-daily`의 **하루 1회 가드**(documents id='daily'의 lastSentDay)가 중복 발송을 차단한다. 수동(Bearer) 호출은 가드와 무관하게 항상 발송된다.
 
 ```
-sclm-push-cron (cron 0 23 * * * UTC)
+GitHub Actions / sclm-push-cron (cron, UTC)
  ├─ ① POST /api/push/run-daily        (X-Cron-Secret)
  │     1. runSheetSync(env)            시트 → 앱 최신화
  │     2. computeSummary               지연 / 오늘 마감 / 임박(3일 내) 분류

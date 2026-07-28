@@ -8,7 +8,8 @@ compatibility_date = "2024-09-23"
 workers_dev = false
 
 [triggers]
-crons = ["0 23 * * *"]
+# 08:00 KST 본발사 + 08:10 KST 재시도(크론 미발사 대비 — run-daily가 하루 1회 가드로 중복 방지)
+crons = ["0 23 * * *", "10 23 * * *"]
 
 [vars]
 TARGET_URL = "https://sclm.pages.dev/api/push/run-daily"

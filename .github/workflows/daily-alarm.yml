@@ -1,0 +1,41 @@
+# 매일 아침 알림 스케줄러 (주 실행자)
+# Cloudflare 크론이 이 계정에서 발사되지 않는 문제(2026-07-28 확인)로 GitHub Actions가 주 스케줄러를 맡는다.
+# Cloudflare Worker(sclm-push-cron)는 백업으로 유지 — run-daily의 하루 1회 가드가 중복 발송을 막는다.
+#
+# 필요한 저장소 시크릿: CRON_SECRET (Cloudflare Pages의 CRON_SECRET과 같은 값)
+#   등록: GitHub 저장소 → Settings → Secrets and variables → Actions → New repository secret
+#   또는: gh secret set CRON_SECRET
+
+name: daily-alarm
+
+on:
+  schedule:
+    # GitHub 크론은 UTC. 정각은 혼잡해 지연이 잦으므로 :57을 사용 → 07:57 KST 본발사, 08:12 KST 재시도
+    - cron: '57 22 * * *'
+    - cron: '12 23 * * *'
+  workflow_dispatch: {}   # 수동 실행(테스트)용
+
+jobs:
+  alarm:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: run-daily (시트 동기화 + 카카오·푸시 발송)
+        run: |
+          code=$(curl -s -o /tmp/daily.json -w "%{http_code}" -X POST \
+            -H "X-Cron-Secret: ${{ secrets.CRON_SECRET }}" \
+            https://sclm.pages.dev/api/push/run-daily)
+          echo "HTTP $code"
+          cat /tmp/daily.json
+          [ "$code" = "200" ] || exit 1
+
+      - name: calendar sync (구글 캘린더 동기화, truncated 시 최대 3회)
+        run: |
+          for i in 1 2 3; do
+            code=$(curl -s -o /tmp/cal.json -w "%{http_code}" -X POST \
+              -H "X-Cron-Secret: ${{ secrets.CRON_SECRET }}" \
+              https://sclm.pages.dev/api/google/sync)
+            echo "try $i: HTTP $code"
+            cat /tmp/cal.json
+            grep -q '"truncated":true' /tmp/cal.json || break
+          done

@@ -16,7 +16,9 @@
 
 ## 배포물이 2개다 (중요)
 1. **Pages `sclm`** — 앱 + Functions(`web/functions/api/**`). 배포: `cd web && npm run deploy`.
-2. **별도 Worker `sclm-push-cron`** (`web/push-cron/`) — 매일 08:00 KST(cron `0 23 * * *`)에 **두 엔드포인트를 각각** `X-Cron-Secret`으로 호출. 배포: `cd web/push-cron && npx wrangler deploy`.
+2. **별도 Worker `sclm-push-cron`** (`web/push-cron/`) — 매일 08:00·08:10 KST에 **두 엔드포인트를 각각** `X-Cron-Secret`으로 호출. 배포: `cd web/push-cron && npx wrangler deploy`.
+   - ⚠️ **이 계정의 Cloudflare 크론은 이벤트를 발사하지 않는 문제가 있음**(2026-07-28 `wrangler tail`로 확정 — 워커 재생성·시크릿 회전에도 재현). 그래서 **주 스케줄러는 GitHub Actions**(`.github/workflows/daily-alarm.yml`, 07:57·08:12 KST)이고 이 워커는 백업. `run-daily`의 하루 1회 가드(documents id='daily')가 양쪽 중복 발송을 막는다.
+   - GitHub 저장소 시크릿 `CRON_SECRET`(Pages와 동일 값) 필요 — Settings → Secrets → Actions.
    - `/api/push/run-daily` — 시트 동기화 + 마감/지연 요약 푸시·카카오 발송
    - `/api/google/sync` — 캘린더 양방향 동기화(`truncated`면 최대 3회 이어서). URL은 `CAL_URL` 또는 `TARGET_URL`에서 자동 유추.
    - ⚠️ 요청을 나눈 이유: Cloudflare **서브리퀘스트 한도(요청당 50)**를 각각 따로 쓰기 위해. 한 요청에 합치지 말 것.
