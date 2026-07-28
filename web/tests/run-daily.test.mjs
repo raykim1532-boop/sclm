@@ -39,7 +39,45 @@ section('보낼 것 없는 날');
   const r = await onRequestPost(makeCtx(docs, { 'X-Cron-Secret': 'CRONSEC' }));
   const b = await r.json();
   check('지연·오늘·임박 0건 → nothing_due 스킵', b.skipped === 'nothing_due');
-  check('nothing_due는 발송 기록을 남기지 않음(늦게 생긴 업무 대비)', !docs.daily);
+  // 이력은 남기되 '발송함' 표시는 하지 않는다 → 늦게 업무가 생기면 그날 안에 다시 보낼 수 있어야 한다
+  check('nothing_due는 발송일을 기록하지 않음', !JSON.parse(docs.daily || '{}').lastSentDay);
+  docs.main = JSON.stringify({ todos: [DUE_TODO], projects: [] });
+  const r2 = await onRequestPost(makeCtx(docs, { 'X-Cron-Secret': 'CRONSEC' }));
+  const b2 = await r2.json();
+  check('그 뒤 업무가 생기면 같은 날에도 발송', b2.ok === true && !b2.skipped);
+}
+
+section('호출한 스케줄러 기록 (cf-cron / gh-actions 구분)');
+{
+  const docs = { main: JSON.stringify({ todos: [DUE_TODO], projects: [] }) };
+  mockFetch([]);
+  const r1 = await onRequestPost(makeCtx(docs, { 'X-Cron-Secret': 'CRONSEC', 'X-Cron-Source': 'gh-actions' }));
+  check('응답에 source 반환', (await r1.json()).source === 'gh-actions');
+  let daily = JSON.parse(docs.daily);
+  check('발송 이력에 source 기록', daily.attempts[0].source === 'gh-actions' && daily.attempts[0].action === 'sent');
+
+  // 같은 날 Cloudflare 크론이 뒤이어 발사되면 '발송'은 건너뛰되 '발사됐다'는 기록은 남아야 한다
+  const r2 = await onRequestPost(makeCtx(docs, { 'X-Cron-Secret': 'CRONSEC', 'X-Cron-Source': 'cf-cron' }));
+  check('중복이면 skipped', (await r2.json()).skipped === 'already_sent_today');
+  daily = JSON.parse(docs.daily);
+  check('건너뛴 호출도 이력에 남음', daily.attempts.some((a) => a.source === 'cf-cron' && a.action === 'skipped'));
+  check('발송일은 그대로 유지', !!daily.lastSentDay);
+
+  const r3 = await onRequestPost(makeCtx(docs, { Authorization: 'Bearer pw' }));
+  check('수동 호출은 manual로 기록', (await r3.json()).source === 'manual');
+
+  // 헤더가 없으면 unknown, 이상한 값은 걸러낸다
+  const docs2 = { main: JSON.stringify({ todos: [DUE_TODO], projects: [] }) };
+  const r4 = await onRequestPost(makeCtx(docs2, { 'X-Cron-Secret': 'CRONSEC' }));
+  check('헤더 없으면 unknown', (await r4.json()).source === 'unknown');
+  const docs3 = { main: JSON.stringify({ todos: [DUE_TODO], projects: [] }) };
+  const r5 = await onRequestPost(makeCtx(docs3, { 'X-Cron-Secret': 'CRONSEC', 'X-Cron-Source': 'cf cron<script>' }));
+  check('이상 문자는 제거', (await r5.json()).source === 'cfcronscript');
+
+  // 이력이 무한히 쌓이지 않아야 한다
+  const docs4 = { main: JSON.stringify({ todos: [DUE_TODO], projects: [] }) };
+  for (let i = 0; i < 15; i++) await onRequestPost(makeCtx(docs4, { 'X-Cron-Secret': 'CRONSEC', 'X-Cron-Source': 'cf-cron' }));
+  check('이력은 최근 10건까지만 보관', JSON.parse(docs4.daily).attempts.length <= 10);
 }
 
 section('인증');

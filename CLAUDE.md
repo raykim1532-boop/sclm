@@ -17,7 +17,9 @@
 ## 배포물이 2개다 (중요)
 1. **Pages `sclm`** — 앱 + Functions(`web/functions/api/**`). 배포: `cd web && npm run deploy`.
 2. **별도 Worker `sclm-push-cron`** (`web/push-cron/`) — 매일 08:00·08:10 KST에 **두 엔드포인트를 각각** `X-Cron-Secret`으로 호출. 배포: `cd web/push-cron && npx wrangler deploy`.
-   - ⚠️ **이 계정의 Cloudflare 크론은 이벤트를 발사하지 않는 문제가 있음**(2026-07-28 `wrangler tail`로 확정 — 워커 재생성·시크릿 회전에도 재현). 그래서 **주 스케줄러는 GitHub Actions**(`.github/workflows/daily-alarm.yml`, 07:57·08:12 KST)이고 이 워커는 백업. `run-daily`의 하루 1회 가드(documents id='daily')가 양쪽 중복 발송을 막는다.
+   - **주 스케줄러는 GitHub Actions**(`.github/workflows/daily-alarm.yml`, 07:57·08:12 KST)이고 이 워커는 백업. `run-daily`의 하루 1회 가드(documents id='daily')가 양쪽 중복 발송을 막는다.
+   - Cloudflare 크론 발사 여부는 **미확정**이다. 2026-07-28 조사 결과 트리거는 정상 등록돼 있었고(`schedules` API: `0 23 * * *`, `10 23 * * *`), 다만 **등록 시각(06:52 UTC) 이후 아직 23:00 UTC가 지나지 않아** 발사 기회 자체가 없었다. `wrangler tail`은 실행 중인 동안의 이벤트만 보여주므로 낮에 띄워봐야 아무것도 안 나오는 게 정상 — 이걸 미발사 근거로 삼지 말 것.
+   - 판정 방법: `run-daily`가 호출자를 `X-Cron-Source`(`cf-cron`/`gh-actions`/`cf-manual`/`manual`)로 기록한다. 아침 이후 `SELECT data FROM documents WHERE id='daily'`의 `attempts`를 보면 어느 쪽이 실제로 발사됐는지(그리고 중복이라 `skipped`됐는지) 알 수 있다.
    - GitHub 저장소 시크릿 `CRON_SECRET`(Pages와 동일 값) 필요 — Settings → Secrets → Actions.
    - `/api/push/run-daily` — 시트 동기화 + 마감/지연 요약 푸시·카카오 발송
    - `/api/google/sync` — 캘린더 양방향 동기화(`truncated`면 최대 3회 이어서). URL은 `CAL_URL` 또는 `TARGET_URL`에서 자동 유추.

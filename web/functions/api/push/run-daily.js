@@ -16,6 +16,14 @@ function allowed(context) {
 
 const todayKST = () => new Date(Date.now() + 9 * 3600e3).toISOString().slice(0, 10);
 
+// 어느 스케줄러가 호출했는지 (gh-actions / cf-cron / cf-manual / unknown).
+// GitHub Actions와 Cloudflare 크론을 함께 두고 있어서, 어느 쪽이 실제로 발사됐는지
+// 나중에 D1의 'daily' 문서만 보면 알 수 있게 기록한다.
+function callerSource(context) {
+  const raw = context.request.headers.get('X-Cron-Source') || '';
+  return raw.replace(/[^A-Za-z0-9_-]/g, '').slice(0, 20) || 'unknown';
+}
+
 // 크론이 08:00·08:10 이중 발사(미발사 대비)되므로, 같은 날 이미 보냈으면 크론 호출은 건너뛴다.
 // 수동(Bearer) 호출은 항상 발송한다(테스트·디버그용).
 async function readDaily(env) {
@@ -25,10 +33,23 @@ async function readDaily(env) {
   } catch (e) {}
   return {};
 }
-async function markSent(env) {
+
+// 호출 이력을 남긴다. action: 'sent' | 'skipped' | 'nothing_due'
+// 발송(sent)일 때만 lastSentDay 를 갱신한다(중복 방지 가드의 기준).
+async function recordAttempt(env, source, action) {
+  const prev = await readDaily(env);
+  const today = todayKST();
+  const sameDay = prev.lastSentDay === today || (prev.attempts || []).some((a) => a.day === today);
+  const kept = (sameDay && Array.isArray(prev.attempts) ? prev.attempts : []).slice(-9);
+  kept.push({ day: today, at: Date.now(), source, action });
+  const data = {
+    lastSentDay: action === 'sent' ? today : (prev.lastSentDay || ''),
+    at: action === 'sent' ? Date.now() : (prev.at || 0),
+    attempts: kept
+  };
   await env.DB
     .prepare("INSERT INTO documents (id, data, updated_at) VALUES ('daily', ?1, ?2) ON CONFLICT(id) DO UPDATE SET data = ?1, updated_at = ?2")
-    .bind(JSON.stringify({ lastSentDay: todayKST(), at: Date.now() }), Date.now())
+    .bind(JSON.stringify(data), Date.now())
     .run();
 }
 
@@ -36,11 +57,15 @@ export async function onRequestPost(context) {
   const { env } = context;
   const caller = allowed(context);
   if (!caller) return new Response(JSON.stringify({ error: 'unauthorized' }), { status: 401 });
+  const source = caller === 'auth' ? 'manual' : callerSource(context);
 
   if (caller === 'cron') {
     const daily = await readDaily(env);
     if (daily.lastSentDay === todayKST()) {
-      return Response.json({ ok: true, skipped: 'already_sent_today' });
+      // 건너뛴 호출도 기록한다 — "크론이 발사는 됐는데 중복이라 넘어간 것"과
+      // "아예 발사되지 않은 것"을 구분하기 위한 유일한 증거다.
+      try { await recordAttempt(env, source, 'skipped'); } catch (e) {}
+      return Response.json({ ok: true, skipped: 'already_sent_today', source });
     }
   }
 
@@ -52,7 +77,8 @@ export async function onRequestPost(context) {
 
   // 알릴 것이 없으면(지연·오늘·임박 모두 0) 발송하지 않음
   if (s.overdue === 0 && s.dueToday === 0 && s.upcoming === 0) {
-    return Response.json({ ok: true, skipped: 'nothing_due', sheet, summary: summaryCounts(s) });
+    try { await recordAttempt(env, source, 'nothing_due'); } catch (e) {}
+    return Response.json({ ok: true, skipped: 'nothing_due', sheet, source, summary: summaryCounts(s) });
   }
 
   // 1) 웹푸시 (지연/오늘/임박 — 항목명까지 나열)
@@ -95,9 +121,9 @@ export async function onRequestPost(context) {
   }
 
   // 오늘 발송 완료 기록(크론 2차 발사가 중복 발송하지 않도록)
-  try { await markSent(env); } catch (e) {}
+  try { await recordAttempt(env, source, 'sent'); } catch (e) {}
 
-  return Response.json({ ok: true, push, kakao, sheet, parts: messages.length, summary: summaryCounts(s) });
+  return Response.json({ ok: true, push, kakao, sheet, source, parts: messages.length, summary: summaryCounts(s) });
 }
 
 function summaryCounts(s) {

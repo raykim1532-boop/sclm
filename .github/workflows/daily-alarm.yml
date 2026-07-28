@@ -1,6 +1,7 @@
 # 매일 아침 알림 스케줄러 (주 실행자)
-# Cloudflare 크론이 이 계정에서 발사되지 않는 문제(2026-07-28 확인)로 GitHub Actions가 주 스케줄러를 맡는다.
+# Cloudflare 크론이 발사되지 않는 것으로 보여 GitHub Actions가 주 스케줄러를 맡는다.
 # Cloudflare Worker(sclm-push-cron)는 백업으로 유지 — run-daily의 하루 1회 가드가 중복 발송을 막는다.
+# 어느 쪽이 실제로 발사됐는지는 X-Cron-Source 로 D1의 'daily' 문서에 기록된다.
 #
 # 필요한 저장소 시크릿: CRON_SECRET (Cloudflare Pages의 CRON_SECRET과 같은 값)
 #   등록: GitHub 저장소 → Settings → Secrets and variables → Actions → New repository secret
@@ -24,6 +25,7 @@ jobs:
         run: |
           code=$(curl -s -o /tmp/daily.json -w "%{http_code}" -X POST \
             -H "X-Cron-Secret: ${{ secrets.CRON_SECRET }}" \
+            -H "X-Cron-Source: gh-actions" \
             https://sclm.pages.dev/api/push/run-daily)
           echo "HTTP $code"
           cat /tmp/daily.json
@@ -34,6 +36,7 @@ jobs:
           for i in 1 2 3; do
             code=$(curl -s -o /tmp/cal.json -w "%{http_code}" -X POST \
               -H "X-Cron-Secret: ${{ secrets.CRON_SECRET }}" \
+            -H "X-Cron-Source: gh-actions" \
               https://sclm.pages.dev/api/google/sync)
             echo "try $i: HTTP $code"
             cat /tmp/cal.json
