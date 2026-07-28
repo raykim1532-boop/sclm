@@ -296,7 +296,9 @@ export function runTool(name, input, s) {
     if (!cand.length) return { changed: false, result: { 오류: '일치하는 할 일을 찾지 못했어요' } };
     if (cand.length > 1) return { changed: false, result: { 여러개: cand.slice(0, 5).map((t) => t.text), 안내: '더 구체적으로 지정해 주세요' } };
     const t = cand[0]; s.todos = s.todos.filter((x) => x.id !== t.id);
-    return { changed: true, result: { 삭제됨: t.text } };
+    // 첨부(R2 객체)도 함께 지운다. 안 지우면 접근 불가한 고아 객체로 남는다.
+    const keys = (Array.isArray(t.files) ? t.files : []).map((f) => f && f.key).filter(Boolean);
+    return { changed: true, deleteFiles: keys, result: { 삭제됨: t.text, 첨부삭제: keys.length || undefined } };
   }
   if (name === 'weekly_report') {
     const off = input.week_offset || 0;
@@ -475,6 +477,10 @@ export async function onRequestPost(context) {
       for (const c of calls) {
         const out = runTool(c.functionCall.name, c.functionCall.args || {}, s);
         if (out.changed) changed = true;
+        // 삭제된 할 일의 첨부는 R2에서도 정리(실패해도 진행)
+        if (out.deleteFiles && out.deleteFiles.length && env.FILES) {
+          for (const k of out.deleteFiles) { try { await env.FILES.delete(k); } catch (e) {} }
+        }
         responseParts.push({ functionResponse: { name: c.functionCall.name, response: out.result } });
       }
       contents.push({ role: 'user', parts: responseParts });

@@ -104,6 +104,26 @@ section('monthly_report');
   check('상태를 바꾸지 않음(조회 전용)', runTool('monthly_report', {}, s).changed === false);
 }
 
+section('삭제 시 첨부 정리');
+{
+  const s = state();
+  s.todos[0].files = [{ key: 'ms4i5j0s/q7alzj4x.xlsx', name: '정산서.xlsx', size: 10 }, { key: 'ms4a63bc/5zpdf2b2.pdf', name: '공문.pdf', size: 20 }];
+  const out = runTool('delete_todo', { text_contains: '엔터식스 정산 마감' }, s);
+  check('할 일 삭제됨', out.changed === true && !s.todos.some((t) => t.text === '엔터식스 정산 마감'));
+  check('지울 첨부 키를 함께 반환', Array.isArray(out.deleteFiles) && out.deleteFiles.length === 2);
+  check('키 값이 정확', out.deleteFiles[0] === 'ms4i5j0s/q7alzj4x.xlsx');
+  check('사용자 응답에도 건수 표시', out.result.첨부삭제 === 2);
+
+  const s2 = state();
+  const out2 = runTool('delete_todo', { text_contains: '쿠팡 수수료' }, s2);
+  check('첨부 없으면 빈 배열', Array.isArray(out2.deleteFiles) && out2.deleteFiles.length === 0);
+  check('첨부 없으면 응답에 표시하지 않음', out2.result.첨부삭제 === undefined);
+
+  const s3 = state();
+  const out3 = runTool('delete_todo', { text_contains: '없는업무' }, s3);
+  check('대상 없으면 삭제도 첨부 정리도 없음', out3.changed === false && out3.deleteFiles === undefined);
+}
+
 section('조회 도구는 데이터를 바꾸지 않는다');
 {
   const s = state();

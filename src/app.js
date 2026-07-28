@@ -892,6 +892,20 @@ function renderAll() {
   renderSyncUI();
 }
 
+/* 할 일을 지울 때 붙어 있던 첨부(R2 객체)도 함께 지운다.
+   안 지우면 접근할 수 없는 고아 객체로 남아 용량만 차지한다.
+   클라우드 모드에서만 동작하고, 실패해도 삭제 자체는 진행한다(최선 노력). */
+async function deleteTodoFiles(todos) {
+  if (!cloudMode || !window.CloudSync || !CloudSync.authFetch) return 0;
+  const keys = [];
+  (todos || []).forEach((t) => (t && Array.isArray(t.files) ? t.files : []).forEach((f) => { if (f && f.key) keys.push(f.key); }));
+  if (!keys.length) return 0;
+  await Promise.all(keys.map((k) =>
+    CloudSync.authFetch('/api/files/' + k, { method: 'DELETE' }).catch(() => {})
+  ));
+  return keys.length;
+}
+
 async function persist() {
   const ok = await window.api.saveData(state);
   if (ok === false) toast('⚠ 클라우드 저장 실패 — 네트워크 확인 필요 (변경은 이 기기에 임시 저장됨)');
@@ -2119,6 +2133,7 @@ function renderTodos() {
     tr.querySelector('.del-btn').addEventListener('click', (e) => {
       e.stopPropagation();
       todoSelected.delete(t.id);
+      deleteTodoFiles([t]);
       state.todos = state.todos.filter((x) => x.id !== t.id);
       persist(); renderTodos(); refreshCalendarEvents();
     });
@@ -2186,6 +2201,7 @@ function setupTodoBulk() {
     const n = todoSelected.size;
     if (!n) return;
     if (!confirm(`선택한 ${n}개 업무를 삭제할까요?`)) return;
+    deleteTodoFiles(state.todos.filter((t) => todoSelected.has(t.id)));
     state.todos = state.todos.filter((t) => !todoSelected.has(t.id));
     todoSelected.clear();
     persist(); renderAll(); toast(`${n}개를 삭제했어요`);
@@ -2363,12 +2379,15 @@ function openTodoModal(todo, presets) {
       if (todo.recurGroup) {
         const cnt = state.todos.filter((x) => x.recurGroup === todo.recurGroup).length;
         if (cnt > 1 && confirm(`반복 할일입니다. 전체 ${cnt}개를 삭제할까요?\n(확인=전체 / 취소=이 항목 1개만)`)) {
+          deleteTodoFiles(state.todos.filter((x) => x.recurGroup === todo.recurGroup));
           state.todos = state.todos.filter((x) => x.recurGroup !== todo.recurGroup);
           toast(`반복 할일 ${cnt}개를 삭제했어요`);
         } else {
+          deleteTodoFiles([todo]);
           state.todos = state.todos.filter((x) => x.id !== todo.id);
         }
       } else {
+        deleteTodoFiles([todo]);
         state.todos = state.todos.filter((x) => x.id !== todo.id);
       }
       persist(); renderAll();
