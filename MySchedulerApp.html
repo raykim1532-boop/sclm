@@ -1243,7 +1243,7 @@ body.is-offline .offline-bar { display: inline-flex; }
         <span class="nav-icon">🏷️</span> Channels
       </button>
       <button class="nav-btn" data-view="vault">
-        <span class="nav-icon">🔐</span> Accounts
+        <span class="nav-icon">🔐</span> Passwords
       </button>
       <button class="nav-btn" data-view="settings">
         <span class="nav-icon">⚙️</span> Settings
@@ -1402,25 +1402,25 @@ body.is-offline .offline-bar { display: inline-flex; }
 
     <section id="view-vault" class="view">
       <div class="view-header">
-        <h1>계정 관리</h1>
+        <h1>Password 관리자</h1>
         <div class="view-header-actions">
           <button class="btn hidden" id="vaultLockBtn">🔒 잠금</button>
         </div>
       </div>
 
       <div class="settings-card hidden" id="vaultSetupCard">
-        <h2>🔐 금고 만들기</h2>
+        <h2>🔐 Password 관리자 시작하기</h2>
         <p class="hint" style="margin-top:0">채널·몰 로그인 등 계정 정보를 <b>마스터 비밀번호로 암호화</b>해 보관합니다. 암·복호화는 <b>이 브라우저 안에서만</b> 일어나고 서버(D1)엔 암호문만 저장돼요. ⚠️ 마스터 비밀번호는 <b>어디에도 저장되지 않으며 잊으면 복구할 수 없습니다.</b></p>
         <div class="vault-form">
           <input type="password" id="vaultNewPw" placeholder="마스터 비밀번호 (8자 이상)" autocomplete="new-password" />
           <input type="password" id="vaultNewPw2" placeholder="한 번 더 입력" autocomplete="new-password" />
-          <button class="btn btn-primary" id="vaultCreateBtn">금고 만들기</button>
+          <button class="btn btn-primary" id="vaultCreateBtn">시작하기</button>
           <p class="hint" id="vaultSetupMsg" style="display:none"></p>
         </div>
       </div>
 
       <div class="settings-card hidden" id="vaultUnlockCard">
-        <h2>🔐 보안 잠금</h2>
+        <h2>🔐 Password 관리자</h2>
         <p class="hint" style="margin-top:0">마스터 비밀번호를 입력해 잠금을 해제하세요.</p>
         <div class="vault-form">
           <div class="vault-pw-row">
@@ -1429,7 +1429,7 @@ body.is-offline .offline-bar { display: inline-flex; }
           </div>
           <p class="hint" id="vaultUnlockMsg" style="display:none"></p>
           <p class="hint" style="margin-top:10px">마스터 비밀번호를 잊으셨나요? 비밀번호는 복구할 수 없어, 초기화 후 계정을 다시 입력해야 합니다.
-            <button type="button" class="btn vault-del" id="vaultResetBtn" style="margin-left:8px">금고 초기화</button></p>
+            <button type="button" class="btn vault-del" id="vaultResetBtn" style="margin-left:8px">전체 초기화</button></p>
         </div>
       </div>
 
@@ -2920,7 +2920,7 @@ function setupVaultIdleLock() {
     if (!vaultKey || !min) return;
     if (Date.now() - vaultLastActivity >= min * 60 * 1000) {
       vaultLock();
-      toast('🔒 자리를 비워 금고를 잠갔어요');
+      toast('🔒 자리를 비워 자동 잠금했어요');
     }
   }, 30 * 1000);
 }
@@ -2958,7 +2958,7 @@ function setupVault() {
     await vaultSave();
     $('vaultNewPw').value = ''; $('vaultNewPw2').value = ''; msg.style.display = 'none';
     vaultLastActivity = Date.now();
-    toast('금고를 만들었어요 🔐');
+    toast('Password 관리자가 준비됐어요 🔐');
     renderVault();
   };
 
@@ -2985,7 +2985,7 @@ function setupVault() {
 
   // 마스터 비밀번호 분실 → 금고 초기화(저장된 계정 전체 삭제, 복구 불가)
   $('vaultResetBtn').onclick = async () => {
-    const typed = prompt('금고를 초기화하면 저장된 계정이 모두 삭제되며 복구할 수 없습니다.\n계속하려면 "초기화"라고 입력하세요.');
+    const typed = prompt('초기화하면 저장된 계정이 모두 삭제되며 복구할 수 없습니다.\n계속하려면 "초기화"라고 입력하세요.');
     if (typed === null) return;
     if (typed.trim() !== '초기화') { toast('입력이 일치하지 않아 취소했어요'); return; }
     try {
@@ -2993,7 +2993,7 @@ function setupVault() {
       await window.api.saveData(state);
       delete state.vault;
       vaultLock();
-      toast('금고를 초기화했어요 — 새 마스터 비밀번호로 다시 만들 수 있어요');
+      toast('초기화했어요 — 새 마스터 비밀번호로 다시 시작할 수 있어요');
     } catch (e) { toast('초기화 실패 — 잠시 후 다시 시도해주세요'); }
   };
 
@@ -3033,7 +3033,7 @@ function setupVault() {
   $('vcpSaveBtn').onclick = async () => {
     const pw = $('vcpNew').value, pw2 = $('vcpNew2').value, msg = $('vcpMsg');
     const warn = (t) => { msg.style.display = 'block'; msg.style.color = '#d50000'; msg.textContent = t; };
-    if (!vaultKey) return warn('금고가 잠겨 있어요. 먼저 잠금을 해제해주세요.');
+    if (!vaultKey) return warn('잠금 상태예요. 먼저 잠금을 해제해주세요.');
     if (pw.length < 8) return warn('8자 이상으로 정해주세요.');
     if (pw !== pw2) return warn('두 비밀번호가 일치하지 않아요.');
     const prevKey = vaultKey, prevSalt = vaultSalt, prevIter = vaultIter;
