@@ -1104,12 +1104,38 @@ html[data-theme="dark"] .todo-table tbody tr.row-today .col-due { color: #f6bf26
 .an-kpi-sub.up { color: #0b8043; }
 .an-kpi-sub.down { color: #d93025; }
 @media (max-width: 900px) { .an-kpi { grid-template-columns: repeat(2, 1fr); } }
-.an-trend { display: flex; align-items: flex-end; gap: 6px; height: 130px; padding-top: 16px; }
-.an-mcol { flex: 1; display: flex; flex-direction: column; align-items: center; height: 100%; }
+/* 추이 차트: 막대(등록/완료) 영역과 잔량선 SVG가 같은 박스를 덮어 눈금이 어긋나지 않는다 */
+.an-trend-sum { font-size: 12px; color: var(--text-muted); margin-bottom: 10px; }
+.an-trend-sum b { color: var(--text); font-weight: 600; }
+.an-trend-sum b.up { color: #d93025; }   /* 유입 > 처리 = 밀리는 중 */
+.an-trend-sum b.down { color: #0b8043; }
+.an-plot { position: relative; height: 124px; padding-top: 16px; box-sizing: border-box; }
+.an-cols { position: absolute; left: 0; right: 0; top: 16px; bottom: 0; display: flex; align-items: flex-end; gap: 6px; }
+/* SVG는 대체요소라 left/right/top/bottom 만으로는 고유비율로 그려진다 → 크기를 명시해 막대 영역과 정확히 겹친다 */
+.an-line { position: absolute; left: 0; top: 16px; width: 100%; height: calc(100% - 16px); pointer-events: none; }
+.an-xaxis { display: flex; gap: 6px; margin-top: 6px; }
+.an-mcol { flex: 1; display: flex; flex-direction: column; align-items: center; height: 100%; min-width: 0; }
+.an-mcol.current .an-mbars { opacity: .85; }
 .an-mbars { flex: 1; display: flex; align-items: flex-end; justify-content: center; gap: 4px; width: 100%; }
 .an-mbar { width: 15px; min-height: 2px; border-radius: 3px 3px 0 0; position: relative; }
 .an-mbar span { position: absolute; top: -15px; left: 50%; transform: translateX(-50%); font-size: 10px; color: var(--text-muted); }
-.an-mlabel { font-size: 11px; color: var(--text-muted); margin-top: 6px; }
+.an-mlabel { font-size: 11px; color: var(--text-muted); display: flex; align-items: baseline; gap: 3px; }
+.an-mlabel i { font-style: normal; font-size: 9px; opacity: .7; }
+.an-mdelta { font-size: 10.5px; font-weight: 600; color: var(--text-muted); margin-top: 1px; }
+.an-mdelta.up { color: #d93025; }
+.an-mdelta.down { color: #0b8043; }
+.an-mback { font-size: 10px; color: var(--text-muted); opacity: .8; margin-top: 1px; white-space: nowrap; }
+.an-legend i.line { width: 12px; height: 0; border-top: 2px solid #e37400; border-radius: 0; }
+.an-seg { display: inline-flex; border: 1px solid var(--border); border-radius: 7px; overflow: hidden; margin-left: auto; }
+.an-seg-btn {
+  border: 0; background: transparent; color: var(--text-muted);
+  font-family: inherit; font-size: 11px; padding: 4px 10px; cursor: pointer;
+}
+.an-seg-btn.on { background: var(--accent); color: #fff; font-weight: 600; }
+@media (max-width: 700px) {
+  .an-mbar { width: 10px; }
+  .an-mback { display: none; }
+}
 @media (max-width: 900px) { .dash-analytics { grid-template-columns: 1fr; } }
 
 /* ---------- 마감 임박 알림 배너 ---------- */
@@ -3597,6 +3623,41 @@ function computeWorkStats(todos, today) {
   };
 }
 
+/* 월별 추이 계산 — 순수 함수(테스트에서 추출해 검증한다).
+   각 달의 등록/완료 건수와 **월말 기준 미완료 잔량(backlog)**을 함께 낸다.
+   잔량 = 그 달 말까지 등록됐고 그 시점까지 완료되지 않은 건 → 밀리고 있는지 한눈에 보인다. */
+function computeTrend(todos, today, months) {
+  const isDone = (t) => { const s = t.status || (t.done ? '완료' : '대기'); return s === '완료' || s === '지연완료'; };
+  const pad = (n) => String(n).padStart(2, '0');
+  const y = +today.slice(0, 4), m = +today.slice(5, 7) - 1;
+  const rows = [];
+  for (let i = months - 1; i >= 0; i--) {
+    const d = new Date(y, m - i, 1);
+    const key = d.getFullYear() + '-' + pad(d.getMonth() + 1);
+    const last = new Date(d.getFullYear(), d.getMonth() + 1, 0);
+    const end = last.getFullYear() + '-' + pad(last.getMonth() + 1) + '-' + pad(last.getDate());
+    const reg = todos.filter((t) => (t.registeredDate || '').slice(0, 7) === key).length;
+    const comp = todos.filter((t) => isDone(t) && (t.completedDate || '').slice(0, 7) === key).length;
+    const backlog = todos.filter((t) => {
+      const r = t.registeredDate || '';
+      if (!r || r > end) return false;            // 아직 등록 전
+      if (!isDone(t)) return true;                // 지금도 미완료
+      const c = t.completedDate || '';
+      return !c || c > end;                       // 그 시점엔 아직 미완료였음
+    }).length;
+    rows.push({ key, label: (d.getMonth() + 1) + '월', reg, comp, backlog, delta: reg - comp, current: i === 0 });
+  }
+  const totalReg = rows.reduce((a, r) => a + r.reg, 0);
+  const totalComp = rows.reduce((a, r) => a + r.comp, 0);
+  return { rows, totalReg, totalComp, net: totalReg - totalComp };
+}
+
+/* 추이 기간(개월). 카드 안 토글로 바꾸며 기기별로 기억한다. */
+let trendMonths = (() => {
+  const v = parseInt(localStorage.getItem('trendMonths') || '6', 10);
+  return v === 12 ? 12 : 6;
+})();
+
 function renderDashAnalytics() {
   const box = document.getElementById('dashAnalytics');
   if (!box) return;
@@ -3646,25 +3707,32 @@ function renderDashAnalytics() {
       <span class="an-val">${c}건 <span class="an-sub">/ 전체 ${chTotal[name] || c}</span></span>
     </div>`).join('');
 
-  // 4) 최근 6개월 등록 vs 완료 추이
-  const now = new Date();
-  const monthKeys = [];
-  for (let i = 5; i >= 0; i--) { const d = new Date(now.getFullYear(), now.getMonth() - i, 1); monthKeys.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`); }
-  const reg = {}, comp = {};
-  todos.forEach((t) => {
-    const rm = (t.registeredDate || '').slice(0, 7); if (rm) reg[rm] = (reg[rm] || 0) + 1;
-    if (todoIsDone(t)) { const cm = (t.completedDate || '').slice(0, 7); if (cm) comp[cm] = (comp[cm] || 0) + 1; }
-  });
-  const maxV = Math.max(1, ...monthKeys.map((k) => Math.max(reg[k] || 0, comp[k] || 0)));
-  const trendCols = monthKeys.map((k) => {
-    const rv = reg[k] || 0, cv = comp[k] || 0;
-    const mLabel = parseInt(k.slice(5, 7), 10) + '월';
-    return `<div class="an-mcol">
+  // 4) 월별 등록 vs 완료 추이 + 미완료 잔량선
+  const tr = computeTrend(todos, todayStr(), trendMonths);
+  const maxV = Math.max(1, ...tr.rows.map((r) => Math.max(r.reg, r.comp)));
+  const maxB = Math.max(1, ...tr.rows.map((r) => r.backlog));
+  const n = tr.rows.length;
+  // 잔량선: 막대 영역과 같은 박스를 덮는 SVG(0~100 좌표). 막대와 척도가 다르므로 범례에 명시한다.
+  const linePts = tr.rows.map((r, i) => {
+    const x = ((i + 0.5) / n * 100).toFixed(2);
+    const yv = (95 - r.backlog / maxB * 88).toFixed(2);
+    return x + ',' + yv;
+  }).join(' ');
+  const trendCols = tr.rows.map((r) => {
+    const tip = `${r.key} · 등록 ${r.reg}건 / 완료 ${r.comp}건 / 순증감 ${r.delta > 0 ? '+' : ''}${r.delta} · 월말 잔량 ${r.backlog}건`;
+    return `<div class="an-mcol${r.current ? ' current' : ''}" title="${escapeHtml(tip)}">
       <div class="an-mbars">
-        <div class="an-mbar reg" style="height:${Math.round(rv / maxV * 100)}%"><span>${rv || ''}</span></div>
-        <div class="an-mbar comp" style="height:${Math.round(cv / maxV * 100)}%"><span>${cv || ''}</span></div>
+        <div class="an-mbar reg" style="height:${Math.round(r.reg / maxV * 100)}%"><span>${r.reg || ''}</span></div>
+        <div class="an-mbar comp" style="height:${Math.round(r.comp / maxV * 100)}%"><span>${r.comp || ''}</span></div>
       </div>
-      <div class="an-mlabel">${mLabel}</div>
+    </div>`;
+  }).join('');
+  const trendAxis = tr.rows.map((r) => {
+    const cls = r.delta > 0 ? 'up' : (r.delta < 0 ? 'down' : '');
+    return `<div class="an-mcol">
+      <div class="an-mlabel">${r.label}${r.current ? '<i>진행중</i>' : ''}</div>
+      <div class="an-mdelta ${cls}">${r.delta > 0 ? '+' : ''}${r.delta}</div>
+      <div class="an-mback">잔량 ${r.backlog}</div>
     </div>`;
   }).join('');
 
@@ -3717,9 +3785,40 @@ function renderDashAnalytics() {
       ${chRows || '<div class="dash-empty">미완료 업무 없음</div>'}
     </div>
     <div class="an-card an-card-wide">
-      <h3>최근 6개월 추이<span class="an-legend-row" style="margin:0 0 0 auto"><span class="an-legend"><i style="background:#9b9a97"></i>등록</span><span class="an-legend"><i style="background:#0b8043"></i>완료</span></span></h3>
-      <div class="an-trend">${trendCols}</div>
+      <h3>최근 ${trendMonths}개월 추이
+        <span class="an-seg">
+          <button type="button" class="an-seg-btn${trendMonths === 6 ? ' on' : ''}" data-months="6">6개월</button>
+          <button type="button" class="an-seg-btn${trendMonths === 12 ? ' on' : ''}" data-months="12">12개월</button>
+        </span>
+        <span class="an-legend-row" style="margin:0 0 0 12px">
+          <span class="an-legend"><i style="background:#9b9a97"></i>등록</span>
+          <span class="an-legend"><i style="background:#0b8043"></i>완료</span>
+          <span class="an-legend"><i class="line"></i>미완료 잔량<span class="an-sub"> (별도 척도)</span></span>
+        </span>
+      </h3>
+      <div class="an-trend-sum">
+        ${trendMonths}개월간 등록 <b>${tr.totalReg}</b>건 · 완료 <b>${tr.totalComp}</b>건 ·
+        <b class="${tr.net > 0 ? 'up' : (tr.net < 0 ? 'down' : '')}">순증감 ${tr.net > 0 ? '+' : ''}${tr.net}건</b>
+        ${tr.net > 0 ? '<span class="an-sub">— 처리보다 유입이 많아요</span>' : (tr.net < 0 ? '<span class="an-sub">— 밀린 일을 줄이고 있어요</span>' : '')}
+      </div>
+      <div class="an-plot">
+        <svg class="an-line" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
+          <polyline points="${linePts}" fill="none" stroke="#e37400" stroke-width="1.6"
+                    stroke-linejoin="round" stroke-linecap="round" vector-effect="non-scaling-stroke" />
+        </svg>
+        <div class="an-cols">${trendCols}</div>
+      </div>
+      <div class="an-xaxis">${trendAxis}</div>
     </div>`;
+
+  // 기간 토글 — 기기별로 기억하고 이 카드만 다시 그린다
+  box.querySelectorAll('.an-seg-btn').forEach((b) => {
+    b.onclick = () => {
+      trendMonths = parseInt(b.dataset.months, 10) === 12 ? 12 : 6;
+      try { localStorage.setItem('trendMonths', String(trendMonths)); } catch (e) {}
+      renderDashAnalytics();
+    };
+  });
 }
 
 /* ---------- 프로젝트 select 옵션 생성 ---------- */

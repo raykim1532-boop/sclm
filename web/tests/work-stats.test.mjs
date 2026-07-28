@@ -4,9 +4,9 @@ import { readFileSync } from 'node:fs';
 import { check, section } from './_helpers.mjs';
 
 const html = readFileSync(new URL('../../MySchedulerApp.html', import.meta.url), 'utf8');
-const m = html.match(/function computeWorkStats\([\s\S]*?\n}/);
-if (!m) throw new Error('함수 추출 실패: computeWorkStats');
-const computeWorkStats = new Function(m[0] + '; return computeWorkStats;')();
+const grab = (re, name) => { const m = html.match(re); if (!m) throw new Error('함수 추출 실패: ' + name); return m[0]; };
+const computeWorkStats = new Function(grab(/function computeWorkStats\([\s\S]*?\n}/, 'computeWorkStats') + '; return computeWorkStats;')();
+const computeTrend = new Function(grab(/function computeTrend\([\s\S]*?\n}/, 'computeTrend') + '; return computeTrend;')();
 
 const TODAY = '2026-07-28';
 const T = (o) => Object.assign({ id: Math.random().toString(36).slice(2), text: '업무' }, o);
@@ -74,6 +74,45 @@ section('지연 중');
 
   const clean = computeWorkStats([T({ status: '대기', dueDate: '2026-08-30' })], TODAY);
   check('지연 없으면 평균은 null', clean.overdueCount === 0 && clean.avgLate === null);
+}
+
+section('월별 추이 (computeTrend)');
+{
+  const todos = [
+    T({ status: '완료', registeredDate: '2026-05-03', completedDate: '2026-05-20' }),
+    T({ status: '완료', registeredDate: '2026-05-10', completedDate: '2026-06-05' }), // 5월 등록 → 6월 완료
+    T({ status: '진행중', registeredDate: '2026-06-15' }),                            // 계속 미완료
+    T({ status: '완료', registeredDate: '2026-07-01', completedDate: '2026-07-08' })
+  ];
+  const t = computeTrend(todos, TODAY, 3);           // 5·6·7월
+  const by = Object.fromEntries(t.rows.map((r) => [r.key, r]));
+
+  check('요청한 개월 수만큼 반환', t.rows.length === 3);
+  check('가장 오래된 달이 먼저', t.rows[0].key === '2026-05' && t.rows[2].key === '2026-07');
+  check('마지막 달만 current', t.rows.filter((r) => r.current).length === 1 && t.rows[2].current === true);
+
+  check('5월 등록 2건 · 완료 1건', by['2026-05'].reg === 2 && by['2026-05'].comp === 1);
+  check('완료는 완료일 기준으로 6월에 집계', by['2026-06'].comp === 1 && by['2026-06'].reg === 1);
+  check('순증감 = 등록 − 완료', by['2026-05'].delta === 1 && by['2026-06'].delta === 0);
+
+  // 월말 잔량: 그 달 말까지 등록됐고 그때까지 완료되지 않은 건
+  check('5월말 잔량 1건', by['2026-05'].backlog === 1);          // 5/10 등록 건이 미완료
+  check('6월말 잔량 1건', by['2026-06'].backlog === 1);          // 6/15 등록 건
+  check('7월말 잔량 1건', by['2026-07'].backlog === 1);          // 7월 건은 완료, 6월 건 남음
+
+  check('합계와 순증감', t.totalReg === 4 && t.totalComp === 3 && t.net === 1);
+
+  // 연도 경계
+  const y = computeTrend([T({ status: '완료', registeredDate: '2025-12-05', completedDate: '2025-12-20' })], '2026-01-15', 2);
+  check('12월 → 1월로 연도를 넘어감', y.rows[0].key === '2025-12' && y.rows[1].key === '2026-01');
+  check('작년 12월 집계 정상', y.rows[0].reg === 1 && y.rows[0].comp === 1 && y.rows[0].backlog === 0);
+
+  // 미래 등록 건은 과거 달 잔량에 포함되면 안 된다
+  const fut = computeTrend([T({ status: '대기', registeredDate: '2026-07-20' })], TODAY, 3);
+  check('등록 전 달의 잔량은 0', fut.rows[0].backlog === 0 && fut.rows[1].backlog === 0);
+  check('등록된 달부터 잔량에 반영', fut.rows[2].backlog === 1);
+
+  check('데이터가 없어도 빈 달을 채운다', computeTrend([], TODAY, 6).rows.length === 6);
 }
 
 section('구형 데이터 호환');
