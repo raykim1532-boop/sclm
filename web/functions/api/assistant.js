@@ -124,11 +124,100 @@ const FUNCTIONS = [
     name: 'weekly_report',
     description: '주간 리포트용 데이터를 만든다. 이번 주 완료 / 다음 주 마감 예정 / 지연 항목을 반환. "이번 주 한 일 정리해줘/주간보고 써줘"에 사용.',
     parameters: { type: 'OBJECT', properties: { week_offset: { type: 'NUMBER', description: '0=이번주(기본), -1=지난주' } } }
+  },
+  {
+    name: 'monthly_report',
+    description: '월간 리포트용 데이터. 그 달 완료 / 그 달 마감인데 미완료 / 다음 달 예정 + 대분류별 요약. "이번 달 정리해줘/월간보고"에 사용.',
+    parameters: { type: 'OBJECT', properties: { month_offset: { type: 'NUMBER', description: '0=이번달(기본), -1=지난달' } } }
+  },
+  {
+    name: 'search_todos',
+    description: '조건으로 할 일을 찾는다. 마감일 기준이 아닌 "채널/대분류/담당자/키워드/상태"로 찾을 때 사용. 예: "엔터식스 관련 업무 보여줘", "긴급인데 아직 안 끝난 것".',
+    parameters: {
+      type: 'OBJECT',
+      properties: {
+        keyword: { type: 'STRING', description: '업무 내용에 포함된 말(부분 일치)' },
+        project_name: { type: 'STRING', description: '대분류 이름(부분 일치)' },
+        channel: { type: 'STRING', description: '세부채널(부분 일치)' },
+        assignee: { type: 'STRING', description: '담당자(부분 일치)' },
+        status: { type: 'STRING', enum: ['대기', '진행중', '완료', '지연완료', '보류'] },
+        priority: { type: 'STRING', enum: ['긴급', '중요', '보통'] },
+        due_from: { type: 'STRING', description: '마감일 시작 YYYY-MM-DD' },
+        due_to: { type: 'STRING', description: '마감일 종료 YYYY-MM-DD' },
+        only_overdue: { type: 'BOOLEAN', description: '지연(마감 지난 미완료)만' },
+        include_done: { type: 'BOOLEAN', description: '완료 항목 포함(기본 false)' },
+        limit: { type: 'NUMBER', description: '최대 개수(기본 20, 최대 50)' }
+      }
+    }
+  },
+  {
+    name: 'count_todos',
+    description: '조건에 맞는 할 일의 "건수"를 센다. 목록이 아니라 숫자만 필요할 때. group_by를 주면 분류별 건수를 함께 낸다. 예: "이번 달 정산 몇 건 남았어?", "채널별로 몇 건씩 남았어?"',
+    parameters: {
+      type: 'OBJECT',
+      properties: {
+        keyword: { type: 'STRING' },
+        project_name: { type: 'STRING' },
+        channel: { type: 'STRING' },
+        assignee: { type: 'STRING' },
+        status: { type: 'STRING', enum: ['대기', '진행중', '완료', '지연완료', '보류'] },
+        priority: { type: 'STRING', enum: ['긴급', '중요', '보통'] },
+        due_from: { type: 'STRING', description: '마감일 시작 YYYY-MM-DD' },
+        due_to: { type: 'STRING', description: '마감일 종료 YYYY-MM-DD' },
+        only_overdue: { type: 'BOOLEAN' },
+        include_done: { type: 'BOOLEAN', description: '완료 포함(기본 false)' },
+        group_by: { type: 'STRING', enum: ['project', 'channel', 'status', 'priority', 'assignee', 'due_month', 'completed_month'], description: '분류 기준(선택)' }
+      }
+    }
+  },
+  {
+    name: 'work_stats',
+    description: '처리 지표를 계산한다: 평균 완료 소요일, 기한 준수율, 이번 달 완료(전월 대비), 지연 건수와 평균 경과일, 데이터 누락 건수. "요즘 얼마나 밀렸어?", "일 처리 얼마나 걸려?"에 사용.',
+    parameters: { type: 'OBJECT', properties: {} }
   }
 ];
 
+// ---- 조회 도구 공용 ----
+const inc = (v, q) => String(v || '').toLowerCase().includes(String(q || '').toLowerCase());
+
+function filterTodos(s, f) {
+  const today = kstToday();
+  const projName = (t) => (s.projects.find((p) => p.id === t.projectId) || {}).name || '';
+  return s.todos.filter((t) => {
+    if (!f.include_done && !f.status && isDone(t)) return false;
+    if (f.status && (t.status || (t.done ? '완료' : '대기')) !== f.status) return false;
+    if (f.keyword && !inc(t.text, f.keyword)) return false;
+    if (f.project_name && !inc(projName(t), f.project_name)) return false;
+    if (f.channel && !inc(t.channel, f.channel)) return false;
+    if (f.assignee && !inc(t.assignee, f.assignee)) return false;
+    if (f.priority && (t.priority || '') !== f.priority) return false;
+    if (f.due_from && !(t.dueDate && t.dueDate >= f.due_from)) return false;
+    if (f.due_to && !(t.dueDate && t.dueDate <= f.due_to)) return false;
+    if (f.only_overdue && !(!isDone(t) && t.dueDate && t.dueDate < today)) return false;
+    return true;
+  });
+}
+
+function todoBrief(s, t) {
+  const p = (s.projects.find((x) => x.id === t.projectId) || {}).name || '';
+  return {
+    업무: t.text, 대분류: p, 채널: t.channel || '', 담당: t.assignee || '',
+    마감: t.dueDate || '', 상태: t.status || (t.done ? '완료' : '대기'),
+    우선순위: t.priority || '', 완료일: t.completedDate || ''
+  };
+}
+
+function monthRangeK(baseStr, offset) {
+  const y = +baseStr.slice(0, 4), m = +baseStr.slice(5, 7) - 1;
+  const first = new Date(Date.UTC(y, m + (offset || 0), 1));
+  const last = new Date(Date.UTC(first.getUTCFullYear(), first.getUTCMonth() + 1, 0));
+  const f = (x) => x.toISOString().slice(0, 10);
+  return { start: f(first), end: f(last), label: first.getUTCFullYear() + '-' + String(first.getUTCMonth() + 1).padStart(2, '0') };
+}
+
 // ---- 도구 실행 ----
-function runTool(name, input, s) {
+// export: web/tests/assistant-tools.test.mjs 에서 직접 호출해 검증한다(Gemini 호출 없이).
+export function runTool(name, input, s) {
   if (name === 'list_schedule') {
     const from = input.date_from, to = input.date_to, incDone = !!input.include_done;
     const todos = s.todos.filter((t) => t.dueDate && t.dueDate >= from && t.dueDate <= to && (incDone || !isDone(t)))
@@ -225,6 +314,87 @@ function runTool(name, input, s) {
     const overdue = s.todos.filter((t) => !isDone(t) && t.dueDate && t.dueDate < today).map((t) => ({ 업무: t.text, 분류: tag(t), 마감: t.dueDate }));
     return { changed: false, result: { 이번주: ws + '~' + we, 이번주완료: done, 다음주예정: next, 지연: overdue } };
   }
+  if (name === 'monthly_report') {
+    const today = kstToday();
+    const tm = monthRangeK(today, input.month_offset || 0);
+    const nm = monthRangeK(today, (input.month_offset || 0) + 1);
+    const tag = (t) => { const p = (s.projects.find((x) => x.id === t.projectId) || {}).name; return [p, t.channel].filter(Boolean).join('/'); };
+    const done = s.todos.filter((t) => isDone(t) && t.completedDate >= tm.start && t.completedDate <= tm.end)
+      .map((t) => ({ 업무: t.text, 분류: tag(t), 완료: t.completedDate }));
+    const open = s.todos.filter((t) => !isDone(t) && t.dueDate >= tm.start && t.dueDate <= tm.end)
+      .map((t) => ({ 업무: t.text, 분류: tag(t), 마감: t.dueDate, 상태: t.status, 지연: t.dueDate < today }));
+    const next = s.todos.filter((t) => !isDone(t) && t.dueDate >= nm.start && t.dueDate <= nm.end)
+      .map((t) => ({ 업무: t.text, 분류: tag(t), 마감: t.dueDate }));
+    const byProj = {};
+    s.projects.forEach((p) => {
+      const d = done.filter((x) => (x.분류 || '').startsWith(p.name)).length;
+      const o = open.filter((x) => (x.분류 || '').startsWith(p.name)).length;
+      if (d || o) byProj[p.name] = { 완료: d, 미완료: o };
+    });
+    return { changed: false, result: { 기간: tm.start + '~' + tm.end, 이번달완료: done, 이번달미완료: open, 다음달예정: next, 대분류별: byProj } };
+  }
+  if (name === 'search_todos') {
+    const found = filterTodos(s, input);
+    const limit = Math.min(Math.max(1, input.limit || 20), 50);
+    return {
+      changed: false,
+      result: {
+        총건수: found.length,
+        보여준건수: Math.min(found.length, limit),
+        목록: found.slice(0, limit).map((t) => todoBrief(s, t)),
+        안내: found.length > limit ? `조건에 맞는 ${found.length}건 중 ${limit}건만 반환했다. 건수만 필요하면 count_todos를 쓸 것.` : undefined
+      }
+    };
+  }
+  if (name === 'count_todos') {
+    const found = filterTodos(s, input);
+    const out = { 건수: found.length };
+    if (input.group_by) {
+      const key = (t) => {
+        switch (input.group_by) {
+          case 'project': return (s.projects.find((p) => p.id === t.projectId) || {}).name || '(없음)';
+          case 'channel': return t.channel || '(없음)';
+          case 'status': return t.status || (t.done ? '완료' : '대기');
+          case 'priority': return t.priority || '(없음)';
+          case 'assignee': return t.assignee || '(없음)';
+          case 'due_month': return (t.dueDate || '').slice(0, 7) || '(마감일 없음)';
+          case 'completed_month': return (t.completedDate || '').slice(0, 7) || '(완료일 없음)';
+          default: return '(전체)';
+        }
+      };
+      const g = {};
+      found.forEach((t) => { const k = key(t); g[k] = (g[k] || 0) + 1; });
+      out.분류별 = Object.fromEntries(Object.entries(g).sort((a, b) => b[1] - a[1]));
+    }
+    return { changed: false, result: out };
+  }
+  if (name === 'work_stats') {
+    const today = kstToday();
+    const days = (from, to) => Math.round((new Date(to + 'T00:00:00Z') - new Date(from + 'T00:00:00Z')) / 864e5);
+    const done = s.todos.filter(isDone);
+    const lead = done.filter((t) => t.registeredDate && t.completedDate && t.completedDate >= t.registeredDate)
+      .map((t) => days(t.registeredDate, t.completedDate));
+    const withDue = done.filter((t) => t.dueDate && t.completedDate);
+    const onTime = withDue.filter((t) => t.completedDate <= t.dueDate).length;
+    const thisMonth = monthRangeK(today, 0).label, prevMonth = monthRangeK(today, -1).label;
+    const overdue = s.todos.filter((t) => !isDone(t) && t.dueDate && t.dueDate < today);
+    const missingCompleted = done.filter((t) => !t.completedDate).length;
+    const missingDue = s.todos.filter((t) => !isDone(t) && !t.dueDate).length;
+    return {
+      changed: false,
+      result: {
+        평균완료소요일: lead.length ? +(lead.reduce((a, b) => a + b, 0) / lead.length).toFixed(1) : null,
+        기한준수율: withDue.length ? Math.round(onTime / withDue.length * 100) : null,
+        기한준수_기준건수: withDue.length,
+        이번달완료: done.filter((t) => (t.completedDate || '').slice(0, 7) === thisMonth).length,
+        전월완료: done.filter((t) => (t.completedDate || '').slice(0, 7) === prevMonth).length,
+        지연건수: overdue.length,
+        평균지연일: overdue.length ? +(overdue.reduce((a, t) => a + days(t.dueDate, today), 0) / overdue.length).toFixed(1) : null,
+        미완료전체: s.todos.filter((t) => !isDone(t)).length,
+        데이터누락: { 완료일없는완료: missingCompleted, 마감일없는미완료: missingDue }
+      }
+    };
+  }
   return { changed: false, result: { 오류: 'unknown_tool' } };
 }
 
@@ -243,7 +413,11 @@ function systemPrompt(s) {
     '- "뭐 있어/일정 알려줘"류는 list_schedule로 조회 후 간결히 요약한다.',
     '- 할 일 추가는 add_todo, 완료는 complete_todo, 수정(미루기/상태변경/우선순위)은 update_todo, 삭제는 delete_todo.',
     '- 여러 건을 한 번에 추가/처리하라고 하면 해당 함수를 여러 번 병렬 호출한다.',
-    '- "주간보고/이번 주 한 일 정리" 요청은 weekly_report로 데이터를 받아, 보기 좋은 불릿 형식(■ 이번 주 완료 / ■ 다음 주 예정 / ■ 지연)으로 정리해준다.',
+    '- "주간보고/이번 주 한 일 정리" 요청은 weekly_report로, "월간보고/이번 달 정리"는 monthly_report로 데이터를 받아 보기 좋은 불릿 형식으로 정리해준다.',
+    '- 도구 고르는 법: 날짜 구간의 예정 확인 = list_schedule / 조건(채널·대분류·담당자·키워드·상태)으로 찾기 = search_todos / **숫자만 필요하면 count_todos**(예: "몇 건 남았어?") / 처리 속도·지연 정도 = work_stats.',
+    '- "몇 건"을 물으면 목록을 다 나열하지 말고 count_todos의 숫자로 답한다. 분류별 비교를 원하면 group_by를 쓴다.',
+    '- 집계 결과를 말할 때는 조건을 함께 밝힌다(예: "이번 달 마감 기준, 정산 미완료 4건"). 완료 포함 여부가 애매하면 미완료 기준으로 답하고 그 사실을 덧붙인다.',
+    '- work_stats의 데이터누락(완료일/마감일 빈 건)이 있으면, 지표가 실제와 다를 수 있다고 한 줄 알려준다.',
     '- "뭐부터 할까/우선순위" 질문엔 list_schedule로 지연·오늘·임박을 확인해 지연·긴급 우선으로 짧게 추천한다.',
     '- 날짜·시간은 반드시 함수 인자로 YYYY-MM-DD, HH:MM(24h)로 변환해 넘긴다.',
     '- 답변은 짧고 명확한 한국어로. 실행한 내용(추가/완료/시간)을 한 줄로 확인해준다. 정보가 정말 애매할 때만 한 가지만 되묻는다.',
