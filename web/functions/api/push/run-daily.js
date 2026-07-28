@@ -6,16 +6,43 @@ import { sendToAll, computeSummary } from './_send.js';
 import { kakaoConfigured, sendKakaoMessages, buildKakaoMessages } from './_kakao.js';
 import { runSheetSync } from '../google/sheet-sync.js';
 
+// 'cron' | 'auth' | false — 호출 주체 구분(크론 재시도 중복 방지에 사용)
 function allowed(context) {
   const secret = context.env.CRON_SECRET;
   const got = context.request.headers.get('X-Cron-Secret') || '';
-  if (secret && got && got === secret) return true;
-  return authed(context);
+  if (secret && got && got === secret) return 'cron';
+  return authed(context) ? 'auth' : false;
+}
+
+const todayKST = () => new Date(Date.now() + 9 * 3600e3).toISOString().slice(0, 10);
+
+// 크론이 08:00·08:10 이중 발사(미발사 대비)되므로, 같은 날 이미 보냈으면 크론 호출은 건너뛴다.
+// 수동(Bearer) 호출은 항상 발송한다(테스트·디버그용).
+async function readDaily(env) {
+  try {
+    const row = await env.DB.prepare("SELECT data FROM documents WHERE id = 'daily'").first();
+    if (row && row.data) return JSON.parse(row.data);
+  } catch (e) {}
+  return {};
+}
+async function markSent(env) {
+  await env.DB
+    .prepare("INSERT INTO documents (id, data, updated_at) VALUES ('daily', ?1, ?2) ON CONFLICT(id) DO UPDATE SET data = ?1, updated_at = ?2")
+    .bind(JSON.stringify({ lastSentDay: todayKST(), at: Date.now() }), Date.now())
+    .run();
 }
 
 export async function onRequestPost(context) {
   const { env } = context;
-  if (!allowed(context)) return new Response(JSON.stringify({ error: 'unauthorized' }), { status: 401 });
+  const caller = allowed(context);
+  if (!caller) return new Response(JSON.stringify({ error: 'unauthorized' }), { status: 401 });
+
+  if (caller === 'cron') {
+    const daily = await readDaily(env);
+    if (daily.lastSentDay === todayKST()) {
+      return Response.json({ ok: true, skipped: 'already_sent_today' });
+    }
+  }
 
   // 0) 구글 시트가 연결돼 있으면 알림 전에 먼저 동기화(앱을 안 켜도 최신 시트 기준으로 알림)
   let sheet = { skipped: 'not_run' };
@@ -66,6 +93,9 @@ export async function onRequestPost(context) {
       } catch (e2) {}
     }
   }
+
+  // 오늘 발송 완료 기록(크론 2차 발사가 중복 발송하지 않도록)
+  try { await markSent(env); } catch (e) {}
 
   return Response.json({ ok: true, push, kakao, sheet, parts: messages.length, summary: summaryCounts(s) });
 }
