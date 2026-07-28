@@ -2721,7 +2721,11 @@ async function renderSnapshots() {
         try {
           const r2 = await CloudSync.authFetch('/api/snapshots', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'restore', id: btn.getAttribute('data-id') }) });
           const j2 = await r2.json();
-          if (j2.ok) { state = await window.api.loadData(); applyTheme(); renderAll(); toast('이전 상태로 되돌렸어요'); renderSnapshots(); }
+          if (j2.ok) {
+            state = await window.api.loadData(); applyTheme(); renderAll();
+            toast(j2.vaultKept ? '이전 상태로 되돌렸어요 (Password 관리자는 현재 것 유지)' : '이전 상태로 되돌렸어요');
+            renderSnapshots();
+          }
           else toast('복원 실패: ' + (j2.error || ''));
         } catch (e) { toast('복원 요청 실패'); }
         btn.disabled = false;

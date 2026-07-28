@@ -50,12 +50,33 @@ export async function onRequestPost(context) {
     if (!body.id) return Response.json({ error: 'no_id' }, { status: 400 });
     const snap = await env.DB.prepare("SELECT data FROM snapshots WHERE id = ?1").bind(body.id).first();
     if (!snap) return Response.json({ error: 'not_found' }, { status: 404 });
+
+    // 금고(vault) 보호: 복원해도 현재 금고 암호문은 그대로 둔다.
+    // 금고 생성 이전 스냅샷으로 되돌리면 암호문이 통째로 사라지는데,
+    // 금고는 마스터 비밀번호가 있어도 암호문이 없으면 복구할 방법이 없다.
+    // (할 일/일정을 되돌리려다 저장해둔 계정을 잃는 사고를 막는다)
+    let restoreData = snap.data;
+    let vaultKept = false;
+    const cur = await env.DB.prepare("SELECT data FROM documents WHERE id = 'main'").first();
+    let curVault;
+    if (cur && cur.data) { try { curVault = JSON.parse(cur.data).vault; } catch (e) {} }
+    if (curVault) {
+      try {
+        const d = JSON.parse(snap.data);
+        if (JSON.stringify(d.vault) !== JSON.stringify(curVault)) {
+          d.vault = curVault;
+          restoreData = JSON.stringify(d);
+          vaultKept = true;
+        }
+      } catch (e) {} // 스냅샷이 깨져 있으면 원본 그대로 복원(기존 동작 유지)
+    }
+
     // 복원 전 현재 상태 자동 백업(복원도 되돌릴 수 있게)
     await snapshotCurrent(env, 'pre-restore');
     await env.DB
       .prepare("INSERT INTO documents (id, data, updated_at) VALUES ('main', ?1, ?2) ON CONFLICT(id) DO UPDATE SET data = ?1, updated_at = ?2")
-      .bind(snap.data, Date.now()).run();
-    return Response.json({ ok: true, restored: true });
+      .bind(restoreData, Date.now()).run();
+    return Response.json({ ok: true, restored: true, vaultKept });
   }
 
   // 생성 (force 아니면 하루 1회로 제한)
