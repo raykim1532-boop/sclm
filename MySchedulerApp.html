@@ -261,11 +261,19 @@ html, body {
   outline: none;
   border-color: var(--accent);
 }
-#vaultUnlockCard .vault-form .btn, #vaultSetupCard .vault-form .btn {
+/* 주 동작 버튼만 전체폭. '전체 초기화' 같은 보조 버튼은 인라인 크기 유지 */
+#vaultUnlockCard .vault-form .btn-primary, #vaultSetupCard .vault-form .btn-primary {
   width: 100%;
   justify-content: center;
   padding: 12px 16px;
   font-size: 15px;
+}
+#vaultUnlockCard .vault-form .vault-del {
+  display: inline-flex;
+  width: auto;
+  padding: 5px 12px;
+  font-size: 12.5px;
+  vertical-align: middle;
 }
 
 /* ---- 계정 추가/편집 폼 (가운데 정렬 + 라벨형 2단 그리드) ---- */
