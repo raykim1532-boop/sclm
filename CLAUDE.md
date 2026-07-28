@@ -51,6 +51,7 @@ Worker `sclm-push-cron`: `CRON_SECRET`(Pages와 동일 값).
 - `data-vault` 금고 보존 규칙(저장 요청에 vault 없으면 기존 암호문 유지) · `sheet-sync` 비파괴/구조가드/앱항목 보존/id 안정성
 - `calendar-sync` 공용 함수·크론 인증 · `kakao` refresh_token 회전 저장·200자 분할 · `vault-crypto` 암호화 왕복·마스터 비번 변경
 - `vault-crypto`는 `MySchedulerApp.html`에서 함수를 **정규식으로 추출**해 검증하므로, 해당 함수명(`vaultDeriveKey`·`vB64e`·`vB64d`·`vaultGeneratePassword`·`VAULT_ITER`)을 바꾸면 테스트도 함께 고칠 것.
+- `work-stats`도 같은 방식으로 `computeWorkStats`(대시보드 처리 지표: 평균 소요일·기한 준수율·이번달 완료·지연)를 추출해 검증한다. 이 함수는 **순수 함수로 유지**할 것(state 참조 금지).
 
 ## 로컬 검증 흐름
 빌드(`node build.js`) → 정적 서버(예: `python -m http.server`)로 `web/public` 서빙 → 브라우저로 확인. `/api/health`가 없으면 로컬(비클라우드) 모드로 뜬다. 함수/D1까지 보려면 `npm run dev`(wrangler pages dev).
