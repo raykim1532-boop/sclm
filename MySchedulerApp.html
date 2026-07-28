@@ -267,6 +267,40 @@ html, body {
   padding: 12px 16px;
   font-size: 15px;
 }
+
+/* ---- 계정 추가/편집 폼 (가운데 정렬 + 라벨형 2단 그리드) ---- */
+#vaultEditCard { max-width: 680px; margin-left: auto; margin-right: auto; }
+#vaultEditCard h2 { text-align: center; }
+#vaultEditCard .vf-sub { text-align: center; margin-top: 4px; }
+.vf-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px 18px; max-width: none; margin-top: 20px; }
+.vf-span2 { grid-column: 1 / -1; }
+.vf-field { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.vf-field label { font-size: 12.5px; font-weight: 600; color: var(--text); opacity: .72; letter-spacing: .02em; }
+.vf-req { color: #e05656; }
+.vf-opt { font-weight: 400; opacity: .6; font-size: 11.5px; }
+.vf-field input, .vf-field textarea {
+  padding: 11px 13px;
+  font-size: 14.5px;
+  font-family: inherit;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface-2);
+  color: var(--text);
+  transition: border-color .12s, box-shadow .12s;
+}
+.vf-field input:focus, .vf-field textarea:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent);
+}
+.vf-field .vault-pw-row { display: flex; gap: 8px; }
+.vf-field .vault-pw-row input { flex: 1; min-width: 0; }
+.vf-icon-btn { padding: 0 14px; border-radius: 10px; white-space: nowrap; }
+textarea#vfMemo { resize: vertical; min-height: 76px; }
+.vf-actions { display: flex; gap: 10px; padding-top: 6px; }
+.vf-actions .btn { padding: 11px 22px; font-size: 14.5px; }
+.vf-actions .vault-del { margin-left: auto; }
+@media (max-width: 640px) { .vf-grid { grid-template-columns: 1fr; } }
 @media (max-width: 620px) {
   #vaultUnlockCard, #vaultSetupCard { margin-top: 24px; padding: 32px 22px; }
   #vaultUnlockCard h2, #vaultSetupCard h2 { font-size: 20px; }
@@ -1438,21 +1472,41 @@ body.is-offline .offline-bar { display: inline-flex; }
 
       <div class="settings-card hidden" id="vaultEditCard">
         <h2 id="vaultEditTitle">계정 추가</h2>
-        <div class="vault-form">
-          <input type="text" id="vfSite" placeholder="사이트/서비스명 (예: 마리오아울렛 백오피스)" />
-          <input type="text" id="vfUrl" placeholder="URL (선택)" />
-          <input type="text" id="vfUser" placeholder="아이디" autocomplete="off" />
-          <div class="vault-pw-row">
-            <input type="password" id="vfPass" placeholder="비밀번호" autocomplete="off" />
-            <button type="button" class="btn" id="vfPassToggle" title="표시/숨김">👁</button>
-            <button type="button" class="btn" id="vfPassGen" title="강력한 비밀번호 생성">🎲 생성</button>
+        <p class="hint vf-sub">거래처·몰 로그인 정보를 암호화해 보관합니다 · <b>사이트명만 필수</b></p>
+        <div class="vault-form vf-grid">
+          <div class="vf-field">
+            <label for="vfSite">사이트/서비스명 <span class="vf-req">*</span></label>
+            <input type="text" id="vfSite" placeholder="예: 마리오아울렛 백오피스" />
           </div>
-          <input type="text" id="vfCategory" placeholder="분류 (선택, 예: 정산·영업)" />
-          <textarea id="vfMemo" placeholder="메모 (선택)" rows="2" style="resize:vertical"></textarea>
-          <div class="settings-row" style="border:none;padding-top:6px;gap:8px">
+          <div class="vf-field">
+            <label for="vfUrl">URL <span class="vf-opt">선택</span></label>
+            <input type="text" id="vfUrl" placeholder="예: gw.sejungglobal.com" />
+          </div>
+          <div class="vf-field">
+            <label for="vfUser">아이디</label>
+            <input type="text" id="vfUser" placeholder="로그인 아이디" autocomplete="off" />
+          </div>
+          <div class="vf-field">
+            <label for="vfPass">비밀번호</label>
+            <div class="vault-pw-row">
+              <input type="password" id="vfPass" placeholder="비밀번호" autocomplete="off" />
+              <button type="button" class="btn vf-icon-btn" id="vfPassToggle" title="표시/숨김">👁</button>
+              <button type="button" class="btn vf-icon-btn" id="vfPassGen" title="강력한 비밀번호 생성">🎲 생성</button>
+            </div>
+          </div>
+          <div class="vf-field vf-span2">
+            <label for="vfCategory">분류 <span class="vf-opt">선택 · 목록에서 고르거나 새로 입력</span></label>
+            <input type="text" id="vfCategory" list="vfCategoryList" placeholder="예: 정산 · 영업 · 회사 인트라넷" />
+            <datalist id="vfCategoryList"></datalist>
+          </div>
+          <div class="vf-field vf-span2">
+            <label for="vfMemo">메모 <span class="vf-opt">선택</span></label>
+            <textarea id="vfMemo" placeholder="추가로 기억할 내용 (보안 질문, 지점 코드 등)" rows="3"></textarea>
+          </div>
+          <div class="vf-actions vf-span2">
             <button class="btn btn-primary" id="vfSaveBtn">저장</button>
             <button class="btn" id="vfCancelBtn">취소</button>
-            <button class="btn vault-del" id="vfDeleteBtn" style="margin-left:auto">삭제</button>
+            <button class="btn vault-del" id="vfDeleteBtn">삭제</button>
           </div>
         </div>
       </div>
@@ -3035,6 +3089,15 @@ function openVaultEdit(id) {
   $('vfCategory').value = e ? (e.category || '') : '';
   $('vfMemo').value = e ? (e.memo || '') : '';
   $('vfDeleteBtn').style.display = e ? '' : 'none';
+  // 분류 자동완성: 기존 금고 분류 + 프로젝트(대분류) 이름
+  const dl = $('vfCategoryList');
+  if (dl) {
+    const cats = new Set([
+      ...vaultEntries.map((x) => (x.category || '').trim()).filter(Boolean),
+      ...((state && state.projects) || []).map((p) => p.name).filter(Boolean),
+    ]);
+    dl.innerHTML = [...cats].map((c) => '<option value="' + escapeHtml(c) + '"></option>').join('');
+  }
   $('vaultOpen').classList.add('hidden');
   $('vaultEditCard').classList.remove('hidden');
   $('vfSite').focus();
