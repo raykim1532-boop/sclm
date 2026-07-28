@@ -2,7 +2,7 @@
 
 ## 개요
 **SCLM (스케줄 관리)** — 개인 업무용 일정/할일 관리 웹앱. 유통사업팀 실제 업무 데이터(할일 40여 건, 세부채널 등)를 관리한다.
-- **단일 HTML 앱**: `MySchedulerApp.html` (루트) 하나에 CSS·JS·FullCalendar 번들이 모두 인라인.
+- **단일 HTML 앱**: 배포물은 인라인 CSS·JS·FullCalendar 번들이 들어간 `index.html` 한 장. **소스는 `src/` 조각으로 나눠 두고 빌드 때 합친다.**
 - **클라우드 배포**: Cloudflare Pages + D1(SQLite). 여러 기기에서 같은 데이터 공유.
 - **라이브 주소**: https://sclm.pages.dev (Pages 프로젝트명 `sclm`).
 
@@ -10,8 +10,17 @@
 `docs/TECH-SPEC.md`(기술 스펙·IA — 시스템 구성/API 명세/데이터 모델/보안), `docs/USER-GUIDE.md`(사용자 가이드). **구조·API·화면을 바꾸면 해당 문서도 갱신할 것.**
 
 ## 소스/작업 규칙
-- 앱 로직은 **오직 `MySchedulerApp.html`만 수정**한다. `web/public/index.html`은 빌드 산출물(`web/build.js`가 복사)이라 직접 수정 금지 — gitignore됨.
-- **FullCalendar 임베드 번들(HTML 내 대용량 `<script>`/`<style>` 블록)은 수정하지 말 것.**
+- 앱 소스는 **`src/` 안에서만 수정**한다. `web/public/index.html`은 빌드 산출물(`web/build.js`가 생성)이라 직접 수정 금지 — gitignore됨.
+  | 파일 | 내용 |
+  |---|---|
+  | `src/shell.html` | HTML 뼈대 + 화면 마크업 + **FullCalendar 임베드 번들** + `<!--@include 경로-->` 자리표시자 |
+  | `src/app.css` | 앱 스타일 전부 |
+  | `src/local-api.js` | 로컬 저장 계층(`window.api`) |
+  | `src/cloud-sync.js` | 클라우드 동기화(`window.CloudSync`) |
+  | `src/app.js` | 앱 로직 전부(렌더·모달·대시보드·금고 등) |
+- **FullCalendar 임베드 번들(`src/shell.html` 안의 대용량 `<script>` 4개)은 수정하지 말 것.**
+- `build.js`는 `<!--@include ...-->` 자리표시자를 파일 내용으로 치환할 뿐이다. 조각을 추가하려면 shell.html에 자리표시자를 넣고 파일을 만들면 된다. 처리 못 한 자리표시자가 남으면 빌드가 실패한다.
+- ⚠️ 조각 파일은 **CRLF**다(원본 HTML을 그대로 쪼갠 것). 줄바꿈을 통째로 바꾸면 diff가 폭발하니 건드리지 말 것.
 - 배포 절차: `cd web && npm run deploy` = `node build.js && wrangler pages deploy public --project-name sclm --branch=main`. **`--branch=main` 필수**(production 브랜치). package.json에 반영돼 있음.
 
 ## 배포물이 2개다 (중요)
@@ -54,7 +63,7 @@ Worker `sclm-push-cron`: `CRON_SECRET`(Pages와 동일 값).
 `cd web && npm test` — `web/tests/*.test.mjs`를 모두 실행(외부 의존성 없음, D1/fetch 모의). **코드 수정 후 반드시 실행할 것.**
 - `data-vault` 금고 보존 규칙(저장 요청에 vault 없으면 기존 암호문 유지) · `sheet-sync` 비파괴/구조가드/앱항목 보존/id 안정성
 - `calendar-sync` 공용 함수·크론 인증 · `kakao` refresh_token 회전 저장·200자 분할 · `vault-crypto` 암호화 왕복·마스터 비번 변경
-- `vault-crypto`는 `MySchedulerApp.html`에서 함수를 **정규식으로 추출**해 검증하므로, 해당 함수명(`vaultDeriveKey`·`vB64e`·`vB64d`·`vaultGeneratePassword`·`VAULT_ITER`)을 바꾸면 테스트도 함께 고칠 것.
+- `vault-crypto`는 `src/app.js`에서 함수를 **정규식으로 추출**해 검증하므로, 해당 함수명(`vaultDeriveKey`·`vB64e`·`vB64d`·`vaultGeneratePassword`·`VAULT_ITER`)을 바꾸면 테스트도 함께 고칠 것.
 - `work-stats`도 같은 방식으로 `computeWorkStats`(처리 지표)·`computeTrend`(월별 등록/완료/월말 미완료 잔량)·`computeDataIssues`(지표를 왜곡하는 입력 누락 탐지)를 추출해 검증한다. 세 함수는 **순수 함수로 유지**할 것(state 참조 금지).
   - 데이터 점검 카드는 결함이 있을 때만 뜨며, 항목 클릭 시 `openDataIssueModal`이 대상 목록을 보여준다. 시트 유입 건은 앱에서 고쳐도 다음 동기화에 덮이므로 **"시트에서 고치라"는 안내를 반드시 유지**할 것.
   - 추이 차트는 막대(`.an-cols`)와 잔량선 SVG(`.an-line`)가 **같은 박스를 덮어야** 눈금이 맞는다. SVG는 대체요소라 inset만으로는 고유비율로 그려지므로 `width/height`를 명시해 둠 — 건드리면 정렬이 깨진다. 잔량선은 막대와 **척도가 다르다**(범례·가이드에 명시).

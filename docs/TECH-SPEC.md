@@ -12,7 +12,7 @@
 |---|---|
 | 목적 | 구글 시트로 관리하던 업무 리스트를 앱·알림·캘린더로 자동 연결하는 개인 업무 비서 |
 | 사용자 모델 | **단일 사용자** (앱 비밀번호 1개, 데이터 문서 1개) |
-| 프런트엔드 | 단일 HTML 파일 (`MySchedulerApp.html`, ~5,000줄) — CSS·JS·FullCalendar 인라인 |
+| 프런트엔드 | 단일 HTML 배포물(~5,500줄) — CSS·JS·FullCalendar 인라인. 소스는 `src/` 조각을 빌드 때 병합 |
 | 백엔드 | Cloudflare Pages Functions (파일 기반 라우팅, API 16개) |
 | 저장소 | Cloudflare D1(SQLite) + R2(파일) |
 | 자동화 | 별도 Cron Worker(`sclm-push-cron`) — 매일 08:00 KST |
@@ -222,11 +222,16 @@ GitHub Actions / sclm-push-cron (cron, UTC)
 
 ```
 sclm/
-├─ MySchedulerApp.html        ★ 앱 소스(유일한 편집 대상)
+├─ src/                       ★ 앱 소스(편집 대상)
+│  ├─ shell.html              HTML 뼈대 + 마크업 + FullCalendar 번들(수정 금지) + include 자리표시자
+│  ├─ app.css                 스타일
+│  ├─ local-api.js            로컬 저장 계층(window.api)
+│  ├─ cloud-sync.js           클라우드 동기화(window.CloudSync)
+│  └─ app.js                  앱 로직
 ├─ CLAUDE.md · README.md
 ├─ docs/                      본 문서 · 사용자 가이드
 └─ web/
-   ├─ build.js                MySchedulerApp.html + static/* → public/
+   ├─ build.js                src/* 병합 + static/* → public/index.html
    ├─ wrangler.toml           D1·R2 바인딩
    ├─ schema.sql · seed.sql
    ├─ static/                 manifest · 아이콘 · sw.js (추적됨)

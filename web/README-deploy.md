@@ -62,11 +62,11 @@ Cloudflare 대시보드 → **Workers & Pages → raymond-scheduler → Settings
 ---
 
 ## 코드 수정 후 재배포
-앱은 상위 폴더의 **`../MySchedulerApp.html` 한 파일**이 원본이다. 수정 후:
+앱 원본은 상위 폴더의 **`../src/`** 조각들이다(`shell.html` · `app.css` · `local-api.js` · `cloud-sync.js` · `app.js`). 수정 후:
 ```bash
 npm run deploy
 ```
-`build.js`가 `../MySchedulerApp.html` → `public/index.html` 로 복사한 뒤 배포한다.
+`build.js`가 `src/*`를 합쳐 `public/index.html`을 만든 뒤 배포한다.
 
 ## 로컬에서 웹 버전 테스트
 ```bash

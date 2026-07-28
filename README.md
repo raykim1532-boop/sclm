@@ -1,6 +1,6 @@
 # 나의 스케줄러 (MySchedulerApp)
 
-단일 HTML 파일로 동작하는 개인 일정관리 앱. 설치 없이 `MySchedulerApp.html`을 브라우저로 열면 바로 실행된다.
+단일 HTML 파일로 동작하는 개인 일정관리 앱. `cd web && node build.js` 로 만든 `web/public/index.html` 을 브라우저로 열면 설치 없이 바로 실행된다.
 
 > 📚 **문서**: [기술 스펙 & IA](docs/TECH-SPEC.md) · [사용자 가이드](docs/USER-GUIDE.md) · [구글 연동 설정](web/GOOGLE-SETUP.md) · [알림 설정](web/PUSH-SETUP.md)
 
@@ -28,10 +28,20 @@
 `sample-sheet-import.json` — 구글시트 업무리스트(39건)를 위 포맷으로 변환한 샘플. 설정 → 불러오기로 적재 가능(기존 데이터 덮어씀).
 
 ## 개발
-파일 하나짜리라 빌드 과정이 없다. `MySchedulerApp.html`을 직접 편집하고 브라우저에서 새로고침해 확인한다.
-- HTML/CSS: 상단 `<style>`
-- FullCalendar: 내장 번들 (수정 금지)
-- 앱 로직: 하단 `<script>` 블록들 (`window.api` 저장 계층 + `클라우드 모듈` + `app` 로직)
+소스는 `src/` 조각으로 나뉘어 있고, 빌드가 이를 합쳐 단일 HTML을 만든다.
+
+| 파일 | 내용 |
+|---|---|
+| `src/shell.html` | HTML 뼈대 · 화면 마크업 · FullCalendar 번들(수정 금지) · include 자리표시자 |
+| `src/app.css` | 스타일 |
+| `src/local-api.js` | 로컬 저장 계층(`window.api`) |
+| `src/cloud-sync.js` | 클라우드 동기화(`window.CloudSync`) |
+| `src/app.js` | 앱 로직 |
+
+```bash
+cd web && node build.js   # src/* → public/index.html
+npm test                  # 자동 테스트
+```
 
 ## 웹 배포 (여러 기기 데이터 공유)
 `web/` 폴더가 Cloudflare Pages 배포 프로젝트다. 정적 앱 + Functions API(`/api`) + D1(SQLite)로,

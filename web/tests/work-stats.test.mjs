@@ -1,9 +1,9 @@
-// 대시보드 처리 지표 — MySchedulerApp.html의 computeWorkStats를 추출해 검증한다.
-// (앱이 단일 HTML이라 import가 불가능하므로 소스에서 떼어내 실행)
+// 대시보드 처리 지표 — src/app.js 에서 함수를 추출해 검증한다.
+// (브라우저용 조각이라 import가 불가능하므로 소스에서 떼어내 실행)
 import { readFileSync } from 'node:fs';
 import { check, section } from './_helpers.mjs';
 
-const html = readFileSync(new URL('../../MySchedulerApp.html', import.meta.url), 'utf8');
+const html = readFileSync(new URL('../../src/app.js', import.meta.url), 'utf8');
 const grab = (re, name) => { const m = html.match(re); if (!m) throw new Error('함수 추출 실패: ' + name); return m[0]; };
 const computeWorkStats = new Function(grab(/function computeWorkStats\([\s\S]*?\n}/, 'computeWorkStats') + '; return computeWorkStats;')();
 const computeTrend = new Function(grab(/function computeTrend\([\s\S]*?\n}/, 'computeTrend') + '; return computeTrend;')();
