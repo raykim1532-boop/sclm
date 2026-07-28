@@ -94,6 +94,10 @@ export async function runSheetSync(env) {
         id,
         googleId: prev ? prev.googleId : undefined,
         gSig: prev ? prev.gSig : undefined,
+        // 시트에 없는 '앱 전용' 데이터는 반드시 되살린다. 여기서 빠뜨리면
+        // 동기화 한 번에 조용히 사라진다(실제로 첨부파일이 그렇게 유실됐다).
+        files: prev && prev.files && prev.files.length ? prev.files : undefined,
+        links: prev && prev.links && prev.links.length ? prev.links : undefined,
         no: Number(noRaw) || noRaw || '',
         registeredDate: reg,
         dueDate: norm(r[COL.dueDate]),

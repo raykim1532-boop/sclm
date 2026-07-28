@@ -65,6 +65,34 @@ section('앱에서 추가한 할 일 보존');
   check('kept 카운트 보고', out.kept === 1);
 }
 
+section('앱 전용 데이터 보존 (첨부·링크·캘린더 연동)');
+{
+  // 실사고: 시트 항목에 붙인 첨부파일이 동기화 한 번에 사라졌다(R2 객체는 고아로 남음).
+  // 시트에 없는 필드는 이전 값에서 되살려야 한다.
+  const { docs: seed, env: env0 } = makeEnv(baseSheet);
+  await runSheetSync(env0);
+  const target = JSON.parse(seed.main).todos.find((t) => t.text === '엔터식스 정산');
+
+  const withExtras = JSON.parse(seed.main).todos.map((t) => (t.id === target.id
+    ? { ...t, files: [{ key: 'ms4i5j0s/q7alzj4x.xlsx', name: '정산서.xlsx', size: 1234 }], links: ['https://drive.example/a'], googleId: 'gcal-1', gSig: 'sig-1' }
+    : t));
+
+  const { docs, env } = makeEnv(baseSheet, withExtras);
+  const out = await runSheetSync(env);
+  const after = JSON.parse(docs.main).todos.find((t) => t.id === target.id);
+
+  check('동기화 후에도 같은 항목이 존재', !!after);
+  check('첨부파일 보존', !!after.files && after.files.length === 1 && after.files[0].key === 'ms4i5j0s/q7alzj4x.xlsx');
+  check('첨부 이름·크기까지 그대로', after.files[0].name === '정산서.xlsx' && after.files[0].size === 1234);
+  check('산출물 링크 보존', Array.isArray(after.links) && after.links[0] === 'https://drive.example/a');
+  check('캘린더 연동 정보 보존', after.googleId === 'gcal-1' && after.gSig === 'sig-1');
+  check('시트 값은 여전히 시트 기준으로 갱신', after.dueDate === '2026-07-10' && out.imported === 2);
+
+  // 첨부가 없던 항목에 빈 배열을 억지로 만들지 않는다(데이터만 커짐)
+  const other = JSON.parse(docs.main).todos.find((t) => t.text === '마리오 그랜드오픈');
+  check('첨부 없던 항목엔 files 키를 만들지 않음', other.files === undefined);
+}
+
 section('id 안정성');
 {
   const { docs, env } = makeEnv(baseSheet);
