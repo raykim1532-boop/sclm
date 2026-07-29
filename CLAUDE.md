@@ -104,5 +104,5 @@ Worker `sclm-push-cron`: `CRON_SECRET`(Pages와 동일 값).
 - 새 기기 세팅: Node+Git 설치 → `git clone` → `cd web && npm install` → `npx wrangler login` → `npm run deploy`.
 
 ## 커밋 규칙
-- 커밋 메시지 끝에: `Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>`
+- 커밋 메시지 끝에: `Co-Authored-By: Claude Opus <버전> <noreply@anthropic.com>` — **작업한 모델의 실제 버전**을 적는다(2026-07-29 기준 `Claude Opus 5`). 옛 버전 이름을 관성으로 복사하지 말 것.
 - 실제 업무 데이터 백업(`Ray-Work-Flow-백업.json`)·시크릿은 커밋 금지(gitignore/placeholder 처리됨).
