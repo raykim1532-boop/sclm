@@ -15,13 +15,14 @@ const thisMonth = today.slice(0, 7);
 const state = () => ({
   projects: [{ id: 'p1', name: '정산' }, { id: 'p2', name: '영업' }],
   channels: ['엔터식스', '쿠팡'],
+  subMaster: ['월정산', '행낭', '수수료'],
   events: [],
   todos: [
-    { id: '1', text: '엔터식스 정산 마감', projectId: 'p1', channel: '엔터식스', assignee: '김성철', priority: '긴급', registeredDate: shift(-20), dueDate: shift(-3), status: '진행중' },
-    { id: '2', text: '엔터식스 행낭 종료', projectId: 'p1', channel: '엔터식스', assignee: '김성철', priority: '보통', registeredDate: shift(-15), dueDate: shift(2), status: '대기' },
-    { id: '3', text: '쿠팡 수수료 검증', projectId: 'p1', channel: '쿠팡', assignee: '박대리', priority: '중요', registeredDate: shift(-30), dueDate: shift(-1), status: '대기' },
+    { id: '1', text: '엔터식스 정산 마감', projectId: 'p1', channel: '엔터식스', subChannel: '월정산', assignee: '김성철', priority: '긴급', registeredDate: shift(-20), dueDate: shift(-3), status: '진행중' },
+    { id: '2', text: '엔터식스 행낭 종료', projectId: 'p1', channel: '엔터식스', subChannel: '행낭', assignee: '김성철', priority: '보통', registeredDate: shift(-15), dueDate: shift(2), status: '대기' },
+    { id: '3', text: '쿠팡 수수료 검증', projectId: 'p1', channel: '쿠팡', subChannel: '수수료', assignee: '박대리', priority: '중요', registeredDate: shift(-30), dueDate: shift(-1), status: '대기' },
     { id: '4', text: '신규 입점 제안', projectId: 'p2', channel: '쿠팡', assignee: '김성철', priority: '보통', registeredDate: shift(-40), dueDate: shift(10), status: '진행중' },
-    { id: '5', text: '지난달 정산 완료건', projectId: 'p1', channel: '엔터식스', assignee: '김성철', registeredDate: shift(-25), dueDate: shift(-10), completedDate: shift(-8), status: '완료', done: true },
+    { id: '5', text: '지난달 정산 완료건', projectId: 'p1', channel: '엔터식스', subChannel: '월정산', assignee: '김성철', registeredDate: shift(-25), dueDate: shift(-10), completedDate: shift(-8), status: '완료', done: true },
     { id: '6', text: '마감 없는 잡무', projectId: 'p2', channel: '', assignee: '', registeredDate: shift(-5), dueDate: '', status: '대기' }
   ]
 });
@@ -102,6 +103,47 @@ section('monthly_report');
   check('이번 달 미완료에 지연 표시', r.이번달미완료.every((x) => typeof x.지연 === 'boolean'));
   check('대분류별 요약 포함', typeof r.대분류별 === 'object');
   check('상태를 바꾸지 않음(조회 전용)', runTool('monthly_report', {}, s).changed === false);
+}
+
+section('분류(대·중·소) 변경');
+{
+  const s = state();
+  const before = s.subMaster ? s.subMaster.length : 0;
+  const out = runTool('update_todo', { text_contains: '쿠팡 수수료', new_channel: '11번가', new_sub_channel: '정산검증' }, s);
+  const t = s.todos.find((x) => x.text === '쿠팡 수수료 검증');
+  check('중분류 변경', t.channel === '11번가');
+  check('소분류 변경', t.subChannel === '정산검증');
+  check('무엇을 바꿨는지 보고', out.result.변경.중분류 === '11번가' && out.result.변경.소분류 === '정산검증');
+  check('새 중분류가 목록에 등록됨', s.channels.includes('11번가'));
+  check('새 소분류가 목록에 등록됨', s.subMaster.includes('정산검증'));
+
+  // 대분류는 기존 목록에서만 — 임의 생성 금지(칸반·캘린더 색을 공유하는 고정 축)
+  const s2 = state();
+  const ok = runTool('update_todo', { text_contains: '쿠팡 수수료', new_project: '영업' }, s2);
+  const t2 = s2.todos.find((x) => x.text === '쿠팡 수수료 검증');
+  check('기존 대분류로 이동', t2.projectId === 'p2' && ok.result.변경.대분류 === '영업');
+
+  const s3 = state();
+  const bad = runTool('update_todo', { text_contains: '쿠팡 수수료', new_project: '없는분류' }, s3);
+  const t3 = s3.todos.find((x) => x.text === '쿠팡 수수료 검증');
+  check('없는 대분류는 만들지 않음', s3.projects.length === 2 && t3.projectId === 'p1');
+  check('실패 사유를 알려줌', typeof bad.result.변경.대분류_실패 === 'string');
+
+  // 같은 값 재지정은 중복 등록하지 않는다
+  const s4 = state();
+  runTool('update_todo', { text_contains: '쿠팡 수수료', new_channel: '쿠팡' }, s4);
+  check('이미 있는 중분류는 목록에 중복 추가 안 함', s4.channels.filter((c) => c === '쿠팡').length === 1);
+}
+
+section('리포트 분류 꼬리표');
+{
+  const s = state();
+  const w = runTool('weekly_report', {}, s).result;
+  const m = runTool('monthly_report', {}, s).result;
+  const all = [].concat(w.이번주완료 || [], w.다음주예정 || [], w.지연 || [], m.이번달완료 || [], m.이번달미완료 || []);
+  check('분류 꼬리표에 소분류까지 포함', all.length === 0 || all.every((x) => typeof x.분류 === 'string'));
+  const sample = all.find((x) => (x.분류 || '').split('/').length === 3);
+  check('대/중/소 3단으로 표기', !!sample || all.length === 0);
 }
 
 section('삭제 시 첨부 정리');

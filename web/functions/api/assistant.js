@@ -100,7 +100,7 @@ const FUNCTIONS = [
   },
   {
     name: 'update_todo',
-    description: '내용이 일치하는 할 일의 상태·마감일·우선순위·진행사항을 수정한다. "미루기/변경/진행중으로" 등에 사용.',
+    description: '내용이 일치하는 할 일의 상태·마감일·우선순위·분류(대/중/소)·진행사항을 수정한다. "미루기/진행중으로/소분류를 OO로 바꿔줘" 등에 사용.',
     parameters: {
       type: 'OBJECT',
       properties: {
@@ -108,6 +108,9 @@ const FUNCTIONS = [
         new_status: { type: 'STRING', enum: ['대기', '진행중', '완료', '지연완료', '보류'] },
         new_due_date: { type: 'STRING', description: '새 마감일 YYYY-MM-DD' },
         new_priority: { type: 'STRING', enum: ['긴급', '중요', '보통'] },
+        new_project: { type: 'STRING', description: '새 대분류 이름 — 반드시 기존 목록에 있는 값' },
+        new_channel: { type: 'STRING', description: '새 중분류(없으면 목록에 추가됨)' },
+        new_sub_channel: { type: 'STRING', description: '새 소분류(없으면 목록에 추가됨)' },
         progress_note: { type: 'STRING', description: '진행사항에 덧붙일 메모' }
       },
       required: ['text_contains']
@@ -223,6 +226,12 @@ function monthRangeK(baseStr, offset) {
 // ---- 도구 실행 ----
 // export: web/tests/assistant-tools.test.mjs 에서 직접 호출해 검증한다(Gemini 호출 없이).
 export function runTool(name, input, s) {
+  // 배열 필드는 여기서 한 번 더 보정한다. loadState가 채워주지만, 마스터 목록은
+  // 나중에 추가된 필드라 오래된 문서·다른 호출 경로에서 비어 올 수 있고
+  // 그대로 push/includes 하면 도구 전체가 죽는다.
+  ['todos', 'events', 'projects', 'channels', 'subMaster'].forEach((k) => {
+    if (!Array.isArray(s[k])) s[k] = [];
+  });
   if (name === 'list_schedule') {
     const from = input.date_from, to = input.date_to, incDone = !!input.include_done;
     const todos = s.todos.filter((t) => t.dueDate && t.dueDate >= from && t.dueDate <= to && (incDone || !isDone(t)))
@@ -296,6 +305,23 @@ export function runTool(name, input, s) {
     if (input.new_status) { t.status = input.new_status; t.done = isDone(t); if (t.done && !t.completedDate) t.completedDate = kstToday(); chg.상태 = input.new_status; }
     if (input.new_due_date) { t.dueDate = input.new_due_date; chg.마감 = input.new_due_date; }
     if (input.new_priority) { t.priority = input.new_priority; chg.우선순위 = input.new_priority; }
+    // 분류 3축 변경. 중·소분류는 목록에 없는 값이면 마스터에도 등록한다(add_todo와 같은 규칙).
+    // 대분류만 예외 — 칸반·캘린더 색을 공유하는 고정 축이라 임의 생성하지 않고 실패를 알린다.
+    if (input.new_project) {
+      const np = s.projects.find((p) => p.name === input.new_project);
+      if (np) { t.projectId = np.id; chg.대분류 = np.name; }
+      else chg.대분류_실패 = `'${input.new_project}'는 없는 대분류입니다. 기존 목록에서 골라주세요`;
+    }
+    if (input.new_channel) {
+      const c = String(input.new_channel).trim();
+      if (c && !s.channels.includes(c)) s.channels.push(c);
+      t.channel = c; chg.중분류 = c;
+    }
+    if (input.new_sub_channel) {
+      const sc = String(input.new_sub_channel).trim();
+      if (sc && !s.subMaster.includes(sc)) s.subMaster.push(sc);
+      t.subChannel = sc; chg.소분류 = sc;
+    }
     if (input.progress_note) { t.progress = (t.progress ? t.progress + '\n' : '') + input.progress_note; chg.진행 = input.progress_note; }
     return { changed: Object.keys(chg).length > 0, result: { 수정됨: t.text, 변경: chg } };
   }
@@ -319,7 +345,7 @@ export function runTool(name, input, s) {
     const nsun = new Date(nmon); nsun.setUTCDate(nmon.getUTCDate() + 6);
     const fmt = (x) => x.toISOString().slice(0, 10);
     const ws = fmt(mon), we = fmt(sun), ns = fmt(nmon), ne = fmt(nsun);
-    const tag = (t) => { const p = (s.projects.find((x) => x.id === t.projectId) || {}).name; return [p, t.channel].filter(Boolean).join('/'); };
+    const tag = (t) => { const p = (s.projects.find((x) => x.id === t.projectId) || {}).name; return [p, t.channel, t.subChannel].filter(Boolean).join('/'); };
     const done = s.todos.filter((t) => isDone(t) && t.completedDate >= ws && t.completedDate <= we).map((t) => ({ 업무: t.text, 분류: tag(t), 완료: t.completedDate }));
     const next = s.todos.filter((t) => !isDone(t) && t.dueDate >= ns && t.dueDate <= ne).map((t) => ({ 업무: t.text, 분류: tag(t), 마감: t.dueDate, 상태: t.status }));
     const overdue = s.todos.filter((t) => !isDone(t) && t.dueDate && t.dueDate < today).map((t) => ({ 업무: t.text, 분류: tag(t), 마감: t.dueDate }));
@@ -329,7 +355,7 @@ export function runTool(name, input, s) {
     const today = kstToday();
     const tm = monthRangeK(today, input.month_offset || 0);
     const nm = monthRangeK(today, (input.month_offset || 0) + 1);
-    const tag = (t) => { const p = (s.projects.find((x) => x.id === t.projectId) || {}).name; return [p, t.channel].filter(Boolean).join('/'); };
+    const tag = (t) => { const p = (s.projects.find((x) => x.id === t.projectId) || {}).name; return [p, t.channel, t.subChannel].filter(Boolean).join('/'); };
     const done = s.todos.filter((t) => isDone(t) && t.completedDate >= tm.start && t.completedDate <= tm.end)
       .map((t) => ({ 업무: t.text, 분류: tag(t), 완료: t.completedDate }));
     const open = s.todos.filter((t) => !isDone(t) && t.dueDate >= tm.start && t.dueDate <= tm.end)
@@ -426,7 +452,10 @@ function systemPrompt(s) {
     '규칙:',
     '- 미팅/일정을 "잡아줘"라고 하면 먼저 find_free_slots로 빈 시간을 확인하고, 적절한 시간을 골라 add_event로 등록한 뒤 결과를 알려준다. 시간을 특정하지 않았으면 지정 시간대의 첫 빈 슬롯을 기본으로 잡되, 어떤 시간에 잡았는지 명확히 말한다.',
     '- "뭐 있어/일정 알려줘"류는 list_schedule로 조회 후 간결히 요약한다.',
-    '- 할 일 추가는 add_todo, 완료는 complete_todo, 수정(미루기/상태변경/우선순위)은 update_todo, 삭제는 delete_todo.',
+    '- 할 일 추가는 add_todo, 완료는 complete_todo, 수정(미루기/상태변경/우선순위/분류)은 update_todo, 삭제는 delete_todo.',
+    '- 분류 규칙: 대분류는 **위 목록에 있는 값만** 쓴다(없는 이름을 새로 만들지 말고, 애매하면 되묻는다). 중·소분류는 목록에 없으면 새로 만들어도 되지만, 먼저 목록에서 **뜻이 같은 값이 있는지 확인**하고 있으면 그것을 쓴다 — 표기만 다른 값이 늘면 집계가 쪼개진다.',
+    '- 할 일을 추가할 때 중·소분류를 알 수 있으면 함께 채운다. 사용자가 말하지 않았고 짐작도 안 되면 비워 두고, 지어내지 않는다.',
+    '- "OO 업무 소분류를 XX로 바꿔줘" 같은 요청은 update_todo의 new_project/new_channel/new_sub_channel로 처리하고, 무엇을 무엇으로 바꿨는지 한 줄로 확인해준다.',
     '- 여러 건을 한 번에 추가/처리하라고 하면 해당 함수를 여러 번 병렬 호출한다.',
     '- "주간보고/이번 주 한 일 정리" 요청은 weekly_report로, "월간보고/이번 달 정리"는 monthly_report로 데이터를 받아 보기 좋은 불릿 형식으로 정리해준다.',
     '- 도구 고르는 법: 날짜 구간의 예정 확인 = list_schedule / 조건(대·중·소분류·담당자·키워드·상태)으로 찾기 = search_todos / **숫자만 필요하면 count_todos**(예: "몇 건 남았어?") / 처리 속도·지연 정도 = work_stats.',
