@@ -22,9 +22,14 @@
 
   const isHttp = () => location.protocol === 'http:' || location.protocol === 'https:';
 
+  /* 서버에서 받은 상태를 앱이 기대하는 모양으로 맞춘다.
+     ⚠️ **모르는 키는 절대 버리지 말 것** — 여기서 화이트리스트로 새 객체를 만들면
+     나중에 추가된 필드(subMaster·channelColors 등)가 앱을 열 때마다 조용히 사라지고,
+     다음 저장 때 서버에서도 지워진다. 2026-07-29 소분류 목록이 이렇게 없어졌다.
+     그래서 원본을 먼저 펼치고(Object.assign) 아는 키만 보정한다. */
   function ensureShape(d) {
     d = d || {};
-    return {
+    return Object.assign({}, d, {
       settings: Object.assign({ theme: 'light', accent: '#1a73e8' }, d.settings || {}),
       projects: Array.isArray(d.projects) && d.projects.length ? d.projects : [{ id: 'default', name: '일반', color: '#1a73e8' }],
       events: Array.isArray(d.events) ? d.events : [],
@@ -32,7 +37,7 @@
       channels: Array.isArray(d.channels) ? d.channels : uniqueChannels(d.todos),
       tasks: Array.isArray(d.tasks) ? d.tasks : [],
       vault: d.vault || undefined // 계정 금고(암호문). 있으면 그대로 보존.
-    };
+    });
   }
 
   function authHeaders(extra) {
