@@ -49,7 +49,20 @@
 - `web/static/` — **배포용 정적 자산(추적됨)**: `manifest.webmanifest`, `icon-192/512/180.png`, `sw.js`. `build.js`가 `static/* → public/`으로 복사한다. `web/public/`은 gitignore이므로 **배포에 필요한 파일은 반드시 static/에 두고 커밋**할 것.
 - **PWA**: manifest + apple-touch-icon + standalone 메타로 홈 화면 설치 지원(아이폰은 설치해야 푸시 가능).
 - **오프라인**(`web/static/sw.js`): 문서=네트워크 우선→캐시 셸, 정적자산=캐시 우선+백그라운드 갱신, `GET /api/data`=네트워크 우선+캐싱(오프라인이면 마지막 응답에 `X-SCLM-Offline: 1` 붙여 반환), `GET /api/health`=오프라인이면 **데이터 캐시가 있을 때만** `{cloud:true,offline:true}` 합성(없으면 그대로 실패시켜 로컬 모드로). 비-GET·나머지 `/api/*`는 개입하지 않음. 앱 쪽: `setupServiceWorker`/`setupOfflineBar`/`reconcileOffline`. 오프라인 저장 실패분은 `myscheduler:offline:pending`에 보관했다가 온라인 복귀 시 **사용자 확인 후** 업로드/폐기(자동 덮어쓰기 금지 — 다른 기기 작업이 날아감). `verify()`는 `true|false|'offline'` 3값이며 캐시 응답(`X-SCLM-Offline`)으로는 비밀번호를 통과시키지 않는다. 캐시 스키마 바꾸면 `sw.js`의 `VERSION` 올릴 것.
-- 데이터 스키마(D1 documents id='main' JSON): `{ settings, projects, events, todos, channels, tasks }`. 실제 업무는 `todos`. `tasks`는 미사용(칸반이 todos 기반).
+- 데이터 스키마(D1 documents id='main' JSON): `{ settings, projects, events, todos, channels, channelProjects, subChannels, tasks }`. 실제 업무는 `todos`. `tasks`는 미사용(칸반이 todos 기반).
+- **분류 체계 = 대분류 > 중분류 > 소분류 (2026-07-29, 종속형 트리)**. ⚠️ **내부 필드명은 옛 이름 그대로다** — 화면 용어만 바꾸고 데이터는 이전하지 않았다(Password 관리자=vault와 같은 방식).
+  | 화면 | 필드 | 마스터 | 소속 |
+  |---|---|---|---|
+  | 대분류 | `projectId` | `state.projects` | — (칸반·캘린더 색상 공유) |
+  | 중분류 | `channel` | `state.channels[]` | `state.channelProjects[중분류]=projectId` |
+  | 소분류 | `subChannel` | `state.subMaster[]` (**공용 목록**) | `state.subChannels[중분류][]` = 연결 |
+  - `migrateTaxonomy(state)`가 앱 로드 시 1회 실행돼 소속 없는 중분류를 **최다 사용 대분류**로 편입한다. **순수 함수로 유지**할 것(state 전역 참조 금지 — `web/tests/taxonomy.test.mjs`가 정규식으로 `taxoInit`+`migrateTaxonomy`를 추출해 검증).
+  - **소분류는 공용이다**(2026-07-29 재설계). 같은 이름을 여러 중분류가 함께 쓰기 때문(예: '하프'를 마리오아울렛·대백이 동시 운영). 이름은 `subMaster`에 한 번만 두고 `subChannels[중분류]`로 **연결**만 늘린다 — 중분류마다 같은 이름을 다시 만들게 하지 말 것.
+  - 관리 화면(Categories)은 **가로 3열**(대분류|중분류|소분류)이다. `renderChannelSettings`가 세 열 렌더러(`renderCatProjects`/`renderCatMids`/`renderCatSubs`)를 부르고, 선택 상태는 모듈 변수 `catSelProj`·`catSelMid`가 들고 있다. **3열의 체크박스가 곧 연결**(`addSub`/`unlinkSub`)이다.
+  - 대분류 추가·수정은 `openProjectModal`을 그대로 재사용하므로 프로젝트 CRUD를 고치면 이 화면도 함께 확인할 것. 대분류를 지우면 그 소속 중분류는 `default`로 옮겨진다(고아 방지). 중분류 수정은 `openMidModal`(이름·소속·색상을 한 번에).
+  - 종속 UI는 **후보를 좁힐 뿐 입력을 막지 않는다**. 다른 대분류의 중분류도 "다른 대분류" 표시로 목록에 남기고, 이미 어긋난 값도 지우지 않는다. 이 관용을 없애면 실데이터가 조용히 사라진다.
+  - 중분류의 소속 대분류를 옮기면 **그 중분류를 쓰는 할 일의 `projectId`도 함께** 바꿔야 한다(`midMoveTo`). 삭제는 **마스터에서만** 빼고 할 일의 값은 남긴다. 소분류는 삭제가 두 단계 — 중분류 줄의 ✕는 **연결 해제**(`unlinkSub`), 공용 목록의 🗑는 **완전 삭제**(`subDeleteGlobal`).
+  - 분류 필드를 추가·변경하면 따라가야 하는 곳: 할 일 모달(`openTodoModal`) · 표 헤더(`shell.html`)와 셀 · 정렬키(`todoSortValue`) · 필터(`filterTodos`/`renderTodos`) · 검색 · CSV(`exportTodosCsv`) · 칸반 카드 · 시트 머리글 매핑(`SHEET_HEADER_MAP`) · `assistant.js`(도구 파라미터·`filterTodos`·`systemPrompt`).
 
 ## 시크릿 (저장소에 없음 — Cloudflare에만)
 Pages `sclm`: `APP_PASSWORD`, `VAPID_PRIVATE_KEY`, `CRON_SECRET`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `KAKAO_REST_API_KEY`, `KAKAO_REFRESH_TOKEN`(선택 `KAKAO_CLIENT_SECRET`), `GEMINI_API_KEY`(AI 비서, aistudio.google.com 무료 키).
@@ -63,6 +76,7 @@ Worker `sclm-push-cron`: `CRON_SECRET`(Pages와 동일 값).
 ## 테스트
 `cd web && npm test` — `web/tests/*.test.mjs`를 모두 실행(외부 의존성 없음, D1/fetch 모의). **코드 수정 후 반드시 실행할 것.**
 - `data-vault` 금고 보존 규칙(저장 요청에 vault 없으면 기존 암호문 유지) · `sheet-sync` 비파괴/구조가드/앱항목 보존/id 안정성
+- `taxonomy` 분류 트리 마이그레이션(소속 추론·기존 값 보존·빈 값 처리)
 - `calendar-sync` 공용 함수·크론 인증 · `kakao` refresh_token 회전 저장·200자 분할 · `vault-crypto` 암호화 왕복·마스터 비번 변경
 - `vault-crypto`는 `src/app.js`에서 함수를 **정규식으로 추출**해 검증하므로, 해당 함수명(`vaultDeriveKey`·`vB64e`·`vB64d`·`vaultGeneratePassword`·`VAULT_ITER`)을 바꾸면 테스트도 함께 고칠 것.
 - `work-stats`도 같은 방식으로 `computeWorkStats`(처리 지표)·`computeTrend`(월별 등록/완료/월말 미완료 잔량)·`computeDataIssues`(지표를 왜곡하는 입력 누락 탐지)를 추출해 검증한다. 세 함수는 **순수 함수로 유지**할 것(state 참조 금지).
