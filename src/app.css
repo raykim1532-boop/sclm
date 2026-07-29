@@ -1018,31 +1018,84 @@ html[data-theme="dark"] .todo-table tbody tr.row-today .col-due { color: #f6bf26
 .channel-toolbar { display: flex; align-items: center; gap: 10px; margin: 6px 0 10px; }
 .channel-toolbar .todo-count { margin-left: 0; }
 .channel-toolbar .select { margin-left: auto; }
-.channel-table { display: flex; flex-direction: column; gap: 6px; }
-.channel-row {
-  display: flex; align-items: center; gap: 12px;
-  padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px;
-  background: var(--surface);
-}
-.ch-swatch { width: 18px; height: 18px; border-radius: 5px; border: 1px solid rgba(0,0,0,0.15); cursor: pointer; flex-shrink: 0; padding: 0; }
-.ch-swatch:hover { transform: scale(1.1); }
 .ch-chip { display: inline-block; padding: 1px 8px; border-radius: 4px; font-size: 11.5px; font-weight: 500; line-height: 1.7; white-space: nowrap; }
-.channel-row .ch-name { font-weight: 600; font-size: 13.5px; min-width: 110px; max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.channel-row .ch-rename-input { width: 150px; padding: 4px 8px; border: 1px solid var(--accent); border-radius: 5px; background: var(--surface); color: var(--text); font-size: 13px; }
-.ch-stats { display: flex; flex-wrap: wrap; gap: 5px; flex: 1; }
-.ch-badge { font-size: 11px; color: var(--text-muted); background: var(--surface-2); border-radius: 10px; padding: 1px 8px; }
-.ch-badge.b-wait { color: #8a6d00; background: #f6bf2622; }
-.ch-badge.b-active { color: #0369a1; background: #039be522; }
-.ch-badge.b-done { color: #0b8043; background: #0b804322; }
-.ch-badge.b-over { color: var(--danger); background: #d9302522; font-weight: 600; }
-.ch-actions { display: flex; gap: 2px; flex-shrink: 0; }
+/* ---------- 분류 체계: 가로 3열(대분류 | 중분류 | 소분류) ---------- */
+/* 3열을 나란히 놓으려면 설정 카드 기본 폭(560px)으로는 좁다 */
+#view-channels .settings-card { max-width: 1100px; }
+.cat-columns {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  align-items: stretch;
+}
+.cat-col {
+  display: flex; flex-direction: column;
+  border: 1px solid var(--border); border-radius: 10px;
+  background: var(--surface); overflow: hidden; min-height: 380px;
+}
+.cat-col-head {
+  display: flex; align-items: center; gap: 6px;
+  padding: 9px 12px; font-size: 12px; font-weight: 700;
+  letter-spacing: 0.03em; color: var(--text-muted);
+  background: var(--surface-2); border-bottom: 1px solid var(--border);
+}
+.cat-col-count { font-weight: 600; color: var(--text-muted); background: var(--surface); border-radius: 8px; padding: 0 7px; font-size: 11px; }
+.cat-col-body { flex: 1; overflow-y: auto; padding: 6px; display: flex; flex-direction: column; gap: 2px; max-height: 460px; }
+.cat-col-foot { display: flex; gap: 6px; padding: 8px; border-top: 1px solid var(--border); background: var(--surface-2); }
+.cat-col-foot input {
+  flex: 1; min-width: 0; padding: 7px 9px; font-size: 12.5px;
+  border: 1px solid var(--border); border-radius: 6px; background: var(--surface); color: var(--text);
+}
+.cat-col-foot input:disabled { opacity: 0.5; }
+.cat-col-foot .btn { padding: 7px 12px; font-size: 12.5px; white-space: nowrap; }
+.cat-add-btn { flex: 1; }
+.cat-col-empty { color: var(--text-muted); font-size: 12.5px; padding: 14px 10px; text-align: center; }
+.cat-col-note { color: var(--text-muted); font-size: 11.5px; padding: 4px 8px 7px; }
+
+.cat-item {
+  display: flex; align-items: center; gap: 7px;
+  padding: 7px 9px; border-radius: 7px; cursor: pointer;
+  border: 1px solid transparent;
+}
+.cat-item:hover { background: var(--surface-2); }
+.cat-item.selected { background: var(--accent-soft); border-color: var(--accent); }
+.cat-item.linked .cat-item-name { font-weight: 600; }
+.cat-dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
+.cat-check { margin: 0; flex-shrink: 0; cursor: pointer; }
+.cat-item-name { flex: 1; min-width: 0; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cat-item-sub { font-size: 11px; color: var(--text-muted); white-space: nowrap; flex-shrink: 0; }
+.cat-over { color: var(--danger); }
+button.cat-links { background: var(--surface-2); border: 1px solid var(--border); border-radius: 9px; padding: 1px 7px; cursor: pointer; }
+button.cat-links:hover { color: var(--accent); border-color: var(--accent); }
+.cat-item-acts { display: flex; gap: 1px; flex-shrink: 0; opacity: 0; transition: opacity 0.1s; }
+.cat-item:hover .cat-item-acts, .cat-item.selected .cat-item-acts { opacity: 1; }
+.cat-item-acts .icon-btn { padding: 2px 4px; font-size: 12px; }
+
+/* 선택 목록(모달) */
+.pick-list { display: flex; flex-wrap: wrap; gap: 6px; max-height: 200px; overflow-y: auto; padding: 2px; }
+.pick-item {
+  display: inline-flex; align-items: center; gap: 6px;
+  border: 1px solid var(--border); border-radius: 12px; padding: 4px 11px;
+  font-size: 12.5px; cursor: pointer; background: var(--surface);
+}
+.pick-item:hover { border-color: var(--accent); }
+.pick-item input { margin: 0; }
+
+/* 목록 표·칸반의 소분류 표기 */
+.todo-table .col-sub { font-size: 12.5px; color: var(--text-muted); max-width: 110px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kanban-card-sub { font-size: 11px; color: var(--text-muted); margin-left: 5px; }
+
+@media (max-width: 900px) {
+  .cat-columns { grid-template-columns: 1fr; }
+  .cat-col { min-height: 0; }
+  .cat-col-body { max-height: 260px; }
+}
 .snapshot-list { display: flex; flex-direction: column; gap: 6px; margin: 8px 0 4px; max-height: 320px; overflow-y: auto; }
 .snapshot-row { display: flex; align-items: center; gap: 10px; padding: 7px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); }
 .snapshot-row .snap-info { flex: 1; font-size: 13px; }
 .snapshot-row .snap-reason { font-size: 11px; color: var(--text-muted); background: var(--surface-2); border-radius: 8px; padding: 1px 7px; }
 .snapshot-row .snap-summary { font-size: 11.5px; color: var(--text-muted); margin-top: 2px; }
 .snapshot-row .snap-restore { flex-shrink: 0; padding: 5px 12px; }
-#newChannelInput { flex: 1; min-width: 0; padding: 8px 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); color: var(--text); font-size: 13px; }
 .dash-item.overdue .di-due { color: var(--danger); font-weight: 600; }
 .dash-empty { color: var(--text-muted); font-size: 12.5px; padding: 6px 8px; }
 

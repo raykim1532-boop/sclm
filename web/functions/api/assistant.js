@@ -21,6 +21,9 @@ async function loadState(env) {
   s.events = Array.isArray(s.events) ? s.events : [];
   s.projects = Array.isArray(s.projects) ? s.projects : [];
   s.channels = Array.isArray(s.channels) ? s.channels : [];
+  s.channelProjects = (s.channelProjects && typeof s.channelProjects === 'object') ? s.channelProjects : {};
+  s.subChannels = (s.subChannels && typeof s.subChannels === 'object') ? s.subChannels : {};
+  s.subMaster = Array.isArray(s.subMaster) ? s.subMaster : [];
   return s;
 }
 async function saveState(env, s) {
@@ -81,7 +84,8 @@ const FUNCTIONS = [
         due_date: { type: 'STRING', description: '마감일 YYYY-MM-DD (선택)' },
         priority: { type: 'STRING', enum: ['긴급', '중요', '보통'], description: '선택' },
         project_name: { type: 'STRING', description: '대분류 이름 (선택, 기존 목록에서)' },
-        channel: { type: 'STRING', description: '세부채널 (선택)' },
+        channel: { type: 'STRING', description: '중분류 (선택)' },
+        sub_channel: { type: 'STRING', description: '소분류 (선택, 중분류가 있을 때만)' },
         assignee: { type: 'STRING', description: '담당자 (선택)' }
       },
       required: ['text']
@@ -132,13 +136,14 @@ const FUNCTIONS = [
   },
   {
     name: 'search_todos',
-    description: '조건으로 할 일을 찾는다. 마감일 기준이 아닌 "채널/대분류/담당자/키워드/상태"로 찾을 때 사용. 예: "엔터식스 관련 업무 보여줘", "긴급인데 아직 안 끝난 것".',
+    description: '조건으로 할 일을 찾는다. 마감일 기준이 아닌 "분류(대/중/소)/담당자/키워드/상태"로 찾을 때 사용. 예: "엔터식스 관련 업무 보여줘", "긴급인데 아직 안 끝난 것".',
     parameters: {
       type: 'OBJECT',
       properties: {
         keyword: { type: 'STRING', description: '업무 내용에 포함된 말(부분 일치)' },
         project_name: { type: 'STRING', description: '대분류 이름(부분 일치)' },
-        channel: { type: 'STRING', description: '세부채널(부분 일치)' },
+        channel: { type: 'STRING', description: '중분류(부분 일치)' },
+        sub_channel: { type: 'STRING', description: '소분류(부분 일치)' },
         assignee: { type: 'STRING', description: '담당자(부분 일치)' },
         status: { type: 'STRING', enum: ['대기', '진행중', '완료', '지연완료', '보류'] },
         priority: { type: 'STRING', enum: ['긴급', '중요', '보통'] },
@@ -159,6 +164,7 @@ const FUNCTIONS = [
         keyword: { type: 'STRING' },
         project_name: { type: 'STRING' },
         channel: { type: 'STRING' },
+        sub_channel: { type: 'STRING' },
         assignee: { type: 'STRING' },
         status: { type: 'STRING', enum: ['대기', '진행중', '완료', '지연완료', '보류'] },
         priority: { type: 'STRING', enum: ['긴급', '중요', '보통'] },
@@ -166,7 +172,7 @@ const FUNCTIONS = [
         due_to: { type: 'STRING', description: '마감일 종료 YYYY-MM-DD' },
         only_overdue: { type: 'BOOLEAN' },
         include_done: { type: 'BOOLEAN', description: '완료 포함(기본 false)' },
-        group_by: { type: 'STRING', enum: ['project', 'channel', 'status', 'priority', 'assignee', 'due_month', 'completed_month'], description: '분류 기준(선택)' }
+        group_by: { type: 'STRING', enum: ['project', 'channel', 'sub_channel', 'status', 'priority', 'assignee', 'due_month', 'completed_month'], description: '분류 기준(선택)' }
       }
     }
   },
@@ -189,6 +195,7 @@ function filterTodos(s, f) {
     if (f.keyword && !inc(t.text, f.keyword)) return false;
     if (f.project_name && !inc(projName(t), f.project_name)) return false;
     if (f.channel && !inc(t.channel, f.channel)) return false;
+    if (f.sub_channel && !inc(t.subChannel, f.sub_channel)) return false;
     if (f.assignee && !inc(t.assignee, f.assignee)) return false;
     if (f.priority && (t.priority || '') !== f.priority) return false;
     if (f.due_from && !(t.dueDate && t.dueDate >= f.due_from)) return false;
@@ -201,7 +208,7 @@ function filterTodos(s, f) {
 function todoBrief(s, t) {
   const p = (s.projects.find((x) => x.id === t.projectId) || {}).name || '';
   return {
-    업무: t.text, 대분류: p, 채널: t.channel || '', 담당: t.assignee || '',
+    업무: t.text, 대분류: p, 중분류: t.channel || '', 소분류: t.subChannel || '', 담당: t.assignee || '',
     마감: t.dueDate || '', 상태: t.status || (t.done ? '완료' : '대기'),
     우선순위: t.priority || '', 완료일: t.completedDate || ''
   };
@@ -260,11 +267,26 @@ export function runTool(name, input, s) {
     const proj = input.project_name ? s.projects.find((p) => p.name === input.project_name) : null;
     const nextNo = Math.max(0, ...s.todos.map((t) => t.no || 0)) + 1;
     const channel = (input.channel || '').trim();
+    const subChannel = (input.sub_channel || '').trim();
+    const projectId = proj ? proj.id : ((s.projects[0] && s.projects[0].id) || 'default');
+    // 분류 트리에 편입: 중분류는 이 할 일의 대분류 소속으로, 소분류는 그 중분류 아래로
     if (channel && !s.channels.includes(channel)) s.channels.push(channel);
+    if (channel) {
+      if (!s.channelProjects || typeof s.channelProjects !== 'object') s.channelProjects = {};
+      if (!s.channelProjects[channel]) s.channelProjects[channel] = projectId;
+      if (subChannel) {
+        // 소분류는 공용 목록에 등록하고 이 중분류에 연결한다
+        if (!Array.isArray(s.subMaster)) s.subMaster = [];
+        if (!s.subMaster.includes(subChannel)) s.subMaster.push(subChannel);
+        if (!s.subChannels || typeof s.subChannels !== 'object') s.subChannels = {};
+        if (!Array.isArray(s.subChannels[channel])) s.subChannels[channel] = [];
+        if (!s.subChannels[channel].includes(subChannel)) s.subChannels[channel].push(subChannel);
+      }
+    }
     const t = {
       id: uid(), no: nextNo, registeredDate: kstToday(),
-      projectId: proj ? proj.id : ((s.projects[0] && s.projects[0].id) || 'default'),
-      channel, priority: input.priority || '', text: input.text, assignee: input.assignee || '',
+      projectId,
+      channel, subChannel: channel ? subChannel : '', priority: input.priority || '', text: input.text, assignee: input.assignee || '',
       dueDate: input.due_date || '', status: '대기', needsCheck: '', completedDate: '', progress: '', remarks: '', links: [], done: false
     };
     s.todos.push(t);
@@ -356,6 +378,7 @@ export function runTool(name, input, s) {
         switch (input.group_by) {
           case 'project': return (s.projects.find((p) => p.id === t.projectId) || {}).name || '(없음)';
           case 'channel': return t.channel || '(없음)';
+          case 'sub_channel': return t.subChannel || '(없음)';
           case 'status': return t.status || (t.done ? '완료' : '대기');
           case 'priority': return t.priority || '(없음)';
           case 'assignee': return t.assignee || '(없음)';
@@ -405,18 +428,21 @@ function systemPrompt(s) {
   const dow = ['일', '월', '화', '수', '목', '금', '토'][new Date(today + 'T00:00:00+09:00').getUTCDay()];
   const projects = s.projects.map((p) => p.name).join(', ') || '(없음)';
   const channels = (s.channels || []).slice(0, 40).join(', ') || '(없음)';
+  const subs = (s.subMaster || []).slice(0, 40).join(', ') || '(없음)';
   return [
     '너는 "SCLM" 일정 관리 앱의 한국어 AI 비서다. 사용자의 자연어 요청을 이해해 함수(도구)로 일정·할 일을 조회하거나 등록한다.',
     `오늘은 ${today} (${dow}요일), 한국 시간(KST) 기준이다. "내일"="${addDays(today, 1)}", "다음 주"는 다음 주 월~일.`,
     `대분류(프로젝트) 목록: ${projects}`,
-    `세부채널 목록: ${channels}`,
+    '분류는 대분류 > 중분류 > 소분류 3단계다.',
+    `중분류 목록: ${channels}`,
+    `소분류 목록(공용 — 여러 중분류가 함께 씀): ${subs}`,
     '규칙:',
     '- 미팅/일정을 "잡아줘"라고 하면 먼저 find_free_slots로 빈 시간을 확인하고, 적절한 시간을 골라 add_event로 등록한 뒤 결과를 알려준다. 시간을 특정하지 않았으면 지정 시간대의 첫 빈 슬롯을 기본으로 잡되, 어떤 시간에 잡았는지 명확히 말한다.',
     '- "뭐 있어/일정 알려줘"류는 list_schedule로 조회 후 간결히 요약한다.',
     '- 할 일 추가는 add_todo, 완료는 complete_todo, 수정(미루기/상태변경/우선순위)은 update_todo, 삭제는 delete_todo.',
     '- 여러 건을 한 번에 추가/처리하라고 하면 해당 함수를 여러 번 병렬 호출한다.',
     '- "주간보고/이번 주 한 일 정리" 요청은 weekly_report로, "월간보고/이번 달 정리"는 monthly_report로 데이터를 받아 보기 좋은 불릿 형식으로 정리해준다.',
-    '- 도구 고르는 법: 날짜 구간의 예정 확인 = list_schedule / 조건(채널·대분류·담당자·키워드·상태)으로 찾기 = search_todos / **숫자만 필요하면 count_todos**(예: "몇 건 남았어?") / 처리 속도·지연 정도 = work_stats.',
+    '- 도구 고르는 법: 날짜 구간의 예정 확인 = list_schedule / 조건(대·중·소분류·담당자·키워드·상태)으로 찾기 = search_todos / **숫자만 필요하면 count_todos**(예: "몇 건 남았어?") / 처리 속도·지연 정도 = work_stats.',
     '- "몇 건"을 물으면 목록을 다 나열하지 말고 count_todos의 숫자로 답한다. 분류별 비교를 원하면 group_by를 쓴다.',
     '- 집계 결과를 말할 때는 조건을 함께 밝힌다(예: "이번 달 마감 기준, 정산 미완료 4건"). 완료 포함 여부가 애매하면 미완료 기준으로 답하고 그 사실을 덧붙인다.',
     '- work_stats의 데이터누락(완료일/마감일 빈 건)이 있으면, 지표가 실제와 다를 수 있다고 한 줄 알려준다.',

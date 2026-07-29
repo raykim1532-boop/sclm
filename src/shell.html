@@ -39,7 +39,7 @@
         <span class="nav-icon">📁</span> Projects
       </button>
       <button class="nav-btn" data-view="channels">
-        <span class="nav-icon">🏷️</span> Channels
+        <span class="nav-icon">🏷️</span> Categories
       </button>
       <button class="nav-btn" data-view="vault">
         <span class="nav-icon">🔐</span> Passwords
@@ -54,7 +54,7 @@
         <button class="pq-toggle" id="pqToggle">
           <span class="pq-chevron">▾</span> 내 프로젝트 <span class="pq-count" id="pqCount"></span>
         </button>
-        <button id="quickAddProjectBtn" class="icon-btn" title="새 프로젝트">+</button>
+        <button id="quickAddProjectBtn" class="icon-btn" title="새 대분류">+</button>
       </div>
       <ul id="sidebarProjectList" class="project-quick-list"></ul>
     </div>
@@ -98,13 +98,15 @@
       <div class="todo-filters">
       <div class="todo-toolbar">
         <select id="todoProjectFilter" class="select"></select>
+        <select id="todoMidFilter" class="select"></select>
+        <select id="todoSubFilter" class="select"></select>
         <div class="segmented" id="todoQuickView">
           <button class="segmented-btn active" data-qv="all">전체</button>
           <button class="segmented-btn" data-qv="active">진행·대기</button>
           <button class="segmented-btn" data-qv="done">완료</button>
           <button class="segmented-btn" data-qv="hold">보류</button>
         </div>
-        <input type="text" id="todoSearch" class="todo-search" placeholder="🔍 검색 (업무내용·세부채널·담당자·진행사항)" />
+        <input type="text" id="todoSearch" class="todo-search" placeholder="🔍 검색 (업무내용·분류·담당자·진행사항)" />
         <span class="todo-count" id="todoCount"></span>
       </div>
       <div class="todo-toolbar todo-toolbar-date">
@@ -146,7 +148,8 @@
               <th class="col-no sortable" data-sort="no">No</th>
               <th class="col-date sortable" data-sort="registeredDate">등록일</th>
               <th class="sortable" data-sort="project">대분류</th>
-              <th class="sortable" data-sort="channel">세부채널</th>
+              <th class="sortable" data-sort="channel">중분류</th>
+              <th class="sortable" data-sort="subChannel">소분류</th>
               <th class="sortable" data-sort="priority">우선순위</th>
               <th class="col-title sortable" data-sort="text">업무내용</th>
               <th class="sortable" data-sort="assignee">담당자</th>
@@ -170,21 +173,21 @@
 
     <section id="view-projects" class="view">
       <div class="view-header">
-        <h1>프로젝트</h1>
-        <button class="btn btn-primary" id="addProjectBtn">+ 새 프로젝트</button>
+        <h1>프로젝트 <span class="hint" style="font-size:13px;font-weight:400">(= 분류 체계의 대분류)</span></h1>
+        <button class="btn btn-primary" id="addProjectBtn">+ 새 대분류</button>
       </div>
       <div class="project-tabs" id="projectTabs"></div>
       <p class="hint" id="kanbanHint" style="margin:0 0 10px">이 보드는 <b>할 일(To-do)</b> 데이터를 프로젝트별·진행상태별로 보여줍니다. 카드를 드래그하면 진행상태가 바뀌고, 클릭하면 상세가 열려요.</p>
       <div class="kanban" id="kanbanBoard"></div>
-      <p id="projectEmpty" class="empty-hint hidden">아직 프로젝트가 없어요. 위 버튼으로 새 프로젝트를 만들어보세요.</p>
+      <p id="projectEmpty" class="empty-hint hidden">아직 대분류가 없어요. 위 버튼으로 만들어보세요.</p>
     </section>
 
     <section id="view-channels" class="view">
       <div class="view-header">
-        <h1>세부채널 관리</h1>
+        <h1>분류 체계</h1>
       </div>
       <div class="settings-card">
-        <p class="hint" style="margin-top:0">할 일의 <b>세부채널</b>(거래처·채널) 목록을 관리해요. 여기에 추가한 항목이 할 일 입력창의 세부채널 선택 목록에 나타납니다. (대분류는 <b>Projects</b>에서 관리) · 🔍 보기 · ✏️ 이름변경(할 일에 일괄 반영) · 🗑 삭제</p>
+        <p class="hint" style="margin-top:0"><b>왼쪽에서 오른쪽으로</b> 골라 내려가세요 — 대분류를 고르면 그 안의 중분류가, 중분류를 고르면 소분류가 보입니다. ✏️ 이름변경(할 일에 일괄 반영) · 🗑 삭제 · 🔍 해당 할 일 보기. <b>소분류는 공용</b>이라 한 번 만들어 두고 여러 중분류에서 <b>체크만</b> 하면 연결됩니다(예: 하프 → 마리오아울렛·대백 둘 다).</p>
         <div class="channel-toolbar">
           <span class="todo-count" id="channelTotal"></span>
           <select id="channelSort" class="select">
@@ -192,10 +195,30 @@
             <option value="name">이름 순</option>
           </select>
         </div>
-        <div id="channelList" class="channel-table"></div>
-        <div class="settings-row" style="border:none;padding-top:10px;gap:8px">
-          <input type="text" id="newChannelInput" placeholder="새 세부채널 이름 (예: 마리오아울렛)" />
-          <button class="btn btn-primary" id="addChannelBtn">추가</button>
+        <div class="cat-columns">
+          <div class="cat-col">
+            <div class="cat-col-head">대분류 <span class="cat-col-count" id="catCountProj"></span></div>
+            <div class="cat-col-body" id="catProjList"></div>
+            <div class="cat-col-foot">
+              <button class="btn cat-add-btn" id="addProjectFromCat">+ 새 대분류</button>
+            </div>
+          </div>
+          <div class="cat-col">
+            <div class="cat-col-head">중분류 <span class="cat-col-count" id="catCountMid"></span></div>
+            <div class="cat-col-body" id="catMidList"></div>
+            <div class="cat-col-foot">
+              <input type="text" id="newChannelInput" placeholder="새 중분류 (예: 마리오아울렛)" />
+              <button class="btn btn-primary" id="addChannelBtn">추가</button>
+            </div>
+          </div>
+          <div class="cat-col">
+            <div class="cat-col-head">소분류 <span class="cat-col-count" id="catCountSub"></span></div>
+            <div class="cat-col-body" id="catSubList"></div>
+            <div class="cat-col-foot">
+              <input type="text" id="newSubInput" placeholder="새 소분류 (예: 하프)" />
+              <button class="btn btn-primary" id="addSubBtn">추가</button>
+            </div>
+          </div>
         </div>
       </div>
     </section>
@@ -422,7 +445,7 @@
         <h2>구글시트에서 가져오기</h2>
         <p class="hint" style="margin-top:0">
           구글시트(업무 트래커)에서 <b>표 범위를 복사</b>해 아래 칸에 붙여넣고 "가져오기"를 누르세요.
-          열 순서: No · 등록일 · 대분류 · 세부채널 · 우선순위 · 업무내용 · 담당자 · 마감일 · 진행상태 · 점검필요 · 완료일 · 진행사항 · 비고.
+          열 순서: No · 등록일 · 대분류 · 중분류 · 우선순위 · 업무내용 · 담당자 · 마감일 · 진행상태 · 점검필요 · 완료일 · 진행사항 · 비고. (머리글에 <b>소분류</b> 열이 있으면 함께 읽습니다)
           맨 윗줄이 머리글이면 자동으로 인식하고, <b>No가 같은 항목은 덮어쓰기(수정)</b> 됩니다.
         </p>
         <textarea id="sheetPasteArea" class="sheet-paste" placeholder="여기에 구글시트에서 복사한 표를 붙여넣기 (Ctrl+V)"></textarea>
