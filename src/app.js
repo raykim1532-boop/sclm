@@ -1625,8 +1625,10 @@ function renderDashAnalytics() {
     };
   });
 
-  // 기간 토글 — 기기별로 기억하고 이 카드만 다시 그린다
-  box.querySelectorAll('.an-seg-btn').forEach((b) => {
+  // 기간 토글 — 기기별로 기억하고 이 카드만 다시 그린다.
+  // ⚠️ .an-seg-btn 은 분류 탭도 함께 쓰는 공용 스타일 클래스다. 여기서 그걸로 잡으면
+  //    나중에 등록되는 이 핸들러가 분류 탭의 onclick 을 덮어써서 탭이 죽는다. 반드시 [data-months] 로.
+  box.querySelectorAll('[data-months]').forEach((b) => {
     b.onclick = () => {
       trendMonths = parseInt(b.dataset.months, 10) === 12 ? 12 : 6;
       try { localStorage.setItem('trendMonths', String(trendMonths)); } catch (e) {}

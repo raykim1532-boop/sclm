@@ -108,3 +108,17 @@ section('행 마크업 — (미지정)과 이스케이프');
 
   check('전체 0이어도 죽지 않는다', taxoRowHtml({ name: 'X', total: 0, done: 0, open: 0 }, '#000', 0).includes('0%'));
 }
+
+section('핸들러 선택자 충돌 방지');
+{
+  // 2026-07-29: 추이 카드의 기간 토글이 .an-seg-btn 전체를 잡는 바람에, 같은 클래스를 쓰는
+  //             분류 탭의 onclick 을 나중에 덮어써서 탭이 통째로 죽었다. 같은 실수 재발 방지.
+  const body = grab(/function renderDashAnalytics\([\s\S]*?\r?\n}/, 'renderDashAnalytics');
+  check('기간 토글은 [data-months] 로만 잡는다', body.includes("querySelectorAll('[data-months]')"));
+  check('공용 클래스(.an-seg-btn)로 핸들러를 걸지 않는다', !body.includes("querySelectorAll('.an-seg-btn')"));
+  check('분류 탭은 [data-taxo] 로 잡는다', body.includes("querySelectorAll('[data-taxo]')"));
+
+  // 두 선택자가 실제로 겹치지 않는지 — 탭 버튼 마크업에 data-months 가 섞여 있으면 안 된다
+  const tabMarkup = (body.match(/data-taxo="[^"]*"[^>]*>/) || [''])[0];
+  check('분류 탭 버튼에 data-months 가 없다', !!tabMarkup && !tabMarkup.includes('data-months'));
+}
