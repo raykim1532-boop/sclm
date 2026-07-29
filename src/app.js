@@ -658,6 +658,81 @@ function vaultGeneratePassword(len = 18) {
   return out.join('');
 }
 
+/* ---------- Vault CSV 가져오기/내보내기 (크롬·1Password·Bitwarden 등 호환) ---------- */
+/* 헤더 → 내부 필드 매핑. normHeaderKey/parseDelimitedTable는 아래(같은 파일)의
+   구글시트 가져오기용 파서를 그대로 재사용한다(함수 선언 호이스팅으로 위치 무관하게 호출 가능). */
+const VAULT_CSV_HEADER_MAP = {
+  name: 'site', title: 'site', site: 'site', '사이트': 'site', '사이트명': 'site', '서비스': 'site', '서비스명': 'site',
+  url: 'url', login_uri: 'url', weburl: 'url', '웹사이트': 'url', '주소': 'url',
+  username: 'user', login_username: 'user', user: 'user', id: 'user', '아이디': 'user',
+  password: 'pass', login_password: 'pass', pass: 'pass', '비밀번호': 'pass', '비번': 'pass',
+  note: 'memo', notes: 'memo', memo: 'memo', extension_notes: 'memo', '메모': 'memo', '비고': 'memo',
+  folder: 'category', category: 'category', grouping: 'category', '분류': 'category', '카테고리': 'category', '폴더': 'category',
+};
+
+/* 파싱된 CSV 표 → vault 엔트리 배열. 헤더를 2개 이상 인식하면 매핑, 못 하면 site,url,user,pass,memo 순서로 간주. */
+function vaultCsvRowsToEntries(rows) {
+  if (!rows.length) return [];
+  const headerRow = rows[0].map(normHeaderKey);
+  const known = headerRow.filter((h) => VAULT_CSV_HEADER_MAP[h]).length;
+  let cols, dataRows;
+  if (known >= 2) {
+    cols = headerRow.map((h) => VAULT_CSV_HEADER_MAP[h] || null);
+    dataRows = rows.slice(1);
+  } else {
+    cols = ['site', 'url', 'user', 'pass', 'memo'];
+    dataRows = rows;
+  }
+  const out = [];
+  dataRows.forEach((r) => {
+    const rec = {};
+    cols.forEach((field, i) => { if (field) rec[field] = (r[i] != null ? String(r[i]).trim() : ''); });
+    if (!rec.site && !rec.user && !rec.pass) return;
+    out.push({
+      id: 'v_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+      site: rec.site || rec.url || '(이름 없음)',
+      url: rec.url || '', user: rec.user || '', pass: rec.pass || '',
+      category: rec.category || '', memo: rec.memo || '', updatedAt: Date.now(),
+    });
+  });
+  return out;
+}
+
+/* 동일 사이트+아이디+비밀번호는 건너뛰고 나머지만 vaultEntries에 추가 */
+function mergeVaultEntries(newEntries) {
+  let added = 0, skipped = 0;
+  newEntries.forEach((e) => {
+    const dup = vaultEntries.some((x) => x.site === e.site && x.user === e.user && x.pass === e.pass);
+    if (dup) { skipped++; return; }
+    vaultEntries.push(e);
+    added++;
+  });
+  return { added, skipped };
+}
+
+async function importVaultCsvText(text) {
+  const rows = parseDelimitedTable(text);
+  const entries = vaultCsvRowsToEntries(rows);
+  if (!entries.length) return { ok: false, error: '가져올 항목을 찾지 못했어요. 파일을 확인해주세요.' };
+  const { added, skipped } = mergeVaultEntries(entries);
+  await vaultSave();
+  return { ok: true, added, skipped, total: entries.length };
+}
+
+/* 크롬/엣지 비밀번호 CSV 가져오기와 같은 헤더(name,url,username,password)로 내보내 상호 호환되게 한다 */
+function exportVaultCsv() {
+  const headers = ['name', 'url', 'username', 'password', 'note'];
+  const esc = (v) => { const s = (v == null ? '' : String(v)); return /[",\n\r]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
+  const rows = vaultEntries.map((e) => [e.site, e.url, e.user, e.pass, e.memo].map(esc).join(','));
+  const csv = '﻿' + [headers.join(','), ...rows].join('\r\n');
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = 'SCLM_비밀번호_' + todayStr() + '.csv';
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 2000);
+}
+
 function setupVault() {
   if (vaultWired) return;
   vaultWired = true;
@@ -740,6 +815,32 @@ function setupVault() {
     };
   }
   setupVaultIdleLock();
+
+  // CSV 내보내기 (크롬/1Password/Bitwarden 등과 호환 가능한 평문 CSV — 사용 후 즉시 삭제 권고)
+  $('vaultExportBtn').onclick = () => {
+    if (!vaultEntries.length) { toast('내보낼 계정이 없어요'); return; }
+    const ok = confirm('CSV 파일에는 비밀번호가 암호화되지 않은 평문으로 저장됩니다.\n다운로드 후 안전한 곳에 보관하고, 필요 없어지면 즉시 삭제하세요.\n계속할까요?');
+    if (!ok) return;
+    exportVaultCsv();
+    toast('CSV로 내보냈어요');
+  };
+
+  // CSV 가져오기 (헤더 자동 인식, 동일 사이트·아이디·비밀번호는 건너뜀)
+  $('vaultImportBtn').onclick = () => $('vaultImportFile').click();
+  $('vaultImportFile').addEventListener('change', async () => {
+    const file = $('vaultImportFile').files && $('vaultImportFile').files[0];
+    $('vaultImportFile').value = '';
+    if (!file) return;
+    const ok = confirm('크롬·1Password·Bitwarden 등에서 내보낸 CSV 파일을 가져옵니다.\n동일한 사이트·아이디·비밀번호는 건너뜁니다. 계속할까요?');
+    if (!ok) return;
+    try {
+      const text = await file.text();
+      const r = await importVaultCsvText(text);
+      if (!r.ok) { toast(r.error); return; }
+      renderVault();
+      toast(`가져오기 완료 — 추가 ${r.added}건` + (r.skipped ? ` · 중복 ${r.skipped}건 건너뜀` : ''));
+    } catch (e) { toast('가져오기 실패 — 파일을 확인해주세요'); }
+  });
 
   // 마스터 비밀번호 변경 (잠금 해제 상태에서만 — 전체 재암호화)
   $('vaultChangePwBtn').onclick = () => {

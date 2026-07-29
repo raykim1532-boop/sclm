@@ -278,6 +278,9 @@
                 <option value="0">사용 안 함</option>
               </select>
             </label>
+            <button class="btn" id="vaultImportBtn">📥 가져오기</button>
+            <button class="btn" id="vaultExportBtn">⬇ 내보내기</button>
+            <input type="file" id="vaultImportFile" accept=".csv,text/csv" class="hidden" />
             <button class="btn" id="vaultChangePwBtn" style="margin-left:auto">🔑 마스터 비번 변경</button>
           </div>
           <p class="hint">자리를 비우면 설정한 시간 뒤 자동으로 잠깁니다(브라우저에만 적용). 마스터 비밀번호는 서버에 저장되지 않습니다.</p>
