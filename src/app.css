@@ -13,6 +13,8 @@
   --radius: 8px;
   --shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
   --shadow-pop: 0 6px 24px rgba(15, 15, 15, 0.12);
+  --scroll-thumb: rgba(55, 53, 47, 0.16);
+  --scroll-thumb-hover: rgba(55, 53, 47, 0.36);
   font-size: 14.5px;
 }
 
@@ -26,9 +28,37 @@ html[data-theme="dark"] {
   --border: #2f2f2f;
   --shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
   --shadow-pop: 0 10px 30px rgba(0, 0, 0, 0.45);
+  --scroll-thumb: rgba(255, 255, 255, 0.15);
+  --scroll-thumb-hover: rgba(255, 255, 255, 0.32);
 }
 
 * { box-sizing: border-box; }
+
+/* ---------- 스크롤바 ----------
+   화면 어디서나 같은 모양이어야 하므로 컨테이너별로 두지 않고 전역(*)으로 건다.
+   트랙은 완전 투명, 막대는 캡슐 모양으로 얇게. 투명 테두리 + background-clip:padding-box
+   조합이라 hover 때 테두리만 줄이면 막대가 4px→7px로 두꺼워지는 효과가 난다.
+   색은 테마 변수(--scroll-thumb)라 라이트/다크가 알아서 따라온다. */
+* {
+  scrollbar-width: thin;                                  /* Firefox */
+  scrollbar-color: var(--scroll-thumb) transparent;
+}
+*::-webkit-scrollbar { width: 11px; height: 11px; }
+*::-webkit-scrollbar-track,
+*::-webkit-scrollbar-corner { background: transparent; }
+*::-webkit-scrollbar-thumb {
+  background-color: var(--scroll-thumb);
+  background-clip: padding-box;
+  border: 3.5px solid transparent;
+  border-radius: 999px;
+  transition: background-color 0.15s ease;
+}
+*::-webkit-scrollbar-thumb:hover { background-color: var(--scroll-thumb-hover); border-width: 2px; }
+*::-webkit-scrollbar-thumb:active { background-color: var(--accent); border-width: 2px; }
+*::-webkit-scrollbar-button { display: none; }            /* 위아래 화살표 제거 */
+
+/* 스크롤바가 생겼다 없어질 때 본문이 좌우로 튀지 않게 자리를 미리 비워 둔다 */
+.main { scrollbar-gutter: stable; }
 
 html, body {
   height: 100%;
