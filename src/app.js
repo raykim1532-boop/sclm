@@ -3505,6 +3505,19 @@ function closeModal() {
   currentModalHandlers = null;
 }
 
+/* 스크롤하는 동안에만 스크롤바를 도톰하게 — CSS 의 .is-scrolling 훅.
+   scroll 이벤트는 버블링하지 않으므로 캡처 단계에서 한 번만 받아 전역 처리한다.
+   0.9초 쉬면 다시 실선으로 돌아간다. (모양은 전부 app.css 담당) */
+function setupScrollReveal() {
+  const timers = new WeakMap();
+  document.addEventListener('scroll', (e) => {
+    const el = e.target && e.target.classList ? e.target : document.documentElement;
+    el.classList.add('is-scrolling');
+    clearTimeout(timers.get(el));
+    timers.set(el, setTimeout(() => el.classList.remove('is-scrolling'), 900));
+  }, true);
+}
+
 /* ---------- 시작 ---------- */
-window.addEventListener('DOMContentLoaded', init);
+window.addEventListener('DOMContentLoaded', () => { setupScrollReveal(); init(); });
 
