@@ -994,23 +994,49 @@ html[data-theme="dark"] .todo-table tbody tr.row-today .col-due { color: #f6bf26
 
 /* ---------- 대시보드 ---------- */
 .dashboard-today { color: var(--text-muted); font-size: 13px; }
+
+/* 구역 제목 — 대시보드를 "지금 할 일"과 "업무 현황" 두 덩어리로 나눠 준다.
+   제목 뒤로 얇은 선을 흘려 보내 구분만 하고 시선은 뺏지 않는다. */
+.dash-sec {
+  display: flex; align-items: center; gap: 12px;
+  margin: 26px 0 12px;
+  font-size: 11.5px; font-weight: 700; letter-spacing: 0.06em;
+  color: var(--text-muted);
+}
+.dash-sec:first-of-type { margin-top: 6px; }
+.dash-sec::after { content: ""; flex: 1; height: 1px; background: var(--border); }
+.dash-sec[hidden] { display: none; }
+
 .stat-row {
   display: grid;
   grid-template-columns: repeat(5, 1fr);
   gap: 10px;
-  margin-bottom: 18px;
+  margin-bottom: 14px;
 }
 .stat-tile {
+  position: relative;
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: 12px 14px;
+  border-radius: 12px;
+  padding: 14px 16px 14px 18px;
   cursor: pointer;
-  transition: border-color 0.12s ease, box-shadow 0.12s ease;
+  overflow: hidden;
+  transition: border-color 0.12s ease, box-shadow 0.12s ease, transform 0.12s ease;
 }
-.stat-tile:hover { border-color: var(--accent); box-shadow: var(--shadow); }
-.stat-tile .stat-num { font-size: 26px; font-weight: 700; line-height: 1.1; }
-.stat-tile .stat-label { font-size: 12px; color: var(--text-muted); margin-top: 3px; }
+/* 왼쪽 세로 띠로 성격(지연/오늘/경고)을 표시 — 숫자 색만으로는 훑을 때 눈에 안 들어온다 */
+.stat-tile::before {
+  content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 3px;
+  background: var(--border);
+}
+.stat-tile.accent-danger::before { background: var(--danger); }
+.stat-tile.accent-warn::before { background: #f6a609; }
+.stat-tile.accent-accent::before { background: var(--accent); }
+.stat-tile:hover { border-color: var(--accent); box-shadow: var(--shadow-pop); transform: translateY(-1px); }
+.stat-tile .stat-num {
+  font-size: 28px; font-weight: 700; line-height: 1.1;
+  letter-spacing: -0.02em; font-variant-numeric: tabular-nums;
+}
+.stat-tile .stat-label { font-size: 12px; color: var(--text-muted); margin-top: 4px; }
 .stat-tile.accent-danger .stat-num { color: var(--danger); }
 .stat-tile.accent-warn .stat-num { color: #f6a609; }
 .stat-tile.accent-accent .stat-num { color: var(--accent); }
@@ -1023,13 +1049,13 @@ html[data-theme="dark"] .todo-table tbody tr.row-today .col-due { color: #f6bf26
 .dash-card {
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: 14px 16px;
+  border-radius: 12px;
+  padding: 15px 17px;
   min-width: 0;
 }
 .dash-card h3 {
   margin: 0 0 10px;
-  font-size: 13.5px;
+  font-size: 13px; font-weight: 700;
   display: flex; align-items: center; gap: 7px;
 }
 .dash-card h3 .count {
@@ -1153,11 +1179,11 @@ html[data-theme="dark"] .todo-table tbody tr.row-today .col-due { color: #f6bf26
 .dash-analytics:empty { display: none; }
 .an-card {
   background: var(--surface); border: 1px solid var(--border);
-  border-radius: var(--radius); padding: 16px;
+  border-radius: 12px; padding: 17px;
 }
 .an-card h3 {
-  margin: 0 0 12px; font-size: 13px; font-weight: 600; color: var(--text);
-  display: flex; align-items: baseline; gap: 8px;
+  margin: 0 0 14px; font-size: 13px; font-weight: 700; color: var(--text);
+  display: flex; align-items: center; flex-wrap: wrap; gap: 8px;
 }
 .an-total { font-size: 11px; font-weight: 500; color: var(--text-muted); margin-left: auto; }
 .an-stack { display: flex; height: 14px; border-radius: 7px; overflow: hidden; background: var(--surface-2); }
@@ -1166,13 +1192,21 @@ html[data-theme="dark"] .todo-table tbody tr.row-today .col-due { color: #f6bf26
 .an-legend { font-size: 12px; color: var(--text-muted); display: inline-flex; align-items: center; gap: 5px; }
 .an-legend i { width: 9px; height: 9px; border-radius: 2px; display: inline-block; }
 .an-legend b { color: var(--text); font-weight: 600; }
-.an-row { display: flex; align-items: center; gap: 8px; margin-bottom: 9px; }
+.an-row { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
 .an-row:last-child { margin-bottom: 0; }
-.an-label { flex: 0 0 84px; font-size: 12px; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.an-bar { flex: 1; height: 8px; background: var(--surface-2); border-radius: 4px; overflow: hidden; }
-.an-bar i { display: block; height: 100%; border-radius: 4px; transition: width 0.3s ease; }
-.an-val { flex: 0 0 auto; font-size: 11.5px; color: var(--text-muted); min-width: 62px; text-align: right; }
+.an-label { flex: 0 0 92px; font-size: 12px; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.an-bar { flex: 1; height: 9px; background: var(--surface-2); border-radius: 999px; overflow: hidden; }
+.an-bar i { display: block; height: 100%; border-radius: 999px; transition: width 0.3s ease; }
+/* 분류 Top 전용 2중 막대: 바깥 i = 전체 건수(옅은 색), 안쪽 b = 그중 완료(진한 색) */
+.an-bar i > b { display: block; height: 100%; border-radius: 999px; transition: width 0.3s ease; }
+.an-val { flex: 0 0 auto; font-size: 11.5px; color: var(--text-muted); min-width: 62px; text-align: right; font-variant-numeric: tabular-nums; }
+.an-val-wide { min-width: 104px; }
+.an-val b { color: var(--text); font-weight: 700; }
+.an-row-none .an-label { color: var(--text-muted); font-style: italic; }
 .an-card-wide { grid-column: 1 / -1; }
+.an-card-2 { grid-column: span 2; }
+/* 카드 제목 옆에 붙는 탭 — 오른쪽으로 밀지 않고 제목 바로 뒤에 둔다 */
+.an-seg-inline { margin-left: 0 !important; }
 .an-sub { color: var(--text-muted); opacity: .75; font-size: 10.5px; }
 .an-note { margin-top: 10px; font-size: 11.5px; color: var(--text-muted); }
 /* 데이터 점검 카드 */
@@ -1202,12 +1236,16 @@ html[data-theme="dark"] .todo-table tbody tr.row-today .col-due { color: #f6bf26
 .di-sub { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
 /* 처리 지표 KPI */
 .an-kpi { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+/* 카드 안의 타일이라 테두리를 빼고 배경만으로 구분한다 (테두리 이중이면 답답해 보임) */
 .an-kpi-item {
-  padding: 12px 14px; border-radius: 10px;
-  background: var(--surface-2); border: 1px solid var(--border);
-  display: flex; flex-direction: column; gap: 2px;
+  padding: 14px 16px; border-radius: 12px;
+  background: var(--surface-2); border: 0;
+  display: flex; flex-direction: column; gap: 3px;
 }
-.an-kpi-v { font-size: 24px; font-weight: 700; color: var(--text); line-height: 1.15; }
+.an-kpi-v {
+  font-size: 26px; font-weight: 700; color: var(--text); line-height: 1.15;
+  letter-spacing: -0.02em; font-variant-numeric: tabular-nums;
+}
 .an-kpi-v small { font-size: 12px; font-weight: 600; margin-left: 2px; color: var(--text-muted); }
 .an-kpi-v.danger { color: var(--danger); }
 .an-kpi-na { color: var(--text-muted); font-weight: 500; }
@@ -1248,7 +1286,10 @@ html[data-theme="dark"] .todo-table tbody tr.row-today .col-due { color: #f6bf26
   .an-mbar { width: 10px; }
   .an-mback { display: none; }
 }
-@media (max-width: 900px) { .dash-analytics { grid-template-columns: 1fr; } }
+@media (max-width: 900px) {
+  .dash-analytics { grid-template-columns: 1fr; }
+  .an-card-2, .an-card-wide { grid-column: 1 / -1; }
+}
 
 /* ---------- 마감 임박 알림 배너 ---------- */
 .dash-alert {

@@ -18,6 +18,8 @@
   | `src/local-api.js` | 로컬 저장 계층(`window.api`) |
   | `src/cloud-sync.js` | 클라우드 동기화(`window.CloudSync`) |
   | `src/app.js` | 앱 로직 전부(렌더·모달·대시보드·금고 등) |
+    - 대시보드 분석 카드는 `renderDashAnalytics()` 하나가 다 그린다. 계산은 순수 함수(`computeWorkStats` / `computeTrend` / `computeDataIssues` / `computeTaxoTop`)로 빼 두었고 `web/tests/`에서 소스에서 정규식으로 떼어내 검증하므로, **이름이나 시그니처를 바꾸면 테스트의 `grab(...)` 정규식도 같이 고쳐야 한다.**
+    - **분류 Top**은 대·중·소를 카드 하나에서 탭으로 바꿔 보는 구조(`TAXO_AXES` + `taxoTab`). 세 축이 같은 눈금(막대 = 전체 건수, 진한 부분 = 완료 비율)을 쓰는 게 핵심이라, 축마다 다른 지표를 쓰지 말 것 — 예전에 대분류만 "진행률", 중분류만 "미완료 건수"였던 탓에 서로 비교가 안 됐다.
 - **FullCalendar 임베드 번들(`src/shell.html` 안의 대용량 `<script>` 4개)은 수정하지 말 것.**
 - `build.js`는 `<!--@include ...-->` 자리표시자를 파일 내용으로 치환할 뿐이다. 조각을 추가하려면 shell.html에 자리표시자를 넣고 파일을 만들면 된다. 처리 못 한 자리표시자가 남으면 빌드가 실패한다.
 - ⚠️ 조각 파일은 **CRLF**다(원본 HTML을 그대로 쪼갠 것). 줄바꿈을 통째로 바꾸면 diff가 폭발하니 건드리지 말 것.

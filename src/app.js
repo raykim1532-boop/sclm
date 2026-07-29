@@ -1262,7 +1262,7 @@ function renderDashboard() {
   renderDashAnalytics();
 }
 
-// 대시보드 분석: 상태 분포 · 대분류별 진행률 · 중분류 Top
+// 대시보드 분석: 처리 지표 · 상태 분포 · 분류 Top(대/중/소 탭) · 추이 · 데이터 점검
 /* 처리 지표 계산 — 순수 함수(테스트에서 추출해 검증한다).
    반환: 평균 완료 소요일 / 기한 준수율 / 이번 달 완료(전월 대비) / 현재 지연과 평균 지연일 */
 function computeWorkStats(todos, today) {
@@ -1403,11 +1403,66 @@ let trendMonths = (() => {
   return v === 12 ? 12 : 6;
 })();
 
+/* 분류 Top 카드에서 지금 보고 있는 축. 기기별로 기억한다. */
+let taxoTab = (() => {
+  const v = localStorage.getItem('dashTaxoTab');
+  return (v === 'proj' || v === 'mid' || v === 'sub') ? v : 'mid';
+})();
+
+/* 대·중·소 세 축을 같은 방식으로 다루기 위한 정의.
+   pick = 할 일에서 그 축의 이름 꺼내기, color = 막대 색. 색은 앱 다른 곳(칩·칸반)과 같은 규칙을 쓴다. */
+const TAXO_AXES = [
+  { key: 'proj', label: '대분류',
+    pick: (t) => { const p = byId(state.projects, t.projectId); return p ? p.name : ''; },
+    color: (name) => { const p = (state.projects || []).find((x) => x.name === name); return (p && p.color) || '#1a73e8'; } },
+  { key: 'mid', label: '중분류', pick: (t) => t.channel || '', color: channelColor },
+  { key: 'sub', label: '소분류', pick: (t) => t.subChannel || '', color: channelColor }
+];
+
+/* 한 축의 분류별 집계 — 순수 함수(테스트에서 추출해 검증한다).
+   이름이 빈 건은 name:'' 한 줄로 모아 "(미지정)"으로 보여주고, 정렬에서는 항상 맨 아래로 내린다.
+   정렬 기준은 "지금 남은 일이 많은 순" — 완료된 과거보다 남은 일이 먼저 눈에 들어와야 한다. */
+/* 분류 Top 한 줄 그리기 — 막대는 2중이다.
+   바깥(i) 길이 = 전체 건수 / 최댓값  → 이 분류가 얼마나 큰 덩어리인지
+   안쪽(b) 길이 = 완료 / 전체        → 그중 얼마나 처리했는지
+   한 줄에서 "양"과 "진행"을 같이 읽게 하려는 것. 순수 함수라 테스트에서 마크업까지 본다. */
+function taxoRowHtml(r, color, maxTotal) {
+  const named = !!r.name;
+  const pct = r.total ? Math.round(r.done / r.total * 100) : 0;
+  const w = Math.round(r.total / Math.max(1, maxTotal) * 100);
+  const tip = (named ? r.name : '미지정') + ` · 전체 ${r.total}건 · 남음 ${r.open}건 · 완료 ${pct}%`;
+  return `<div class="an-row${named ? '' : ' an-row-none'}" title="${escapeHtml(tip)}">
+    <span class="an-label">${named ? escapeHtml(r.name) : '(미지정)'}</span>
+    <span class="an-bar"><i style="width:${w}%;background:color-mix(in srgb, ${color} 22%, transparent)"><b style="width:${pct}%;background:${color}"></b></i></span>
+    <span class="an-val an-val-wide"><b>${r.open}</b> 남음 <span class="an-sub">/ ${r.total} · ${pct}%</span></span>
+  </div>`;
+}
+
+function computeTaxoTop(todos, pick, isDone, limit) {
+  const map = new Map();
+  (Array.isArray(todos) ? todos : []).forEach((t) => {
+    const name = ((pick(t) || '') + '').trim();
+    let e = map.get(name);
+    if (!e) { e = { name: name, total: 0, done: 0, open: 0 }; map.set(name, e); }
+    e.total++;
+    if (isDone(t)) e.done++; else e.open++;
+  });
+  const rows = Array.from(map.values());
+  rows.sort((a, b) => {
+    if (!a.name !== !b.name) return a.name ? -1 : 1;   // (미지정)은 항상 맨 아래
+    if (b.open !== a.open) return b.open - a.open;
+    return b.total - a.total;
+  });
+  return limit ? rows.slice(0, limit) : rows;
+}
+
 function renderDashAnalytics() {
   const box = document.getElementById('dashAnalytics');
   if (!box) return;
+  const sec = document.getElementById('dashAnalyticsSec');
   const todos = state.todos || [];
-  if (!todos.length) { box.innerHTML = ''; return; }
+  if (!todos.length) { box.innerHTML = ''; if (sec) sec.hidden = true; return; }
+  if (sec) sec.hidden = false;
 
   // 1) 상태 분포
   const statusOrder = ['대기', '진행중', '완료', '지연완료', '보류'];
@@ -1425,34 +1480,18 @@ function renderDashAnalytics() {
     return `<span class="an-legend"><i style="background:${col}"></i>${escapeHtml(s)} <b>${statusCount[s]}</b></span>`;
   }).join('');
 
-  // 2) 대분류별 진행률
-  const projRows = state.projects.map((p) => {
-    const items = todos.filter((t) => t.projectId === p.id);
-    if (!items.length) return '';
-    const done = items.filter((t) => todoIsDone(t)).length;
-    const pct = Math.round(done / items.length * 100);
-    return `<div class="an-row">
-      <span class="an-label" title="${escapeHtml(p.name)}">${escapeHtml(p.name)}</span>
-      <span class="an-bar"><i style="width:${pct}%;background:${p.color || 'var(--accent)'}"></i></span>
-      <span class="an-val">${done}/${items.length} · ${pct}%</span>
-    </div>`;
-  }).filter(Boolean).join('');
+  // 2) 분류 Top — 대·중·소를 카드 하나에서 탭으로 바꿔 본다.
+  //    세 축 모두 같은 눈금: 막대 길이 = 전체 건수(최댓값 대비), 진한 부분 = 완료 비율.
+  //    예전에는 대분류만 "진행률", 중분류만 "미완료 건수"라 서로 비교가 안 됐다.
+  const axis = TAXO_AXES.filter((a) => a.key === taxoTab)[0] || TAXO_AXES[1];
+  const taxoRows = computeTaxoTop(todos, axis.pick, todoIsDone, 8);
+  const taxoMax = Math.max(1, ...taxoRows.map((r) => r.total));
+  const taxoTabs = TAXO_AXES.map((a) =>
+    `<button type="button" class="an-seg-btn${a.key === taxoTab ? ' on' : ''}" data-taxo="${a.key}">${a.label}</button>`
+  ).join('');
+  const taxoBody = taxoRows.map((r) => taxoRowHtml(r, r.name ? axis.color(r.name) : '#9b9a97', taxoMax)).join('');
 
-  // 3) 중분류 Top (미완료 기준)
-  const chCount = {};
-  todos.filter((t) => !todoIsDone(t) && t.channel).forEach((t) => { chCount[t.channel] = (chCount[t.channel] || 0) + 1; });
-  const chTop = Object.entries(chCount).sort((a, b) => b[1] - a[1]).slice(0, 8);
-  const chMax = chTop.length ? chTop[0][1] : 1;
-  const chTotal = {};
-  todos.filter((t) => t.channel).forEach((t) => { chTotal[t.channel] = (chTotal[t.channel] || 0) + 1; });
-  const chRows = chTop.map(([name, c]) =>
-    `<div class="an-row">
-      <span class="an-label" title="${escapeHtml(name)}">${escapeHtml(name)}</span>
-      <span class="an-bar"><i style="width:${Math.round(c / chMax * 100)}%;background:${channelColor(name)}"></i></span>
-      <span class="an-val">${c}건 <span class="an-sub">/ 전체 ${chTotal[name] || c}</span></span>
-    </div>`).join('');
-
-  // 4) 월별 등록 vs 완료 추이 + 미완료 잔량선
+  // 3) 월별 등록 vs 완료 추이 + 미완료 잔량선
   const tr = computeTrend(todos, todayStr(), trendMonths);
   const maxV = Math.max(1, ...tr.rows.map((r) => Math.max(r.reg, r.comp)));
   const maxB = Math.max(1, ...tr.rows.map((r) => r.backlog));
@@ -1481,7 +1520,7 @@ function renderDashAnalytics() {
     </div>`;
   }).join('');
 
-  // 5) 처리 지표 (평균 소요일 · 기한 준수율 · 이번 달 완료 · 지연)
+  // 4) 처리 지표 (평균 소요일 · 기한 준수율 · 이번 달 완료 · 지연)
   const st = computeWorkStats(todos, todayStr());
   const num = (v, unit) => (v == null ? '<span class="an-kpi-na">–</span>' : `${v}<small>${unit}</small>`);
   const deltaHtml = st.monthDelta === 0
@@ -1511,7 +1550,7 @@ function renderDashAnalytics() {
       </div>
     </div>`;
 
-  // 6) 데이터 점검 — 지표를 왜곡시키는 결함이 있을 때만 카드를 띄운다
+  // 5) 데이터 점검 — 지표를 왜곡시키는 결함이 있을 때만 카드를 띄운다
   const issues = computeDataIssues(todos);
   const issueRows = Object.keys(DATA_ISSUE_META).filter((k) => issues[k].length).map((k) => {
     const m = DATA_ISSUE_META[k];
@@ -1539,13 +1578,12 @@ function renderDashAnalytics() {
       <div class="an-stack">${stackSeg}</div>
       <div class="an-legend-row">${legend}</div>
     </div>
-    <div class="an-card">
-      <h3>대분류별 진행률</h3>
-      ${projRows || '<div class="dash-empty">데이터 없음</div>'}
-    </div>
-    <div class="an-card">
-      <h3>중분류 Top <span class="an-total">미완료 기준</span></h3>
-      ${chRows || '<div class="dash-empty">미완료 업무 없음</div>'}
+    <div class="an-card an-card-2">
+      <h3>분류 Top
+        <span class="an-seg an-seg-inline">${taxoTabs}</span>
+        <span class="an-total">막대 = 전체 건수 · 진한 부분 = 완료</span>
+      </h3>
+      ${taxoBody || '<div class="dash-empty">데이터 없음</div>'}
     </div>
     <div class="an-card an-card-wide">
       <h3>최근 ${trendMonths}개월 추이
@@ -1576,6 +1614,15 @@ function renderDashAnalytics() {
 
   box.querySelectorAll('[data-issue]').forEach((b) => {
     b.onclick = () => openDataIssueModal(b.dataset.issue);
+  });
+
+  // 분류 축 전환 — 기기별로 기억하고 이 카드만 다시 그린다
+  box.querySelectorAll('[data-taxo]').forEach((b) => {
+    b.onclick = () => {
+      taxoTab = b.dataset.taxo;
+      try { localStorage.setItem('dashTaxoTab', taxoTab); } catch (e) {}
+      renderDashAnalytics();
+    };
   });
 
   // 기간 토글 — 기기별로 기억하고 이 카드만 다시 그린다
