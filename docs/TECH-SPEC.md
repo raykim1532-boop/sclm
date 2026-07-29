@@ -211,7 +211,11 @@ SCLM (로그인 게이트: 앱 비밀번호)
 
 ## 5. 자동화 파이프라인 (매일 아침)
 
-**주 스케줄러: GitHub Actions** (`.github/workflows/daily-alarm.yml`, 07:57·08:12 KST) — 이 Cloudflare 계정의 크론이 이벤트를 발사하지 않는 문제(2026-07-28 tail로 확정)로 이관. Cloudflare Worker(08:00·08:10)는 백업으로 유지하며, `run-daily`의 **하루 1회 가드**(documents id='daily'의 lastSentDay)가 중복 발송을 차단한다. 수동(Bearer) 호출은 가드와 무관하게 항상 발송된다.
+**스케줄러 이중화**: Cloudflare Worker `sclm-push-cron`(08:00·08:10 KST)과 GitHub Actions(`.github/workflows/daily-alarm.yml`, 07:57·08:12 KST)가 같은 엔드포인트를 호출한다. `run-daily`의 **하루 1회 가드**(documents id='daily'의 `lastSentDay`)가 중복 발송을 차단하므로 알림은 하루 한 번만 간다. 수동(Bearer) 호출은 가드와 무관하게 항상 발송된다.
+
+호출자는 `X-Cron-Source`(`cf-cron`/`gh-actions`/`cf-manual`/`manual`)로 `daily` 문서의 `attempts`에 기록된다 — 발송/건너뜀까지 남으므로 "발사 자체가 없었는지, 중복이라 건너뛴 것인지" 사후 판별이 가능하다.
+
+> **2026-07-29 실측** — `cf-cron` 08:00:16 발송, 08:10 재시도 skipped / `gh-actions`는 9시간 14분 지연된 17:11에 두 건 몰려 실행돼 모두 skipped. **Cloudflare 크론은 정상 동작하며, 그 이전의 "크론 미발사" 진단은 오진이었다**(워커 재생성 후 아직 발사 시각이 오지 않았던 것 + `wrangler tail`이 실행 중 이벤트만 보여주는 특성). GitHub Actions 지연이 상시인지는 추가 관측 필요.
 
 ```
 GitHub Actions / sclm-push-cron (cron, UTC)

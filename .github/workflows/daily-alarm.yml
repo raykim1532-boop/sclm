@@ -1,7 +1,11 @@
-# 매일 아침 알림 스케줄러 (주 실행자)
-# Cloudflare 크론이 발사되지 않는 것으로 보여 GitHub Actions가 주 스케줄러를 맡는다.
-# Cloudflare Worker(sclm-push-cron)는 백업으로 유지 — run-daily의 하루 1회 가드가 중복 발송을 막는다.
+# 매일 아침 알림 스케줄러 (이중화 중 하나)
+# Cloudflare Worker(sclm-push-cron, 08:00·08:10 KST)와 함께 같은 엔드포인트를 호출한다.
+# run-daily 의 하루 1회 가드가 중복 발송을 막으므로 알림은 하루 한 번만 간다.
 # 어느 쪽이 실제로 발사됐는지는 X-Cron-Source 로 D1의 'daily' 문서에 기록된다.
+#
+# ⚠️ 2026-07-29 실측: 이 워크플로가 예정(22:57·23:12 UTC)보다 9시간 넘게 지연돼
+#    08:11 UTC에 몰려 실행됐다. 같은 날 Cloudflare 크론은 23:00:16 UTC 정시 발사.
+#    GitHub 스케줄은 지연이 잦으니 이 워크플로만 믿지 말 것.
 #
 # 필요한 저장소 시크릿: CRON_SECRET (Cloudflare Pages의 CRON_SECRET과 같은 값)
 #   등록: GitHub 저장소 → Settings → Secrets and variables → Actions → New repository secret
