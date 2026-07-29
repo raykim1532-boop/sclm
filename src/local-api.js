@@ -25,10 +25,8 @@
       projects: [{ id: 'default', name: '일반', color: '#1a73e8' }],
       events: [],
       todos: [],
-      channels: [],
-      channelProjects: {},   // 중분류 → 소속 대분류(projectId)
-      subChannels: {},       // 중분류 → 연결된 소분류 목록
-      subMaster: [],         // 소분류 공용 목록(여러 중분류가 공유)
+      channels: [],          // 중분류 목록
+      subMaster: [],         // 소분류 목록 (대분류·중분류와 독립)
       tasks: []
     };
   }

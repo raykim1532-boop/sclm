@@ -50,18 +50,17 @@
 - **PWA**: manifest + apple-touch-icon + standalone 메타로 홈 화면 설치 지원(아이폰은 설치해야 푸시 가능).
 - **오프라인**(`web/static/sw.js`): 문서=네트워크 우선→캐시 셸, 정적자산=캐시 우선+백그라운드 갱신, `GET /api/data`=네트워크 우선+캐싱(오프라인이면 마지막 응답에 `X-SCLM-Offline: 1` 붙여 반환), `GET /api/health`=오프라인이면 **데이터 캐시가 있을 때만** `{cloud:true,offline:true}` 합성(없으면 그대로 실패시켜 로컬 모드로). 비-GET·나머지 `/api/*`는 개입하지 않음. 앱 쪽: `setupServiceWorker`/`setupOfflineBar`/`reconcileOffline`. 오프라인 저장 실패분은 `myscheduler:offline:pending`에 보관했다가 온라인 복귀 시 **사용자 확인 후** 업로드/폐기(자동 덮어쓰기 금지 — 다른 기기 작업이 날아감). `verify()`는 `true|false|'offline'` 3값이며 캐시 응답(`X-SCLM-Offline`)으로는 비밀번호를 통과시키지 않는다. 캐시 스키마 바꾸면 `sw.js`의 `VERSION` 올릴 것.
 - 데이터 스키마(D1 documents id='main' JSON): `{ settings, projects, events, todos, channels, channelProjects, subChannels, tasks }`. 실제 업무는 `todos`. `tasks`는 미사용(칸반이 todos 기반).
-- **분류 체계 = 대분류 > 중분류 > 소분류 (2026-07-29, 종속형 트리)**. ⚠️ **내부 필드명은 옛 이름 그대로다** — 화면 용어만 바꾸고 데이터는 이전하지 않았다(Password 관리자=vault와 같은 방식).
-  | 화면 | 필드 | 마스터 | 소속 |
+- **분류 체계 = 대분류 · 중분류 · 소분류 (2026-07-29, 서로 독립된 3축)**. ⚠️ **내부 필드명은 옛 이름 그대로다** — 화면 용어만 바꾸고 데이터는 이전하지 않았다(Password 관리자=vault와 같은 방식).
+  | 화면 | 뜻 | 필드 | 목록 |
   |---|---|---|---|
-  | 대분류 | `projectId` | `state.projects` | — (칸반·캘린더 색상 공유) |
-  | 중분류 | `channel` | `state.channels[]` | `state.channelProjects[중분류]=projectId` |
-  | 소분류 | `subChannel` | `state.subMaster[]` (**공용 목록**) | `state.subChannels[중분류][]` = 연결 |
-  - `migrateTaxonomy(state)`가 앱 로드 시 1회 실행돼 소속 없는 중분류를 **최다 사용 대분류**로 편입한다. **순수 함수로 유지**할 것(state 전역 참조 금지 — `web/tests/taxonomy.test.mjs`가 정규식으로 `taxoInit`+`migrateTaxonomy`를 추출해 검증).
-  - **소분류는 공용이다**(2026-07-29 재설계). 같은 이름을 여러 중분류가 함께 쓰기 때문(예: '하프'를 마리오아울렛·대백이 동시 운영). 이름은 `subMaster`에 한 번만 두고 `subChannels[중분류]`로 **연결**만 늘린다 — 중분류마다 같은 이름을 다시 만들게 하지 말 것.
-  - 관리 화면(Categories)은 **가로 3열**(대분류|중분류|소분류)이다. `renderChannelSettings`가 세 열 렌더러(`renderCatProjects`/`renderCatMids`/`renderCatSubs`)를 부르고, 선택 상태는 모듈 변수 `catSelProj`·`catSelMid`가 들고 있다. **3열의 체크박스가 곧 연결**(`addSub`/`unlinkSub`)이다.
-  - 대분류 추가·수정은 `openProjectModal`을 그대로 재사용하므로 프로젝트 CRUD를 고치면 이 화면도 함께 확인할 것. 대분류를 지우면 그 소속 중분류는 `default`로 옮겨진다(고아 방지). 중분류 수정은 `openMidModal`(이름·소속·색상을 한 번에).
-  - 종속 UI는 **후보를 좁힐 뿐 입력을 막지 않는다**. 다른 대분류의 중분류도 "다른 대분류" 표시로 목록에 남기고, 이미 어긋난 값도 지우지 않는다. 이 관용을 없애면 실데이터가 조용히 사라진다.
-  - 중분류의 소속 대분류를 옮기면 **그 중분류를 쓰는 할 일의 `projectId`도 함께** 바꿔야 한다(`midMoveTo`). 삭제는 **마스터에서만** 빼고 할 일의 값은 남긴다. 소분류는 삭제가 두 단계 — 중분류 줄의 ✕는 **연결 해제**(`unlinkSub`), 공용 목록의 🗑는 **완전 삭제**(`subDeleteGlobal`).
+  | 대분류 | 업무 성격(정산·영업·CS) | `projectId` | `state.projects` (칸반·캘린더 색상 공유) |
+  | 중분류 | 거래처·채널 | `channel` | `state.channels[]` |
+  | 소분류 | 브랜드 등 세부 | `subChannel` | `state.subMaster[]` |
+  - 🛑 **세 축을 종속시키지 말 것.** 처음엔 트리(중분류가 대분류에 소속)로 만들었다가 실데이터에서 뒤집었다 — 한 거래처에 **정산 업무도 영업 업무도** 있어서 중분류를 대분류 하나에 묶으면 표현이 불가능하다. 옛 키 `channelProjects`·`subChannels`는 `migrateTaxonomy`가 지운다.
+  - `migrateTaxonomy(state)`는 할 일에 쓰인 값을 목록에 편입할 뿐 소속·연결을 만들지 않는다. **순수 함수로 유지**할 것(`web/tests/taxonomy.test.mjs`가 정규식으로 `taxoInit`+`migrateTaxonomy`를 추출해 검증).
+  - ⚠️ **`state`를 새로 대입하는 모든 지점에서 `migrateTaxonomy(state)`를 부를 것** — init·클라우드 재조회(`j.changed`)·구글 동기화 후·스냅샷 복원·백업 가져오기·오프라인 반영. 하나라도 빠지면 새로 받은 데이터에 목록이 비어 화면에서 분류가 통째로 사라진다(실제로 겪은 버그).
+  - 삭제는 **목록에서만** 빼고 할 일의 값은 남긴다. 목록에 없는 값을 타이핑해도 막지 않고 저장 시 자동 등록한다.
+  - 관리 화면(Categories)은 **가로 3열**이고 각 열이 자기 목록만 관리한다(`renderCatProjects`/`renderCatMids`/`renderCatSubs`). 대분류 수정은 `openProjectModal` 재사용 — 프로젝트 CRUD를 고치면 이 화면도 함께 확인할 것.
   - 분류 필드를 추가·변경하면 따라가야 하는 곳: 할 일 모달(`openTodoModal`) · 표 헤더(`shell.html`)와 셀 · 정렬키(`todoSortValue`) · 필터(`filterTodos`/`renderTodos`) · 검색 · CSV(`exportTodosCsv`) · 칸반 카드 · 시트 머리글 매핑(`SHEET_HEADER_MAP`) · `assistant.js`(도구 파라미터·`filterTodos`·`systemPrompt`).
 
 ## 시크릿 (저장소에 없음 — Cloudflare에만)

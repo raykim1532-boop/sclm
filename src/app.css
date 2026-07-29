@@ -1050,7 +1050,6 @@ html[data-theme="dark"] .todo-table tbody tr.row-today .col-due { color: #f6bf26
 .cat-col-foot .btn { padding: 7px 12px; font-size: 12.5px; white-space: nowrap; }
 .cat-add-btn { flex: 1; }
 .cat-col-empty { color: var(--text-muted); font-size: 12.5px; padding: 14px 10px; text-align: center; }
-.cat-col-note { color: var(--text-muted); font-size: 11.5px; padding: 4px 8px 7px; }
 
 .cat-item {
   display: flex; align-items: center; gap: 7px;
@@ -1058,28 +1057,14 @@ html[data-theme="dark"] .todo-table tbody tr.row-today .col-due { color: #f6bf26
   border: 1px solid transparent;
 }
 .cat-item:hover { background: var(--surface-2); }
-.cat-item.selected { background: var(--accent-soft); border-color: var(--accent); }
-.cat-item.linked .cat-item-name { font-weight: 600; }
 .cat-dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
-.cat-check { margin: 0; flex-shrink: 0; cursor: pointer; }
 .cat-item-name { flex: 1; min-width: 0; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .cat-item-sub { font-size: 11px; color: var(--text-muted); white-space: nowrap; flex-shrink: 0; }
 .cat-over { color: var(--danger); }
-button.cat-links { background: var(--surface-2); border: 1px solid var(--border); border-radius: 9px; padding: 1px 7px; cursor: pointer; }
-button.cat-links:hover { color: var(--accent); border-color: var(--accent); }
 .cat-item-acts { display: flex; gap: 1px; flex-shrink: 0; opacity: 0; transition: opacity 0.1s; }
-.cat-item:hover .cat-item-acts, .cat-item.selected .cat-item-acts { opacity: 1; }
+.cat-item:hover .cat-item-acts { opacity: 1; }
 .cat-item-acts .icon-btn { padding: 2px 4px; font-size: 12px; }
 
-/* 선택 목록(모달) */
-.pick-list { display: flex; flex-wrap: wrap; gap: 6px; max-height: 200px; overflow-y: auto; padding: 2px; }
-.pick-item {
-  display: inline-flex; align-items: center; gap: 6px;
-  border: 1px solid var(--border); border-radius: 12px; padding: 4px 11px;
-  font-size: 12.5px; cursor: pointer; background: var(--surface);
-}
-.pick-item:hover { border-color: var(--accent); }
-.pick-item input { margin: 0; }
 
 /* 목록 표·칸반의 소분류 표기 */
 .todo-table .col-sub { font-size: 12.5px; color: var(--text-muted); max-width: 110px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

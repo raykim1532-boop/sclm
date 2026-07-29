@@ -187,7 +187,7 @@
         <h1>분류 체계</h1>
       </div>
       <div class="settings-card">
-        <p class="hint" style="margin-top:0"><b>왼쪽에서 오른쪽으로</b> 골라 내려가세요 — 대분류를 고르면 그 안의 중분류가, 중분류를 고르면 소분류가 보입니다. ✏️ 이름변경(할 일에 일괄 반영) · 🗑 삭제 · 🔍 해당 할 일 보기. <b>소분류는 공용</b>이라 한 번 만들어 두고 여러 중분류에서 <b>체크만</b> 하면 연결됩니다(예: 하프 → 마리오아울렛·대백 둘 다).</p>
+        <p class="hint" style="margin-top:0"><b>세 분류는 서로 독립</b>이에요 — 대분류(업무 성격) · 중분류(거래처·채널) · 소분류를 자유롭게 조합해 씁니다. 예를 들어 한 거래처에 <b>정산 업무도 영업 업무도</b> 있을 수 있으니 어느 쪽에도 묶이지 않습니다. 각 목록에서 🔍 해당 할 일 보기 · ✏️ 이름변경(할 일에 일괄 반영) · 🗑 목록에서 삭제.</p>
         <div class="channel-toolbar">
           <span class="todo-count" id="channelTotal"></span>
           <select id="channelSort" class="select">
@@ -207,7 +207,7 @@
             <div class="cat-col-head">중분류 <span class="cat-col-count" id="catCountMid"></span></div>
             <div class="cat-col-body" id="catMidList"></div>
             <div class="cat-col-foot">
-              <input type="text" id="newChannelInput" placeholder="새 중분류 (예: 마리오아울렛)" />
+              <input type="text" id="newChannelInput" placeholder="새 중분류 (예: 마리오아울렛)" autocomplete="off" />
               <button class="btn btn-primary" id="addChannelBtn">추가</button>
             </div>
           </div>

@@ -21,8 +21,6 @@ async function loadState(env) {
   s.events = Array.isArray(s.events) ? s.events : [];
   s.projects = Array.isArray(s.projects) ? s.projects : [];
   s.channels = Array.isArray(s.channels) ? s.channels : [];
-  s.channelProjects = (s.channelProjects && typeof s.channelProjects === 'object') ? s.channelProjects : {};
-  s.subChannels = (s.subChannels && typeof s.subChannels === 'object') ? s.subChannels : {};
   s.subMaster = Array.isArray(s.subMaster) ? s.subMaster : [];
   return s;
 }
@@ -85,7 +83,7 @@ const FUNCTIONS = [
         priority: { type: 'STRING', enum: ['긴급', '중요', '보통'], description: '선택' },
         project_name: { type: 'STRING', description: '대분류 이름 (선택, 기존 목록에서)' },
         channel: { type: 'STRING', description: '중분류 (선택)' },
-        sub_channel: { type: 'STRING', description: '소분류 (선택, 중분류가 있을 때만)' },
+        sub_channel: { type: 'STRING', description: '소분류 (선택)' },
         assignee: { type: 'STRING', description: '담당자 (선택)' }
       },
       required: ['text']
@@ -269,24 +267,13 @@ export function runTool(name, input, s) {
     const channel = (input.channel || '').trim();
     const subChannel = (input.sub_channel || '').trim();
     const projectId = proj ? proj.id : ((s.projects[0] && s.projects[0].id) || 'default');
-    // 분류 트리에 편입: 중분류는 이 할 일의 대분류 소속으로, 소분류는 그 중분류 아래로
+    // 세 분류는 독립이라 각 마스터 목록에 따로 등록한다
     if (channel && !s.channels.includes(channel)) s.channels.push(channel);
-    if (channel) {
-      if (!s.channelProjects || typeof s.channelProjects !== 'object') s.channelProjects = {};
-      if (!s.channelProjects[channel]) s.channelProjects[channel] = projectId;
-      if (subChannel) {
-        // 소분류는 공용 목록에 등록하고 이 중분류에 연결한다
-        if (!Array.isArray(s.subMaster)) s.subMaster = [];
-        if (!s.subMaster.includes(subChannel)) s.subMaster.push(subChannel);
-        if (!s.subChannels || typeof s.subChannels !== 'object') s.subChannels = {};
-        if (!Array.isArray(s.subChannels[channel])) s.subChannels[channel] = [];
-        if (!s.subChannels[channel].includes(subChannel)) s.subChannels[channel].push(subChannel);
-      }
-    }
+    if (subChannel && !s.subMaster.includes(subChannel)) s.subMaster.push(subChannel);
     const t = {
       id: uid(), no: nextNo, registeredDate: kstToday(),
       projectId,
-      channel, subChannel: channel ? subChannel : '', priority: input.priority || '', text: input.text, assignee: input.assignee || '',
+      channel, subChannel, priority: input.priority || '', text: input.text, assignee: input.assignee || '',
       dueDate: input.due_date || '', status: '대기', needsCheck: '', completedDate: '', progress: '', remarks: '', links: [], done: false
     };
     s.todos.push(t);
@@ -433,9 +420,9 @@ function systemPrompt(s) {
     '너는 "SCLM" 일정 관리 앱의 한국어 AI 비서다. 사용자의 자연어 요청을 이해해 함수(도구)로 일정·할 일을 조회하거나 등록한다.',
     `오늘은 ${today} (${dow}요일), 한국 시간(KST) 기준이다. "내일"="${addDays(today, 1)}", "다음 주"는 다음 주 월~일.`,
     `대분류(프로젝트) 목록: ${projects}`,
-    '분류는 대분류 > 중분류 > 소분류 3단계다.',
+    '분류는 대분류·중분류·소분류 3가지이며 서로 독립이다(아무 조합이나 가능).',
     `중분류 목록: ${channels}`,
-    `소분류 목록(공용 — 여러 중분류가 함께 씀): ${subs}`,
+    `소분류 목록: ${subs}`,
     '규칙:',
     '- 미팅/일정을 "잡아줘"라고 하면 먼저 find_free_slots로 빈 시간을 확인하고, 적절한 시간을 골라 add_event로 등록한 뒤 결과를 알려준다. 시간을 특정하지 않았으면 지정 시간대의 첫 빈 슬롯을 기본으로 잡되, 어떤 시간에 잡았는지 명확히 말한다.',
     '- "뭐 있어/일정 알려줘"류는 list_schedule로 조회 후 간결히 요약한다.',

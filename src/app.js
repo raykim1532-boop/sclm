@@ -147,7 +147,7 @@ async function reconcileOffline() {
     );
     if (yes) {
       const okSave = await CloudSync.api.saveData(p.data);
-      if (okSave) { state = p.data; renderAll(); toast('오프라인 변경사항을 서버에 반영했어요'); }
+      if (okSave) { state = p.data; migrateTaxonomy(state); renderAll(); toast('오프라인 변경사항을 서버에 반영했어요'); }
       else toast('서버 반영에 실패했어요. 잠시 후 다시 시도해 주세요.');
     } else {
       CloudSync.clearPending();
@@ -170,7 +170,7 @@ async function init() {
     document.body.classList.add('cloud-mode');
   }
   state = await window.api.loadData();
-  migrateTaxonomy(state);   // 옛 데이터(소속 없는 중분류)를 대분류 아래로 편입
+  migrateTaxonomy(state);   // 할 일에 쓰인 분류값을 목록에 편입 (상태를 새로 받을 때마다 필요)
   applyTheme();
   setupNav();
   setupCalendar();
@@ -237,7 +237,7 @@ function setupAssistant() {
       typing.textContent = reply;
       asstHistory.push({ role: 'assistant', content: reply });
       if (asstHistory.length > 16) asstHistory = asstHistory.slice(-16);
-      if (j.changed) { state = await window.api.loadData(); renderAll(); }
+      if (j.changed) { state = await window.api.loadData(); migrateTaxonomy(state); renderAll(); }
     } catch (e) {
       typing.textContent = '⚠ 연결 실패 — 잠시 후 다시 시도해주세요.';
     }
@@ -392,7 +392,7 @@ async function renderSnapshots() {
           const r2 = await CloudSync.authFetch('/api/snapshots', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'restore', id: btn.getAttribute('data-id') }) });
           const j2 = await r2.json();
           if (j2.ok) {
-            state = await window.api.loadData(); applyTheme(); renderAll();
+            state = await window.api.loadData(); migrateTaxonomy(state); applyTheme(); renderAll();
             toast(j2.vaultKept ? '이전 상태로 되돌렸어요 (Password 관리자는 현재 것 유지)' : '이전 상태로 되돌렸어요');
             renderSnapshots();
           }
@@ -454,7 +454,7 @@ async function setupGoogle() {
       const j = await r.json();
       if (j.ok) {
         const changed = j.pushed + j.updated + j.pulled + j.deletedLocal + j.deletedRemote;
-        if (changed > 0) { state = await window.api.loadData(); applyTheme(); renderAll(); }
+        if (changed > 0) { state = await window.api.loadData(); migrateTaxonomy(state); applyTheme(); renderAll(); }
         const summary = `보냄 ${j.pushed} · 수정 ${j.updated} · 가져옴 ${j.pulled} · 삭제 ${j.deletedLocal + j.deletedRemote}`
           + (j.truncated ? ' · (분량 많아 이어서 진행됨)' : '');
         if (!silent || changed > 0) toast('구글 동기화 — ' + summary);
@@ -1555,144 +1555,86 @@ function uniqueChannels(todos) {
   return seen;
 }
 
-/* 분류 관리 화면(3열)에서 지금 고른 항목 */
-let catSelProj = null;
-let catSelMid = null;
-
 /* ---------- 분류 체계: 대분류 > 중분류 > 소분류 ----------
    내부 필드명은 옛 이름을 그대로 쓴다(데이터 이전 없이 화면 용어만 바꾼 것):
-     대분류 = todo.projectId → state.projects   (칸반·캘린더 색상과 공유)
-     중분류 = todo.channel   → state.channels[] (+ state.channelProjects[중분류] = 소속 대분류 id)
-     소분류 = todo.subChannel → state.subMaster[] (공용 목록)
-              + state.subChannels[중분류] = [연결된 소분류...]
-   중분류는 대분류 하나에 속하지만, 소분류는 **공용 목록에서 여러 중분류에 연결**된다.
-   (예: '하프'를 마리오아울렛·대백 두 점포가 함께 운영 — 이름은 한 번만 등록하고 연결만 늘린다)
-   단 이미 입력된 값은 소속이 어긋나도 지우지 않는다(막지 말고 관리 화면에서 고치게 한다). */
+     대분류 = todo.projectId  → state.projects   (칸반·캘린더 색상과 공유)
+     중분류 = todo.channel    → state.channels[]
+     소분류 = todo.subChannel → state.subMaster[]
+   ⚠️ 셋은 **서로 독립된 축**이다(2026-07-29 재설계). 한 거래처(중분류)에 정산 업무도
+   영업 업무도 있기 때문에 중분류를 대분류 하나에 묶으면 실제 업무를 표현할 수 없다.
+   어떤 조합이든 자유롭게 쓸 수 있고, 목록 필터는 세 축을 AND로 겹쳐서 건다. */
 
 // 저장 구조가 없으면 만들어 준다. 여러 곳에서 먼저 호출해도 안전하도록 항상 이걸 거친다.
 function taxoInit(st) {
   const s = st || state;
   if (!Array.isArray(s.channels)) s.channels = [];
-  if (!s.channelProjects || typeof s.channelProjects !== 'object') s.channelProjects = {};
-  if (!s.subChannels || typeof s.subChannels !== 'object') s.subChannels = {};
   if (!Array.isArray(s.subMaster)) s.subMaster = [];
   return s;
 }
 
-/* 예전 데이터(소속 정보가 없는 중분류)를 트리에 편입시킨다.
-   소속은 "그 중분류를 쓴 할 일에서 가장 많이 등장한 대분류"로 추론한다.
-   순수 함수로 유지할 것 — state 전역을 참조하지 말고 인자로 받은 것만 고친다(테스트에서 직접 호출). */
+/* 할 일에 쓰인 값을 각 마스터 목록에 편입한다(앱이 켜질 때와 데이터를 다시 불러올 때마다).
+   순수 함수로 유지할 것 — state 전역을 참조하지 말고 인자로 받은 것만 고친다(테스트에서 직접 호출).
+   ⚠️ 세 축은 서로 독립이므로 여기서 소속·연결을 만들지 않는다. 목록을 모으기만 한다. */
 function migrateTaxonomy(st) {
   const s = taxoInit(st);
   const todos = Array.isArray(s.todos) ? s.todos : [];
-  const projectIds = (Array.isArray(s.projects) ? s.projects : []).map((p) => p.id);
 
-  // 이미 연결돼 있던 소분류를 공용 목록으로 끌어올린다(구조 변경 전 데이터 호환)
-  Object.keys(s.subChannels).forEach((mid) => {
-    if (!Array.isArray(s.subChannels[mid])) { s.subChannels[mid] = []; return; }
-    s.subChannels[mid].forEach((sub) => { if (sub && !s.subMaster.includes(sub)) s.subMaster.push(sub); });
-  });
+  // 옛 종속 구조(중분류별 소분류 연결)가 남아 있으면 공용 목록으로 흡수하고 버린다
+  if (s.subChannels && typeof s.subChannels === 'object') {
+    Object.keys(s.subChannels).forEach((mid) => {
+      (Array.isArray(s.subChannels[mid]) ? s.subChannels[mid] : []).forEach((sub) => {
+        if (sub && !s.subMaster.includes(sub)) s.subMaster.push(sub);
+      });
+    });
+    delete s.subChannels;
+  }
+  delete s.channelProjects;   // 중분류를 대분류에 묶던 정보 — 독립 축이 되며 의미가 없어졌다
 
-  // 할 일에 쓰인 중분류·소분류를 마스터 목록에 편입
   todos.forEach((t) => {
     const mid = ((t && t.channel) || '').trim();
     if (mid && !s.channels.includes(mid)) s.channels.push(mid);
     const sub = ((t && t.subChannel) || '').trim();
     if (sub && !s.subMaster.includes(sub)) s.subMaster.push(sub);
-    if (mid && sub) {
-      if (!Array.isArray(s.subChannels[mid])) s.subChannels[mid] = [];
-      if (!s.subChannels[mid].includes(sub)) s.subChannels[mid].push(sub);
-    }
-  });
-
-  // 소속이 없거나 사라진 대분류를 가리키는 중분류에 소속을 배정
-  s.channels.forEach((mid) => {
-    const cur = s.channelProjects[mid];
-    if (cur && projectIds.includes(cur)) return;
-    const tally = {};
-    todos.forEach((t) => {
-      if (((t && t.channel) || '').trim() !== mid) return;
-      const pid = t.projectId;
-      if (pid && projectIds.includes(pid)) tally[pid] = (tally[pid] || 0) + 1;
-    });
-    const best = Object.keys(tally).sort((a, b) => tally[b] - tally[a])[0];
-    s.channelProjects[mid] = best || projectIds[0] || null;
   });
   return s;
 }
 
-// 중분류 목록. projectId를 주면 그 대분류 소속만, 없으면 전체.
-function midList(projectId) {
+// 중분류 전체 목록 (대분류와 무관 — 한 거래처에 정산·영업 업무가 모두 있을 수 있다)
+function midList() {
   taxoInit();
-  const all = state.channels.slice();
-  if (!projectId || projectId === 'all') return all;
-  return all.filter((c) => state.channelProjects[c] === projectId);
+  return state.channels.slice();
 }
 
-// 소분류 목록. mid를 주면 그 중분류에 연결된 것만, 없으면 공용 목록 전체.
-function subList(mid) {
+// 소분류 전체 목록
+function subList() {
   taxoInit();
-  if (mid) return (state.subChannels[mid] || []).slice();
   return state.subMaster.slice();
 }
 
-// 이 소분류가 연결된 중분류들
-function subLinkedMids(sub) {
-  taxoInit();
-  return state.channels.filter((m) => (state.subChannels[m] || []).includes(sub));
-}
-
-function midParent(mid) { taxoInit(); return state.channelProjects[mid] || null; }
-
-// 새 중분류를 대분류 아래에 등록(이미 있으면 소속만 비어 있을 때 채운다)
-function addMid(mid, projectId) {
+// 중분류 등록
+function addMid(mid) {
   taxoInit();
   const v = (mid || '').trim();
-  if (!v) return;
-  if (!state.channels.includes(v)) state.channels.push(v);
-  if (!state.channelProjects[v] && projectId) state.channelProjects[v] = projectId;
+  if (v && !state.channels.includes(v)) state.channels.push(v);
 }
 
-// 소분류를 공용 목록에 등록하고(없으면) 중분류에 연결한다. mid를 안 주면 공용 등록만.
-function addSub(mid, sub) {
+// 소분류 등록
+function addSub(sub) {
   taxoInit();
-  const m = (mid || '').trim();
   const v = (sub || '').trim();
-  if (!v) return;
-  if (!state.subMaster.includes(v)) state.subMaster.push(v);
-  if (!m) return;
-  if (!Array.isArray(state.subChannels[m])) state.subChannels[m] = [];
-  if (!state.subChannels[m].includes(v)) state.subChannels[m].push(v);
+  if (v && !state.subMaster.includes(v)) state.subMaster.push(v);
 }
 
-// 중분류에서 소분류 연결만 끊는다(공용 목록에는 남는다)
-function unlinkSub(mid, sub) {
+/* 중분류 자동완성 옵션 */
+function channelOptionsHtml() {
   taxoInit();
-  const arr = state.subChannels[mid];
-  if (!Array.isArray(arr)) return;
-  const i = arr.indexOf(sub);
-  if (i > -1) arr.splice(i, 1);
+  return state.channels.map((c) => `<option value="${escapeHtml(c)}"></option>`).join('');
 }
 
-/* 중분류 자동완성 옵션. projectId를 주면 그 대분류 소속을 먼저 보여준다(종속형).
-   나머지도 뒤에 붙여 다른 대분류 값도 고를 수 있게 둔다 — 잘못 고르면 관리 화면에서 옮기면 된다. */
-function channelOptionsHtml(projectId) {
+/* 소분류 자동완성 옵션 */
+function subOptionsHtml() {
   taxoInit();
-  const mine = midList(projectId);
-  const rest = state.channels.filter((c) => !mine.includes(c));
-  const opt = (c, hint) => `<option value="${escapeHtml(c)}">${hint ? escapeHtml(hint) : ''}</option>`;
-  return mine.map((c) => opt(c, '')).join('')
-    + rest.map((c) => opt(c, '다른 대분류')).join('');
-}
-
-/* 소분류 자동완성 옵션. 이 중분류에 연결된 것을 먼저, 나머지 공용 목록도 뒤에 붙인다.
-   (소분류는 공용이라 다른 중분류 것도 고를 수 있고, 고르면 저장 시 자동으로 연결된다) */
-function subOptionsHtml(mid) {
-  taxoInit();
-  const linked = subList(mid);
-  const rest = state.subMaster.filter((s) => !linked.includes(s));
-  return linked.map((s) => `<option value="${escapeHtml(s)}"></option>`).join('')
-    + rest.map((s) => `<option value="${escapeHtml(s)}">공용 목록</option>`).join('');
+  return state.subMaster.map((s) => `<option value="${escapeHtml(s)}"></option>`).join('');
 }
 
 /* ---------- 일정 모달 ---------- */
@@ -1855,20 +1797,10 @@ function getSelectedColor(rowId) {
 function setupTodos() {
   document.getElementById('addTodoBtn').onclick = () => openTodoModal(null);
   const reset = () => { todoPage = 1; renderTodos(); };
-  document.getElementById('todoProjectFilter').addEventListener('change', () => {
-    // 상위 분류를 바꾸면 하위 선택은 무효가 되므로 되돌린다
-    const mid = document.getElementById('todoMidFilter');
-    const sub = document.getElementById('todoSubFilter');
-    if (mid) mid.value = 'all';
-    if (sub) sub.value = 'all';
-    reset();
+  // 세 분류 필터는 서로 독립이며 AND로 겹쳐서 걸린다
+  ['todoProjectFilter', 'todoMidFilter', 'todoSubFilter'].forEach((id) => {
+    document.getElementById(id).addEventListener('change', reset);
   });
-  document.getElementById('todoMidFilter').addEventListener('change', () => {
-    const sub = document.getElementById('todoSubFilter');
-    if (sub) sub.value = 'all';
-    reset();
-  });
-  document.getElementById('todoSubFilter').addEventListener('change', reset);
   document.getElementById('todoSearch').addEventListener('input', reset);
   document.getElementById('todoPageSize').addEventListener('change', reset);
   ['todoDateField', 'todoDateFrom', 'todoDateTo', 'todoHideDone'].forEach((id) => {
@@ -2224,20 +2156,19 @@ function renderTodos() {
   projSelect.innerHTML = '<option value="all">전체 대분류</option>' + projectOptionsHtml(null);
   projSelect.value = state.projects.some((p) => p.id === prevProj) || prevProj === 'all' ? prevProj : 'all';
 
-  // 중분류·소분류 필터는 위 단계 선택에 종속된다 (대분류 → 중분류 → 소분류)
+  // 중분류·소분류 필터는 대분류와 독립이다 — 전체 목록을 그대로 보여준다
   const midSelect = document.getElementById('todoMidFilter');
   const subSelect = document.getElementById('todoSubFilter');
   if (midSelect) {
     const prevMid = midSelect.value || 'all';
-    const mids = midList(projSelect.value);
+    const mids = midList();
     midSelect.innerHTML = '<option value="all">전체 중분류</option>'
       + mids.map((c) => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join('');
     midSelect.value = mids.includes(prevMid) ? prevMid : 'all';
   }
   if (subSelect) {
     const prevSub = subSelect.value || 'all';
-    const midVal = midSelect ? midSelect.value : 'all';
-    const subs = midVal === 'all' ? subList(null) : subList(midVal);
+    const subs = subList();
     subSelect.innerHTML = '<option value="all">전체 소분류</option>'
       + subs.map((s) => `<option value="${escapeHtml(s)}">${escapeHtml(s)}</option>`).join('');
     subSelect.value = subs.includes(prevSub) ? prevSub : 'all';
@@ -2454,8 +2385,8 @@ function openTodoModal(todo, presets) {
         <div class="field"><label>중분류</label><input type="text" id="f-channel" value="${escapeHtml(data.channel || '')}" list="channel-options" placeholder="선택 또는 새로 입력" /></div>
         <div class="field"><label>소분류</label><input type="text" id="f-subchannel" value="${escapeHtml(data.subChannel || '')}" list="sub-options" placeholder="선택 또는 새로 입력" /></div>
       </div>
-      <datalist id="channel-options">${channelOptionsHtml(data.projectId)}</datalist>
-      <datalist id="sub-options">${subOptionsHtml(data.channel || '')}</datalist>
+      <datalist id="channel-options">${channelOptionsHtml()}</datalist>
+      <datalist id="sub-options">${subOptionsHtml()}</datalist>
       <div class="field-row">
         <div class="field"><label>담당자</label><input type="text" id="f-assignee" value="${escapeHtml(data.assignee || '')}" /></div>
         <div class="field"><label>우선순위</label><input type="text" id="f-priority" value="${escapeHtml(data.priority || '')}" list="priority-options" /></div>
@@ -2510,11 +2441,9 @@ function openTodoModal(todo, presets) {
       const projectId = document.getElementById('f-project').value;
       const channel = document.getElementById('f-channel').value.trim();
       const subChannel = document.getElementById('f-subchannel').value.trim();
-      // 소분류는 중분류에 딸린 값이라 중분류 없이는 둘 곳이 없다
-      if (subChannel && !channel) { toast('소분류를 쓰려면 중분류를 먼저 골라주세요'); return false; }
-      // 새로 입력한 중분류·소분류는 트리에 자동 등록 (중분류는 지금 고른 대분류 소속으로)
-      if (channel) addMid(channel, projectId);
-      if (channel && subChannel) addSub(channel, subChannel);
+      // 새로 입력한 값은 각 마스터 목록에 자동 등록된다(세 축이 독립이라 서로 조건이 없다)
+      if (channel) addMid(channel);
+      if (subChannel) addSub(subChannel);
       const assignee = document.getElementById('f-assignee').value;
       const priority = document.getElementById('f-priority').value;
       const registeredDate = document.getElementById('f-registered').value;
@@ -2570,28 +2499,7 @@ function openTodoModal(todo, presets) {
       persist(); renderAll();
     },
     onOpen: () => {
-      // 분류 종속: 대분류를 바꾸면 중분류 후보가, 중분류를 바꾸면 소분류 후보가 따라 바뀐다.
-      const projSel = document.getElementById('f-project');
-      const midInput = document.getElementById('f-channel');
-      const subInput = document.getElementById('f-subchannel');
-      const midDl = document.getElementById('channel-options');
-      const subDl = document.getElementById('sub-options');
-      if (projSel && midInput && midDl) {
-        projSel.addEventListener('change', () => {
-          midDl.innerHTML = channelOptionsHtml(projSel.value);
-          // 고른 대분류에 속하지 않는 중분류가 남아 있으면 알려만 준다(값은 지우지 않음)
-          const cur = midInput.value.trim();
-          if (cur && state.channels.includes(cur) && midParent(cur) && midParent(cur) !== projSel.value) {
-            toast('"' + cur + '"은(는) 다른 대분류 소속이에요 — 저장하면 그대로 유지됩니다');
-          }
-        });
-      }
-      if (midInput && subInput && subDl) {
-        midInput.addEventListener('change', () => {
-          // 소분류는 공용이라 값을 지우지 않는다. 후보 순서만 이 중분류 기준으로 다시 정렬한다.
-          subDl.innerHTML = subOptionsHtml(midInput.value.trim());
-        });
-      }
+      // 대분류·중분류·소분류는 서로 독립이라 한쪽을 바꿔도 다른 칸을 건드리지 않는다.
       const box = document.getElementById('f-links');
       const add = document.getElementById('f-link-add');
       if (add) add.onclick = () => box.insertAdjacentHTML('beforeend', linkRowHtml(''));
@@ -2779,11 +2687,6 @@ function openProjectModal(project) {
       state.tasks.forEach((t) => { if (t.projectId === project.id) t.projectId = 'default'; });
       state.todos.forEach((t) => { if (t.projectId === project.id) t.projectId = 'default'; });
       state.events.forEach((e) => { if (e.projectId === project.id) e.projectId = 'default'; });
-      // 이 대분류에 속해 있던 중분류도 기본 대분류로 옮긴다(고아 방지)
-      taxoInit();
-      Object.keys(state.channelProjects).forEach((m) => {
-        if (state.channelProjects[m] === project.id) state.channelProjects[m] = 'default';
-      });
       currentProjectViewId = null;
       persist(); renderSidebarProjects(); renderProjectTabs(); renderKanban(); renderTodos(); refreshCalendarEvents(); renderChannelSettings();
     }
@@ -3058,7 +2961,7 @@ function setupSettings() {
   });
   document.getElementById('importBtn').addEventListener('click', async () => {
     const r = await window.api.importBackup();
-    if (r.ok) { await snapshotBefore('backup-import'); state = r.data; await persist(); applyTheme(); renderAll(); if (typeof renderSnapshots === 'function') renderSnapshots(); toast('데이터를 불러왔어요'); }
+    if (r.ok) { await snapshotBefore('backup-import'); state = r.data; migrateTaxonomy(state); await persist(); applyTheme(); renderAll(); if (typeof renderSnapshots === 'function') renderSnapshots(); toast('데이터를 불러왔어요'); }
   });
 
   const addChBtn = document.getElementById('addChannelBtn');
@@ -3068,14 +2971,10 @@ function setupSettings() {
     if (!v) return;
     taxoInit();
     if (state.channels.includes(v)) { toast('이미 있는 중분류예요'); chInput.value = ''; return; }
-    // 1열에서 고른 대분류 아래로 들어간다
-    const pid = (catSelProj && catSelProj !== '__orphan__') ? catSelProj : ((state.projects[0] || {}).id || null);
-    if (!pid) { toast('먼저 대분류를 만들어주세요'); return; }
-    addMid(v, pid);
+    addMid(v);
     chInput.value = '';
-    catSelProj = pid; catSelMid = v;   // 방금 만든 중분류를 바로 선택
     persist(); renderChannelSettings(); renderTodos();
-    toast(`[${(byId(state.projects, pid) || {}).name || ''}] 아래에 중분류를 추가했어요`);
+    toast('중분류를 추가했어요');
   }
   if (addChBtn) addChBtn.addEventListener('click', addChannel);
   if (chInput) chInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); addChannel(); } });
@@ -3092,13 +2991,10 @@ function setupSettings() {
     if (!v) return;
     taxoInit();
     if (state.subMaster.includes(v)) { toast('이미 있는 소분류예요'); subInput.value = ''; return; }
-    // 중분류를 고른 상태면 바로 연결까지, 아니면 어디에 쓸지 고르게 한다
-    addSub(catSelMid || null, v);
+    addSub(v);
     subInput.value = '';
     persist(); renderChannelSettings(); renderTodos();
-    if (catSelMid) toast(`"${catSelMid}"에 "${v}"을(를) 연결했어요`);
-    else if (state.channels.length) openSubApplyModal(v);
-    else toast('소분류를 추가했어요');
+    toast('소분류를 추가했어요');
   }
   if (addSubBtn) addSubBtn.addEventListener('click', addSubMaster);
   if (subInput) subInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); addSubMaster(); } });
@@ -3158,266 +3054,179 @@ function channelStat(c) {
 }
 
 /* 분류 체계를 대분류 > 중분류 > 소분류 트리로 렌더 */
+/* 세 분류는 서로 독립이다. 한 거래처(중분류)에 정산 업무도 영업 업무도 있을 수 있으므로
+   중분류를 대분류 하나에 묶지 않는다. 각 열은 자기 목록만 관리하고, 통계는 할 일에서 계산한다. */
 function renderChannelSettings() {
-  const projBox = document.getElementById('catProjList');
-  if (!projBox) return;
+  if (!document.getElementById('catProjList')) return;
   taxoInit();
-
-  // 선택 상태 보정: 지워진 항목을 가리키고 있으면 되돌린다.
-  // 첫 진입은 빈 화면을 피하려고 중분류가 있는 대분류를 고른다.
-  if (catSelProj !== '__orphan__' && !state.projects.some((p) => p.id === catSelProj)) {
-    const withMids = state.projects.find((p) => midList(p.id).length);
-    catSelProj = (withMids || state.projects[0] || {}).id || null;
-  }
-  const midsOfProj = catSelProj === '__orphan__' ? orphanMids() : midList(catSelProj);
-  if (!midsOfProj.includes(catSelMid)) catSelMid = midsOfProj[0] || null;
 
   const sortSel = document.getElementById('channelSort');
   if (sortSel) sortSel.onchange = renderChannelSettings;
-  const sort = sortSel ? sortSel.value : 'usage';
+  const byName = sortSel && sortSel.value === 'name';
 
   const totalEl = document.getElementById('channelTotal');
   if (totalEl) totalEl.textContent = `대분류 ${state.projects.length}개 · 중분류 ${state.channels.length}개 · 소분류 ${state.subMaster.length}개`;
 
-  renderCatProjects();
-  renderCatMids(sort);
-  renderCatSubs();
+  renderCatProjects(byName);
+  renderCatMids(byName);
+  renderCatSubs(byName);
 }
 
-// 소속 대분류가 사라진 중분류(고아)
-function orphanMids() {
-  taxoInit();
-  return state.channels.filter((c) => !state.projects.some((p) => p.id === state.channelProjects[c]));
+// 분류값별 할 일 통계 (미완료·지연 포함)
+function catStat(pick, value) {
+  const items = state.todos.filter((t) => (pick(t) || '').trim() === value);
+  const today = todayStr();
+  return {
+    total: items.length,
+    open: items.filter((t) => !todoIsDone(t)).length,
+    overdue: items.filter((t) => !todoIsDone(t) && t.dueDate && t.dueDate < today).length
+  };
 }
 
-/* 1열: 대분류 */
-function renderCatProjects() {
+function catRowHtml(key, label, color, st, acts) {
+  return `<div class="cat-item" data-key="${escapeHtml(key)}">
+    <span class="cat-dot" style="background:${color}"></span>
+    <span class="cat-item-name" title="${escapeHtml(label)}">${escapeHtml(label)}</span>
+    <span class="cat-item-sub">할${st.total}${st.overdue ? ` · <b class="cat-over">지연${st.overdue}</b>` : ''}</span>
+    <span class="cat-item-acts">${acts}</span>
+  </div>`;
+}
+
+const CAT_ACTS = '<button class="icon-btn" data-act="view" title="이 분류 할 일 보기">🔍</button>'
+  + '<button class="icon-btn" data-act="rename" title="이름 변경(할 일에 일괄 반영)">✏️</button>'
+  + '<button class="icon-btn" data-act="del" title="목록에서 삭제">🗑</button>';
+
+/* 1열: 대분류 (= Projects. 칸반·캘린더 색상과 공유한다) */
+function renderCatProjects(byName) {
   const box = document.getElementById('catProjList');
   const countEl = document.getElementById('catCountProj');
   if (countEl) countEl.textContent = state.projects.length;
 
-  const rows = state.projects.map((p) => ({
-    id: p.id, name: p.name, color: p.color,
-    mids: midList(p.id).length,
-    todos: state.todos.filter((t) => t.projectId === p.id).length
-  }));
-  const orphans = orphanMids();
-  if (orphans.length) rows.push({ id: '__orphan__', name: '미지정', color: '#9b9a97', mids: orphans.length, todos: 0 });
+  const list = state.projects.slice().sort((a, b) => byName
+    ? a.name.localeCompare(b.name)
+    : state.todos.filter((t) => t.projectId === b.id).length - state.todos.filter((t) => t.projectId === a.id).length);
 
-  box.innerHTML = rows.map((r) => `
-    <div class="cat-item${r.id === catSelProj ? ' selected' : ''}" data-id="${escapeHtml(r.id)}">
-      <span class="cat-dot" style="background:${r.color || '#9b9a97'}"></span>
-      <span class="cat-item-name" title="${escapeHtml(r.name)}">${escapeHtml(r.name)}</span>
-      <span class="cat-item-sub">중${r.mids} · 할${r.todos}</span>
-      ${r.id === '__orphan__' ? '' : `<span class="cat-item-acts">
-        <button class="icon-btn" data-act="edit" title="이름·색상 변경">✏️</button>
-      </span>`}
-    </div>`).join('') || '<div class="cat-col-empty">대분류가 없어요. 아래에서 추가하세요.</div>';
+  box.innerHTML = list.map((p) => {
+    const items = state.todos.filter((t) => t.projectId === p.id);
+    const today = todayStr();
+    const st = { total: items.length, overdue: items.filter((t) => !todoIsDone(t) && t.dueDate && t.dueDate < today).length };
+    const acts = '<button class="icon-btn" data-act="view" title="이 대분류 할 일 보기">🔍</button>'
+      + '<button class="icon-btn" data-act="edit" title="이름·색상 변경">✏️</button>';
+    return catRowHtml(p.id, p.name, p.color || '#9b9a97', st, acts);
+  }).join('') || '<div class="cat-col-empty">대분류가 없어요. 아래에서 추가하세요.</div>';
 
   box.querySelectorAll('.cat-item').forEach((el) => {
-    const id = el.getAttribute('data-id');
-    el.onclick = (e) => {
-      if (e.target.closest('[data-act]')) return;
-      catSelProj = id; catSelMid = null;
-      renderChannelSettings();
-    };
-    const edit = el.querySelector('[data-act="edit"]');
-    if (edit) edit.onclick = () => openProjectModal(byId(state.projects, id));
+    const id = el.getAttribute('data-key');
+    el.querySelector('[data-act="view"]').onclick = () => catJump('todoProjectFilter', id);
+    el.querySelector('[data-act="edit"]').onclick = () => openProjectModal(byId(state.projects, id));
+    el.onclick = (e) => { if (!e.target.closest('[data-act]')) openProjectModal(byId(state.projects, id)); };
   });
 }
 
-/* 2열: 선택된 대분류의 중분류 */
-function renderCatMids(sort) {
+/* 2열: 중분류 (거래처·채널) */
+function renderCatMids(byName) {
   const box = document.getElementById('catMidList');
   const countEl = document.getElementById('catCountMid');
-  const input = document.getElementById('newChannelInput');
+  if (countEl) countEl.textContent = state.channels.length;
 
-  const list = (catSelProj === '__orphan__' ? orphanMids() : midList(catSelProj))
-    .slice().sort((a, b) => (
-      sort === 'name' ? a.localeCompare(b) : (channelStat(b).total - channelStat(a).total || a.localeCompare(b))
-    ));
-  if (countEl) countEl.textContent = list.length;
-  if (input) input.disabled = !catSelProj || catSelProj === '__orphan__';
+  const stat = (c) => catStat((t) => t.channel, c);
+  const list = state.channels.slice().sort((a, b) => byName
+    ? a.localeCompare(b) : (stat(b).total - stat(a).total || a.localeCompare(b)));
 
-  box.innerHTML = list.map((c) => {
-    const st = channelStat(c);
-    return `<div class="cat-item${c === catSelMid ? ' selected' : ''}" data-ch="${escapeHtml(c)}">
-      <span class="cat-dot" style="background:${channelColor(c)}"></span>
-      <span class="cat-item-name" title="${escapeHtml(c)}">${escapeHtml(c)}</span>
-      <span class="cat-item-sub">소${subList(c).length} · 할${st.total}${st.overdue ? ` · <b class="cat-over">지연${st.overdue}</b>` : ''}</span>
-      <span class="cat-item-acts">
-        <button class="icon-btn" data-act="view" title="이 중분류 할 일 보기">🔍</button>
-        <button class="icon-btn" data-act="edit" title="이름·색상·소속 변경">✏️</button>
-        <button class="icon-btn" data-act="del" title="삭제">🗑</button>
-      </span>
-    </div>`;
-  }).join('') || `<div class="cat-col-empty">${catSelProj ? '중분류가 없어요. 아래에서 추가하세요.' : '왼쪽에서 대분류를 먼저 고르세요.'}</div>`;
+  box.innerHTML = list.map((c) => catRowHtml(c, c, channelColor(c), stat(c), CAT_ACTS)).join('')
+    || '<div class="cat-col-empty">중분류가 없어요. 아래에서 추가하세요.</div>';
 
   box.querySelectorAll('.cat-item').forEach((el) => {
-    const c = el.getAttribute('data-ch');
-    el.onclick = (e) => {
-      if (e.target.closest('[data-act]')) return;
-      catSelMid = c;
-      renderChannelSettings();
-    };
-    el.querySelector('[data-act="view"]').onclick = () => channelJump(c);
-    el.querySelector('[data-act="edit"]').onclick = () => openMidModal(c);
+    const c = el.getAttribute('data-key');
+    el.querySelector('[data-act="view"]').onclick = () => catJump('todoMidFilter', c);
+    el.querySelector('[data-act="rename"]').onclick = () => midRename(c);
     el.querySelector('[data-act="del"]').onclick = () => channelDelete(c);
+    el.onclick = (e) => { if (!e.target.closest('[data-act]')) midRename(c); };
   });
 }
 
-/* 3열: 소분류 공용 목록. 중분류를 고른 상태면 체크로 연결/해제한다. */
-function renderCatSubs() {
+/* 3열: 소분류 */
+function renderCatSubs(byName) {
   const box = document.getElementById('catSubList');
   const countEl = document.getElementById('catCountSub');
-  const input = document.getElementById('newSubInput');
-  const linked = catSelMid ? subList(catSelMid) : [];
-  if (countEl) countEl.textContent = catSelMid ? `${linked.length} / ${state.subMaster.length}` : state.subMaster.length;
-  if (input) input.placeholder = catSelMid ? `"${catSelMid}"에 추가할 소분류` : '새 소분류 (예: 하프)';
+  if (countEl) countEl.textContent = state.subMaster.length;
 
-  // 연결된 것 먼저, 그다음 공용 목록의 나머지
-  const list = state.subMaster.slice().sort((a, b) => {
-    const la = linked.includes(a) ? 0 : 1, lb = linked.includes(b) ? 0 : 1;
-    return la - lb || subLinkedMids(b).length - subLinkedMids(a).length || a.localeCompare(b);
-  });
+  const stat = (sb) => catStat((t) => t.subChannel, sb);
+  const list = state.subMaster.slice().sort((a, b) => byName
+    ? a.localeCompare(b) : (stat(b).total - stat(a).total || a.localeCompare(b)));
 
-  const note = catSelMid
-    ? `<div class="cat-col-note">체크하면 <b>${escapeHtml(catSelMid)}</b>에 연결됩니다</div>`
-    : '<div class="cat-col-note">중분류를 고르면 체크로 연결할 수 있어요</div>';
-
-  box.innerHTML = note + (list.map((sb) => {
-    const links = subLinkedMids(sb);
-    const used = state.todos.filter((t) => ((t.subChannel || '').trim()) === sb).length;
-    return `<div class="cat-item${linked.includes(sb) ? ' linked' : ''}" data-sub="${escapeHtml(sb)}">
-      ${catSelMid ? `<input type="checkbox" class="cat-check" ${linked.includes(sb) ? 'checked' : ''} />` : '<span class="cat-dot" style="background:#c9c9c9"></span>'}
-      <span class="cat-item-name" title="${escapeHtml(sb)}">${escapeHtml(sb)}</span>
-      <button class="cat-item-sub cat-links" title="어느 중분류에서 쓸지 한꺼번에 고르기">연결 ${links.length}${used ? ' · 할' + used : ''}</button>
-      <span class="cat-item-acts">
-        <button class="icon-btn" data-act="rename" title="이름 변경(모든 연결에 반영)">✏️</button>
-        <button class="icon-btn" data-act="del" title="공용 목록에서 삭제">🗑</button>
-      </span>
-    </div>`;
-  }).join('') || '<div class="cat-col-empty">소분류가 없어요. 아래에서 추가하세요.</div>');
+  box.innerHTML = list.map((sb) => catRowHtml(sb, sb, '#c9c9c9', stat(sb), CAT_ACTS)).join('')
+    || '<div class="cat-col-empty">소분류가 없어요. 아래에서 추가하세요.</div>';
 
   box.querySelectorAll('.cat-item').forEach((el) => {
-    const sb = el.getAttribute('data-sub');
-    const chk = el.querySelector('.cat-check');
-    if (chk) {
-      const toggle = () => {
-        if (subList(catSelMid).includes(sb)) unlinkSub(catSelMid, sb); else addSub(catSelMid, sb);
-        persist(); renderChannelSettings(); renderTodos();
-      };
-      chk.onclick = (e) => { e.stopPropagation(); toggle(); };
-      el.onclick = (e) => { if (!e.target.closest('[data-act]') && !e.target.closest('.cat-links')) toggle(); };
-    }
-    el.querySelector('.cat-links').onclick = (e) => { e.stopPropagation(); openSubApplyModal(sb); };
-    el.querySelector('[data-act="rename"]').onclick = (e) => { e.stopPropagation(); subRename(sb); };
-    el.querySelector('[data-act="del"]').onclick = (e) => { e.stopPropagation(); subDeleteGlobal(sb); };
+    const sb = el.getAttribute('data-key');
+    el.querySelector('[data-act="view"]').onclick = () => catJump('todoSubFilter', sb);
+    el.querySelector('[data-act="rename"]').onclick = () => subRename(sb);
+    el.querySelector('[data-act="del"]').onclick = () => subDeleteGlobal(sb);
+    el.onclick = (e) => { if (!e.target.closest('[data-act]')) subRename(sb); };
   });
 }
 
-/* 중분류 수정 — 이름·색상·소속 대분류를 한 모달에서 */
-function openMidModal(mid) {
-  taxoInit();
-  const cur = state.channelProjects[mid];
+/* 중분류 이름·색상 변경 (이름을 바꾸면 할 일에 일괄 반영) */
+function midRename(mid) {
   showModal({
     title: '중분류 수정',
     bodyHtml: `
       <div class="field"><label>이름</label><input type="text" id="f-mid-name" value="${escapeHtml(mid)}" /></div>
-      <div class="field"><label>소속 대분류</label><select id="f-mid-proj">${state.projects.map((p) =>
-        `<option value="${p.id}" ${p.id === cur ? 'selected' : ''}>${escapeHtml(p.name)}</option>`).join('')}</select>
-        <p class="hint" style="margin:6px 0 0">대분류를 바꾸면 이 중분류를 쓰는 할 일의 대분류도 함께 바뀝니다.</p>
-      </div>
-      <div class="field"><label>색상</label><input type="color" id="f-mid-color" value="${channelColor(mid)}" /></div>`,
+      <div class="field"><label>색상</label><input type="color" id="f-mid-color" value="${channelColor(mid)}" /></div>
+      <p class="hint" style="margin:0">이름을 바꾸면 이 중분류를 쓰는 할 일 전체에 반영됩니다. 같은 이름이 이미 있으면 합쳐집니다.</p>`,
     onSave: () => {
       const name = document.getElementById('f-mid-name').value.trim();
       if (!name) { toast('이름을 입력해주세요'); return false; }
       setChannelColor(mid, document.getElementById('f-mid-color').value);
-      const proj = document.getElementById('f-mid-proj').value;
-      if (proj !== cur) midMoveTo(mid, proj);
-      if (name !== mid) { channelApplyRename(mid, name); catSelMid = name; }
+      if (name !== mid) channelApplyRename(mid, name);
       else { persist(); renderChannelSettings(); renderTodos(); refreshCalendarEvents(); }
       return true;
     }
   });
 }
 
-/* 중분류를 다른 대분류로 옮긴다. 그 중분류를 쓰는 할 일의 대분류도 함께 옮겨야
-   "대분류 > 중분류" 관계가 어긋나지 않는다(트리 구조의 핵심). */
-function midMoveTo(mid, projectId) {
-  taxoInit();
-  if (!projectId || state.channelProjects[mid] === projectId) return;
-  const affected = state.todos.filter((t) => ((t.channel || '').trim()) === mid && t.projectId !== projectId);
-  const pname = (byId(state.projects, projectId) || {}).name || '';
-  if (affected.length && !confirm(`"${mid}"을(를) [${pname}] 아래로 옮깁니다.\n이 중분류를 쓰는 할 일 ${affected.length}건의 대분류도 함께 바뀝니다. 진행할까요?`)) {
-    renderChannelSettings();
-    return;
-  }
-  state.channelProjects[mid] = projectId;
-  affected.forEach((t) => { t.projectId = projectId; });
-  persist(); renderAll();
-  toast(affected.length ? `"${mid}" 이동 · 할 일 ${affected.length}건도 함께 변경` : `"${mid}"을(를) [${pname}]로 옮겼어요`);
-}
-
-/* 소분류 이름 변경 — 공용 목록이라 모든 연결과 할 일에 일괄 반영된다 */
+/* 소분류 이름 변경 — 할 일에 일괄 반영된다 */
 function subRename(oldName) {
-  const nv = (prompt('소분류 이름 변경 (연결된 모든 중분류와 할 일에 반영됩니다)', oldName) || '').trim();
+  const nv = (prompt('소분류 이름 변경 (이 소분류를 쓰는 할 일 전체에 반영됩니다)', oldName) || '').trim();
   if (!nv || nv === oldName) return;
   taxoInit();
   const merging = state.subMaster.includes(nv);
   const i = state.subMaster.indexOf(oldName);
   if (merging) { if (i > -1) state.subMaster.splice(i, 1); }
   else if (i > -1) state.subMaster[i] = nv;
-  // 연결 목록도 새 이름으로 (합치는 경우 중복 제거)
-  Object.keys(state.subChannels).forEach((m) => {
-    const arr = state.subChannels[m] || [];
-    const j = arr.indexOf(oldName);
-    if (j < 0) return;
-    if (arr.includes(nv)) arr.splice(j, 1); else arr[j] = nv;
-  });
   let n = 0;
   state.todos.forEach((t) => { if (((t.subChannel || '').trim()) === oldName) { t.subChannel = nv; n++; } });
   persist(); renderAll();
   toast(merging ? `"${oldName}"을(를) "${nv}"에 합쳤어요 (할 일 ${n}건)` : `소분류 이름을 바꿨어요 (할 일 ${n}건)`);
 }
 
-/* 중분류 줄의 ✕ — 이 중분류에서만 연결을 끊는다(공용 목록에는 남는다) */
-function subUnlinkConfirm(mid, sub) {
-  unlinkSub(mid, sub);
-  persist(); renderChannelSettings(); renderTodos();
-  toast(`"${mid}"에서 "${sub}" 연결을 해제했어요 (공용 목록엔 남아 있어요)`);
-}
-
-/* 공용 목록에서 완전히 삭제 — 모든 연결이 끊긴다. 할 일에 적힌 값은 남긴다. */
+/* 소분류 삭제 — 목록에서만 빼고 할 일에 적힌 값은 남긴다 */
 function subDeleteGlobal(sub) {
   taxoInit();
-  const links = subLinkedMids(sub);
   const used = state.todos.filter((t) => ((t.subChannel || '').trim()) === sub).length;
-  if (links.length && !confirm(`"${sub}" 을(를) 공용 목록에서 지웁니다.
-연결된 중분류 ${links.length}곳(${links.slice(0, 4).join(', ')}${links.length > 4 ? ' 외' : ''})에서도 사라집니다. 진행할까요?`)) return;
   const i = state.subMaster.indexOf(sub);
   if (i > -1) state.subMaster.splice(i, 1);
-  links.forEach((m) => unlinkSub(m, sub));
   persist(); renderChannelSettings(); renderTodos();
-  toast(used > 0 ? `"${sub}" 삭제 (할 일 ${used}건은 값 유지)` : `"${sub}" 삭제`);
+  toast(used > 0 ? `"${sub}" 목록에서 제거 (할 일 ${used}건은 값 유지)` : `"${sub}" 삭제`);
 }
 
-/* 이 중분류로 필터된 To-do로 이동 (소속 대분류까지 함께 맞춘다) */
-function channelJump(c) {
+/* 이 중분류만 걸러서 To-do 화면으로 (다른 분류 필터는 전체로 되돌린다) */
+function catJump(field, value) {
   const btn = document.querySelector('.nav-btn[data-view="todos"]');
   if (btn) btn.click();
-  const s = document.getElementById('todoSearch');
-  if (s) s.value = '';
-  const proj = document.getElementById('todoProjectFilter');
-  const mid = document.getElementById('todoSubFilter');
-  const parent = midParent(c);
-  if (proj) proj.value = state.projects.some((p) => p.id === parent) ? parent : 'all';
-  if (mid) mid.value = 'all';
-  renderTodos();   // 대분류에 맞춰 중분류 목록을 다시 채운 뒤 값을 고른다
-  const midSel = document.getElementById('todoMidFilter');
-  if (midSel && [...midSel.options].some((o) => o.value === c)) midSel.value = c;
+  const search = document.getElementById('todoSearch');
+  if (search) search.value = '';
+  renderTodos();   // 목록을 먼저 채운 뒤 값을 고른다
+  ['todoProjectFilter', 'todoMidFilter', 'todoSubFilter'].forEach((id) => {
+    const el = document.getElementById(id);
+    if (el) el.value = 'all';
+  });
+  const target = document.getElementById(field);
+  if (target && [...target.options].some((o) => o.value === value)) target.value = value;
   renderTodos();
 }
+function channelJump(c) { catJump('todoMidFilter', c); }
 
 function channelApplyRename(oldName, nv) {
   if (!nv || nv === oldName) { renderChannelSettings(); return; }
@@ -3432,22 +3241,6 @@ function channelApplyRename(oldName, nv) {
     if (!merging || !state.channelColors[nv]) state.channelColors[nv] = state.channelColors[oldName];
     delete state.channelColors[oldName];
   }
-  // 소속 대분류·소분류 목록도 새 이름으로 따라간다 (합치면 대상 쪽 값을 남긴다)
-  taxoInit();
-  if (state.channelProjects[oldName]) {
-    if (!merging || !state.channelProjects[nv]) state.channelProjects[nv] = state.channelProjects[oldName];
-    delete state.channelProjects[oldName];
-  }
-  if (state.subChannels[oldName]) {
-    const from = state.subChannels[oldName];
-    if (merging) {
-      if (!Array.isArray(state.subChannels[nv])) state.subChannels[nv] = [];
-      from.forEach((s) => { if (!state.subChannels[nv].includes(s)) state.subChannels[nv].push(s); });
-    } else {
-      state.subChannels[nv] = from;
-    }
-    delete state.subChannels[oldName];
-  }
   persist(); renderChannelSettings(); renderTodos(); refreshCalendarEvents();
   toast(merging ? `"${oldName}"을(를) "${nv}"에 합쳤어요` : '중분류 이름을 바꿨어요');
 }
@@ -3455,15 +3248,9 @@ function channelApplyRename(oldName, nv) {
 function channelDelete(c) {
   taxoInit();
   const used = state.todos.filter((t) => ((t.channel || '').trim()) === c).length;
-  const subs = subList(c).length;
-  if (subs && !confirm(`"${c}"의 소분류 연결 ${subs}개가 해제됩니다.
-소분류 자체는 공용 목록에 남습니다. 진행할까요?`)) return;
   const i = state.channels.indexOf(c);
   if (i > -1) state.channels.splice(i, 1);
   if (state.channelColors) delete state.channelColors[c];
-  delete state.channelProjects[c];
-  delete state.subChannels[c];
-  if (catSelMid === c) catSelMid = null;
   persist(); renderChannelSettings(); renderTodos();
   toast(used > 0 ? `"${c}" 목록에서 제거 (할 일 ${used}건은 값 유지)` : `"${c}" 삭제`);
 }
@@ -3484,6 +3271,7 @@ async function handleSyncResult(r, successMsg) {
     return;
   }
   state = r.data;
+  migrateTaxonomy(state);
   applyTheme();
   renderAll();
   toast(successMsg);
@@ -3504,6 +3292,7 @@ function setupSync() {
     const r = await window.api.useLocalOnly();
     if (!r || !r.ok) return;
     state = r.data;
+    migrateTaxonomy(state);
     applyTheme();
     renderAll();
     toast('이 기기에만 저장하도록 되돌렸어요.');
