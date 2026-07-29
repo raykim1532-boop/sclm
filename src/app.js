@@ -423,8 +423,51 @@ async function setupGoogle() {
   const resultEl = document.getElementById('googleSyncResult');
   const autoRow = document.getElementById('googleAutoRow');
   const autoChk = document.getElementById('googleAutoSync');
+  const readRow = document.getElementById('googleReadRow');
+  const readList = document.getElementById('googleReadList');
+  const readSaveBtn = document.getElementById('googleReadSaveBtn');
 
   let connected = false;
+  let readMax = 8;
+
+  /* 읽기 전용으로 가져올 캘린더 고르기.
+     여기서 고른 캘린더에는 앱이 쓰지 않는다 — 보기만 한다(서버 sync.js도 같은 규칙). */
+  async function loadReadCalendars() {
+    if (!readRow || !readList) return;
+    readRow.style.display = '';
+    readList.innerHTML = '<span class="hint">캘린더 목록 불러오는 중…</span>';
+    try {
+      const r = await CloudSync.authFetch('/api/google/calendars');
+      const j = await r.json();
+      if (!j.ok) { readList.innerHTML = '<span class="hint">목록을 불러오지 못했어요.</span>'; return; }
+      readMax = j.max || 8;
+      if (!j.items.length) { readList.innerHTML = '<span class="hint">가져올 다른 캘린더가 없어요.</span>'; return; }
+      readList.innerHTML = j.items.map((c) => `
+        <label class="ro-cal-item">
+          <input type="checkbox" value="${escapeHtml(c.id)}" ${c.selected ? 'checked' : ''} />
+          <span class="ro-cal-dot" style="background:${escapeHtml(c.color || '#9b9a97')}"></span>
+          <span class="ro-cal-name" title="${escapeHtml(c.name)}">${escapeHtml(c.name)}</span>
+          ${c.primary ? '<span class="ch-badge">기본</span>' : ''}
+        </label>`).join('');
+    } catch (e) {
+      readList.innerHTML = '<span class="hint">목록을 불러오지 못했어요.</span>';
+    }
+  }
+
+  if (readSaveBtn) readSaveBtn.onclick = async () => {
+    const ids = [...readList.querySelectorAll('input:checked')].map((i) => i.value);
+    if (ids.length > readMax) { toast(`캘린더는 최대 ${readMax}개까지 고를 수 있어요`); return; }
+    readSaveBtn.disabled = true;
+    try {
+      const r = await CloudSync.authFetch('/api/google/calendars', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids })
+      });
+      const j = await r.json();
+      if (!j.ok) { toast('저장에 실패했어요'); return; }
+      toast(ids.length ? `캘린더 ${ids.length}개를 가져오도록 설정했어요 — 동기화합니다` : '가져오기를 모두 껐어요 — 동기화합니다');
+      await runSync(false);
+    } finally { readSaveBtn.disabled = false; }
+  };
 
   async function refresh() {
     try {
@@ -437,12 +480,14 @@ async function setupGoogle() {
         syncBtn.classList.remove('hidden');
         disconnectBtn.classList.remove('hidden');
         if (autoRow) autoRow.style.display = '';
+        loadReadCalendars();
       } else {
         statusText.textContent = j.hasClient ? '연결되지 않음' : '⚠ 구글 클라우드 설정(GOOGLE_CLIENT_ID/SECRET)이 필요해요';
         connectBtn.classList.remove('hidden');
         syncBtn.classList.add('hidden');
         disconnectBtn.classList.add('hidden');
         if (autoRow) autoRow.style.display = 'none';
+        if (readRow) readRow.style.display = 'none';
       }
     } catch (e) { statusText.textContent = '상태 확인 실패'; }
   }
@@ -1028,6 +1073,7 @@ function setupCalendar() {
 
 // 구글 캘린더에서 가져온(외부) 일정 전용 색 — 프로젝트 색과 무관하게 고정
 const GOOGLE_IMPORT_COLOR = '#4285F4';
+const RO_CAL_COLOR = '#8a8f98';   // 읽기 전용으로 가져온 남의 캘린더 일정
 function isGoogleImported(e) {
   // 가져온 일정은 pull 시 id가 'g'+짧은난수, source='google'로 생성됨. SCLM 자체 일정(uid)과 구분.
   return !!e && (e.source === 'google' ||
@@ -1036,7 +1082,7 @@ function isGoogleImported(e) {
 
 function buildCalendarEvents() {
   const evs = state.events.map((e) => {
-    const color = e.color ? e.color : (isGoogleImported(e) ? GOOGLE_IMPORT_COLOR : projectColor(e.projectId));
+    const color = e.color ? e.color : (e.roCal ? RO_CAL_COLOR : (isGoogleImported(e) ? GOOGLE_IMPORT_COLOR : projectColor(e.projectId)));
     // 시간이 지정된(종일이 아닌) 일정: 날짜+시간을 합쳐 FullCalendar가 dot+시간+제목 형태로 보여주게 한다.
     if (!e.allDay && e.startTime) {
       const startIso = `${e.start}T${e.startTime}:00`;
@@ -1638,7 +1684,26 @@ function subOptionsHtml() {
 }
 
 /* ---------- 일정 모달 ---------- */
+/* 남의 캘린더에서 읽기 전용으로 가져온 일정 — 앱에서 고치면 다음 동기화에 덮이므로 보기만 한다 */
+function openReadOnlyEventModal(ev) {
+  const when = ev.allDay !== false
+    ? (ev.start + (ev.end && ev.end !== ev.start ? ' ~ ' + ev.end : '') + ' (종일)')
+    : (ev.start + ' ' + (ev.startTime || '') + (ev.endTime ? ' ~ ' + ev.endTime : ''));
+  showModal({
+    title: '구글 캘린더 일정 (읽기 전용)',
+    saveLabel: '닫기',
+    bodyHtml: `
+      <div class="field"><label>제목</label><div class="ro-view">${escapeHtml(ev.title || '')}</div></div>
+      <div class="field"><label>일시</label><div class="ro-view">${escapeHtml(when)}</div></div>
+      ${ev.roCalName ? `<div class="field"><label>캘린더</label><div class="ro-view">${escapeHtml(ev.roCalName)}</div></div>` : ''}
+      ${ev.notes ? `<div class="field"><label>메모</label><div class="ro-view">${escapeHtml(ev.notes)}</div></div>` : ''}
+      <p class="hint" style="margin:0">가져오기만 하는 일정이라 여기서는 고칠 수 없어요. 내용을 바꾸려면 <b>구글 캘린더</b>에서 수정하세요 — 다음 동기화 때 반영됩니다.</p>`,
+    onSave: () => true
+  });
+}
+
 function openEventModal(ev, dateStr) {
+  if (ev && ev.roCal) { openReadOnlyEventModal(ev); return; }
   const isNew = !ev;
   const data = ev || { id: null, title: '', start: dateStr || todayStr(), end: '', allDay: true, startTime: '', endTime: '', projectId: state.projects[0].id, color: '', notes: '' };
   const isAllDay = data.allDay !== false; // 기존 데이터 호환: allDay가 명시적으로 false가 아니면 종일로 취급

@@ -1,5 +1,7 @@
 // POST /api/google/sync — 서버에서 구글 캘린더와 양방향 동기화(전용 "SCLM" 캘린더).
 // SCLM<->구글 생성/수정/삭제. 변경분만 전송(서명 비교), 호출 상한으로 Cloudflare subrequest(50) 제한 회피.
+// 추가로, 설정에서 고른 다른 캘린더(gdoc.readCalendars)는 **읽기 전용**으로 가져오기만 한다.
+// 그 캘린더에는 절대 쓰지 않으므로 개인 일정이 앱 때문에 바뀌는 일이 없다.
 import { authed, unauthorized, readGoogleDoc, writeGoogleDoc, getAccessToken } from './_util.js';
 
 const CAL = 'https://www.googleapis.com/calendar/v3';
@@ -156,6 +158,7 @@ export async function runCalendarSync(env) {
       return true;
     });
     state.events = state.events.filter((e) => {
+      if (e.roCal) return true;   // 읽기 전용 가져오기 항목은 아래 전용 로직에서 따로 정리한다
       if (e.googleId && inWindow(e.start) && !present.has(e.googleId)) return false;
       return true;
     });
@@ -228,6 +231,7 @@ export async function runCalendarSync(env) {
 
     for (const e of state.events) {
       if (truncated) break;
+      if (e.roCal) continue;   // 읽기 전용으로 가져온 남의 캘린더 일정은 되돌려 쓰지 않는다
       try { await upsert(e, eventResource(e)); } catch (err) { errors.push('event: ' + err.message); }
     }
     for (const t of state.todos) {
@@ -236,13 +240,82 @@ export async function runCalendarSync(env) {
       try { await upsert(t, todoResource(t)); } catch (err) { errors.push('todo#' + (t.no || '') + ': ' + err.message); }
     }
 
+    // ---- 읽기 전용 가져오기: 설정에서 고른 다른 캘린더들 ----
+    const roCals = Array.isArray(gdoc.readCalendars) ? gdoc.readCalendars.slice(0, 8) : [];
+    for (const rc of roCals) {
+      try {
+        const rEnc = encodeURIComponent(rc.id);
+        const items = [];
+        let pt;
+        do {
+          const u = `${CAL}/calendars/${rEnc}/events?singleEvents=true&maxResults=2500&timeMin=${timeMin}&timeMax=${timeMax}` + (pt ? `&pageToken=${pt}` : '');
+          const page = await gfetch(token, u);
+          (page.items || []).forEach((e) => items.push(e));
+          pt = page.nextPageToken;
+        } while (pt);
+
+        const alive = new Set();
+        const mine = new Map();
+        state.events.forEach((e) => { if (e.roCal === rc.id && e.googleId) mine.set(e.googleId, e); });
+
+        for (const g of items) {
+          if (g.status === 'cancelled') continue;
+          const allDay = !!(g.start && g.start.date);
+          const startDate = allDay ? g.start.date : ((g.start && g.start.dateTime) || '').slice(0, 10);
+          if (!startDate) continue;
+          alive.add(g.id);
+          const fields = {
+            title: g.summary || '(제목 없음)',
+            start: startDate,
+            end: allDay ? addDays(g.end.date, -1) : (((g.end && g.end.dateTime) || '').slice(0, 10) || startDate),
+            allDay,
+            startTime: allDay ? '' : ((g.start.dateTime || '').slice(11, 16)),
+            endTime: allDay ? '' : (((g.end && g.end.dateTime) || '').slice(11, 16)),
+            notes: g.description || ''
+          };
+          const cur = mine.get(g.id);
+          if (cur) { Object.assign(cur, fields); }
+          else {
+            state.events.push(Object.assign({
+              id: 'r' + Math.random().toString(36).slice(2, 10),
+              googleId: g.id,
+              roCal: rc.id,            // 이 표시가 있으면 앱·동기화 모두 '읽기 전용'으로 취급한다
+              roCalName: rc.name || '',
+              source: 'google-ro',
+              readOnly: true,
+              projectId: defProj,
+              color: ''
+            }, fields));
+            pulled++;
+          }
+        }
+
+        // 원본에서 사라진 항목은 창 안에 한해 함께 정리한다
+        const before = state.events.length;
+        state.events = state.events.filter((e) => {
+          if (e.roCal !== rc.id) return true;
+          if (!inWindow(e.start)) return true;
+          return alive.has(e.googleId);
+        });
+        deletedLocal += before - state.events.length;
+      } catch (err) {
+        errors.push('read-cal ' + (rc.name || rc.id) + ': ' + err.message);
+      }
+    }
+
+    // 선택에서 빠진 캘린더의 가져온 일정은 모두 제거한다(체크를 풀면 화면에서도 사라져야 한다)
+    const keepIds = new Set(roCals.map((c) => c.id));
+    const beforeStale = state.events.length;
+    state.events = state.events.filter((e) => !e.roCal || keepIds.has(e.roCal));
+    deletedLocal += beforeStale - state.events.length;
+
     state.settings.googleLastSync = Date.now();
     await env.DB
       .prepare("INSERT INTO documents (id, data, updated_at) VALUES ('main', ?1, ?2) ON CONFLICT(id) DO UPDATE SET data = ?1, updated_at = ?2")
       .bind(JSON.stringify(state), Date.now())
       .run();
 
-    return { ok: true, pushed, updated, pulled, deletedLocal, deletedRemote, truncated, calendarId: calId, errors: errors.slice(0, 5) };
+    return { ok: true, pushed, updated, pulled, deletedLocal, deletedRemote, truncated, calendarId: calId, readCalendars: roCals.length, errors: errors.slice(0, 5) };
   } catch (err) {
     return { error: String(err.message || err), pushed, updated, pulled, deletedLocal, deletedRemote, errors: errors.slice(0, 5) };
   }

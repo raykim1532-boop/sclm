@@ -1069,6 +1069,18 @@ html[data-theme="dark"] .todo-table tbody tr.row-today .col-due { color: #f6bf26
 /* 목록 표·칸반의 소분류 표기 */
 .todo-table .col-sub { font-size: 12.5px; color: var(--text-muted); max-width: 110px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .kanban-card-sub { font-size: 11px; color: var(--text-muted); margin-left: 5px; }
+/* 구글 캘린더 읽기 전용 가져오기 */
+.ro-cal-list { display: flex; flex-wrap: wrap; gap: 6px; max-height: 190px; overflow-y: auto; }
+.ro-cal-item {
+  display: inline-flex; align-items: center; gap: 7px;
+  border: 1px solid var(--border); border-radius: 12px; padding: 5px 12px;
+  font-size: 12.5px; cursor: pointer; background: var(--surface);
+}
+.ro-cal-item:hover { border-color: var(--accent); }
+.ro-cal-item input { margin: 0; }
+.ro-cal-dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
+.ro-cal-name { max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ro-view { padding: 7px 0; font-size: 13.5px; white-space: pre-line; }
 
 @media (max-width: 900px) {
   .cat-columns { grid-template-columns: 1fr; }

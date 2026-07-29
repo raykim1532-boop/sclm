@@ -169,7 +169,8 @@ SCLM (로그인 게이트: 앱 비밀번호)
 | `GET /api/google/callback` | OAuth 리다이렉트 수신 | **인증 없음**, `state` 검증 |
 | `GET /api/google/status` | 연결 상태 / `DELETE` 연결 해제 | |
 | `GET /api/google/token` | 단기 access_token 발급(프런트용) | |
-| `POST /api/google/sync` | **캘린더 양방향 동기화** | `X-Cron-Secret`도 허용. 전용 "SCLM" 캘린더만 사용, 쓰기 45회 상한(`truncated` 반환 시 이어서 호출) |
+| `POST /api/google/sync` | **캘린더 양방향 동기화** + 선택 캘린더 읽기 전용 가져오기 | `X-Cron-Secret`도 허용. **쓰기는 전용 "SCLM" 캘린더에만**, 쓰기 45회 상한(`truncated` 반환 시 이어서 호출) |
+| `GET/POST /api/google/calendars` | 내 캘린더 목록 / 읽기 전용으로 가져올 캘린더 선택 저장 | `gdoc.readCalendars=[{id,name}]`, 최대 8개 |
 | `GET/POST /api/google/sheet-config` | 대상 시트 조회/저장(`{url}`) | ⚠️ 연동 종료(`sheet.disabled`) — 복구용으로만 유지 |
 | `POST /api/google/sheet-sync` | ~~시트 → 앱 읽기 전용 가져오기~~ | 🛑 **2026-07-28 종료** — `sheet.disabled`면 `410 sheet_sync_disabled`. 알고리즘은 4.4 참조(복구용) |
 
