@@ -1361,7 +1361,7 @@ function openDataIssueModal(kind) {
   const items = computeDataIssues(state.todos || [])[kind] || [];
   const esc = escapeHtml;
   const projName = (t) => { const p = byId(state.projects, t.projectId); return p ? p.name : ''; };
-  const tag = (t) => '[' + [projName(t), t.channel].filter(Boolean).join('/') + ']';
+  const tag = todoTag;
 
   const plain = [`⚠ ${meta.label} (${items.length}건)`, '']
     .concat(items.map((t) => `- ${t.no ? '#' + t.no + ' ' : ''}${tag(t)} ${t.text} (등록 ${t.registeredDate || '-'} / 마감 ${t.dueDate || '-'} / 상태 ${todoStatus(t)}${t.completedDate ? ' / 완료 ' + t.completedDate : ''})`))
@@ -1411,6 +1411,13 @@ let taxoTab = (() => {
 
 /* 대·중·소 세 축을 같은 방식으로 다루기 위한 정의.
    pick = 할 일에서 그 축의 이름 꺼내기, color = 막대 색. 색은 앱 다른 곳(칩·칸반)과 같은 규칙을 쓴다. */
+/* 리포트·목록에서 쓰는 분류 꼬리표 [대분류/중분류/소분류].
+   세 축이 생긴 뒤로 리포트마다 따로 만들다 소분류가 빠지곤 해서 한 곳으로 모았다. */
+function todoTag(t) {
+  const p = byId(state.projects, t.projectId);
+  return '[' + [p ? p.name : '', t.channel, t.subChannel].filter(Boolean).join('/') + ']';
+}
+
 const TAXO_AXES = [
   { key: 'proj', label: '대분류',
     pick: (t) => { const p = byId(state.projects, t.projectId); return p ? p.name : ''; },
@@ -1968,7 +1975,7 @@ function openWeeklyReport() {
   const tw = weekRange(today, 0);
   const nw = weekRange(today, 1);
   const projName = (t) => { const p = byId(state.projects, t.projectId); return p ? p.name : ''; };
-  const tag = (t) => '[' + [projName(t), t.channel].filter(Boolean).join('/') + ']';
+  const tag = todoTag;
   const md = (d) => d ? d.slice(5).replace('-', '/') : '';
   const daysLate = (d) => Math.round((new Date(today) - new Date(d)) / 864e5);
 
@@ -2044,7 +2051,7 @@ function openMonthlyReport() {
   const tm = monthRange(today, 0);
   const nm = monthRange(today, 1);
   const projName = (t) => { const p = byId(state.projects, t.projectId); return p ? p.name : ''; };
-  const tag = (t) => '[' + [projName(t), t.channel].filter(Boolean).join('/') + ']';
+  const tag = todoTag;
   const md = (d) => d ? d.slice(5).replace('-', '/') : '';
   const daysLate = (d) => Math.round((new Date(today) - new Date(d)) / 864e5);
   const st = computeWorkStats(state.todos || [], today);
@@ -2056,12 +2063,14 @@ function openMonthlyReport() {
   const dueNext = state.todos.filter((t) => !todoIsDone(t) && t.dueDate && t.dueDate >= nm.start && t.dueDate <= nm.end)
     .sort((a, b) => a.dueDate.localeCompare(b.dueDate));
 
-  // 대분류별: 이번 달 완료 / 이번 달 마감 전체
-  const projSummary = state.projects.map((p) => {
-    const d = doneThis.filter((t) => t.projectId === p.id).length;
-    const o = openThis.filter((t) => t.projectId === p.id).length;
-    return (d || o) ? { name: p.name, done: d, open: o, color: p.color || 'var(--accent)' } : null;
-  }).filter(Boolean);
+  // 분류별 요약: 대·중·소 세 축을 같은 방식으로 낸다(대시보드 분류 Top과 같은 계산).
+  // 이번 달에 '완료했거나 마감이 걸린' 건만 대상 — 그 달의 일감이 어디에 몰렸는지 보기 위함.
+  const monthItems = doneThis.concat(openThis);
+  const axisSummary = TAXO_AXES.map((a) => ({
+    label: a.label,
+    rows: computeTaxoTop(monthItems, a.pick, todoIsDone, 5).filter((r) => r.total > 0),
+    color: a.color
+  })).filter((x) => x.rows.length);
 
   const kpiLine = `평균 완료 소요 ${st.avgLead == null ? '–' : st.avgLead.toFixed(1) + '일'}`
     + ` · 기한 준수율 ${st.onTimeRate == null ? '–' : st.onTimeRate + '%'}`
@@ -2083,11 +2092,11 @@ function openMonthlyReport() {
   P.push(`■ 다음 달 마감 예정 (${dueNext.length}건)`);
   dueNext.forEach((t) => P.push(`- ${tag(t)} ${t.text} — ${md(t.dueDate)} 마감`));
   if (!dueNext.length) P.push('- (없음)');
-  if (projSummary.length) {
+  axisSummary.forEach((ax) => {
     P.push('');
-    P.push('■ 대분류별');
-    projSummary.forEach((s) => P.push(`- ${s.name}: 완료 ${s.done}건 / 미완료 ${s.open}건`));
-  }
+    P.push(`■ ${ax.label}별`);
+    ax.rows.forEach((r) => P.push(`- ${r.name || '(미지정)'}: 전체 ${r.total}건 (완료 ${r.done} / 남음 ${r.open})`));
+  });
   const plain = P.join('\n');
 
   // HTML(모달 표시용)
@@ -2095,14 +2104,12 @@ function openMonthlyReport() {
   const sec = (title, items, lineFn, color) =>
     `<div class="rep-sec"><h4 style="color:${color}">${title} <span>${items.length}건</span></h4>` +
     (items.length ? '<ul>' + items.map((t) => `<li>${lineFn(t)}</li>`).join('') + '</ul>' : '<div class="rep-empty">없음</div>') + '</div>';
-  const projHtml = projSummary.length ? `<div class="rep-sec"><h4>📊 대분류별</h4>${projSummary.map((s) => {
-    const tot = s.done + s.open;
-    return `<div class="an-row">
-      <span class="an-label" title="${esc(s.name)}">${esc(s.name)}</span>
-      <span class="an-bar"><i style="width:${tot ? Math.round(s.done / tot * 100) : 0}%;background:${s.color}"></i></span>
-      <span class="an-val">완료 ${s.done} / 미완료 ${s.open}</span>
-    </div>`;
-  }).join('')}</div>` : '';
+  // 대시보드의 분류 Top과 같은 막대(바깥=전체 비중, 안쪽=완료율)를 그대로 쓴다
+  const projHtml = axisSummary.map((ax) => {
+    const maxTotal = Math.max(1, ...ax.rows.map((r) => r.total));
+    return `<div class="rep-sec"><h4>📊 ${esc(ax.label)}별</h4>` +
+      ax.rows.map((r) => taxoRowHtml(r, ax.color(r.name), maxTotal)).join('') + '</div>';
+  }).join('');
 
   const html =
     `<div class="rep-range">${tm.label} · ${tm.start} ~ ${tm.end}</div>` +
