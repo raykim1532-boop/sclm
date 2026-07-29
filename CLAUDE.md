@@ -38,6 +38,7 @@
 ## 주요 구조
 - `web/functions/api/` — Pages Functions(파일 기반 라우팅). 앱 비밀번호(Bearer) 인증.
   - `_auth.js`(공용 인증), `health.js`(클라우드 감지 핑), `data.js`(상태 load/save), `snapshots.js`(D1 백업/복원)
+    - ⚠️ **저장 충돌 감지**: PUT은 통짜 덮어쓰기라 마지막에 저장한 쪽이 이긴다. 그래서 클라이언트가 마지막으로 읽은 버전(`baseVersion` = 그때의 `updated_at`)을 함께 보내고, 서버 버전이 다르면 **409 + 서버 데이터**를 돌려준다. 덮어쓰려면 `force:true`를 명시해야 하며, 앱은 `setupConflictHandler`가 사용자에게 '서버 것 불러오기 / 내 것으로 덮어쓰기'를 묻는다. **이 검사를 우회하거나 자동 force 하지 말 것** — 2026-07-29 오래된 탭이 덮어써서 할 일에 지정한 소분류가 통째로 사라진 사고가 있었다(시간여행으로도 대부분 복구 못 함). 검증: `data-conflict.test.mjs`.
     - 백업: 최근 20건 보관(prune), 자동 백업은 하루 1회(`force`로 강제). 복원 시 **현재 상태를 `pre-restore`로 먼저 백업**하므로 복원도 되돌릴 수 있다.
     - ⚠️ 복원은 **금고(vault) 암호문을 현재 것으로 유지**한다(`vaultKept`). 금고 생성 이전 스냅샷으로 되돌릴 때 계정이 통째로 사라지는 것을 막기 위함 — `data.js` PUT의 vault 보존 규칙과 같은 취지. 이 보호를 제거하지 말 것.
   - `google/*` — 구글 OAuth(`_util.js`, 스코프 `calendar`+`spreadsheets`) + 캘린더 양방향 동기화(`sync.js`, 전용 "SCLM" 캘린더) + **다른 캘린더 읽기 전용 가져오기**(`calendars.js`로 선택, `gdoc.readCalendars`에 저장)

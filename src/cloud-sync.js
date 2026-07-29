@@ -14,6 +14,11 @@
   const localApi = window.api; // 로컬 저장 계층 (export/import 재사용, 재귀 방지)
   let token = null;
   let lastLoadOnline = false; // 마지막 loadData가 서버에서 온 것인지
+  // 마지막으로 읽어온 서버 버전(=documents.updated_at). 저장할 때 함께 보내
+  // 그 사이 다른 기기/탭이 먼저 저장했는지 서버가 판단하게 한다.
+  let baseVersion = 0;
+  // 충돌이 났을 때 앱에 알리는 콜백 (app.js가 등록). 등록 전이면 그냥 실패 처리.
+  let onConflict = null;
 
   const isHttp = () => location.protocol === 'http:' || location.protocol === 'https:';
 
@@ -128,6 +133,7 @@
         // 서비스워커가 오프라인 캐시로 응답한 경우엔 '서버에서 왔다'고 보지 않는다
         lastLoadOnline = r.headers.get('X-SCLM-Offline') !== '1';
         const j = await r.json();
+        if (lastLoadOnline && j && typeof j.version === 'number') baseVersion = j.version;
         if (j && j.data) {
           let data = ensureShape(j.data);
           // 오프라인 캐시 응답인데 이 기기에 미반영 변경분이 있으면 그쪽이 더 최신이다
@@ -154,10 +160,34 @@
       const stash = () => {
         try { localStorage.setItem(PENDING_KEY, JSON.stringify({ at: new Date().toISOString(), data })); } catch (e) {}
       };
+      const put = (payload) => fetch('/api/data', {
+        method: 'PUT',
+        headers: authHeaders({ 'Content-Type': 'application/json' }),
+        body: JSON.stringify(payload)
+      });
       try {
-        const r = await fetch('/api/data', { method: 'PUT', headers: authHeaders({ 'Content-Type': 'application/json' }), body: JSON.stringify(data) });
+        let r = await put(Object.assign({}, data, baseVersion ? { baseVersion } : {}));
         if (r.status === 401) { logout(); location.reload(); return false; }
-        if (r.ok) pendingClear(); else stash();
+
+        // 409 = 내가 읽은 뒤 다른 곳에서 먼저 저장했다. 조용히 덮어쓰지 않고 사용자에게 묻는다.
+        if (r.status === 409) {
+          const info = await r.json().catch(() => ({}));
+          const choice = onConflict ? await onConflict(info) : 'cancel';
+          if (choice === 'overwrite') {
+            r = await put(Object.assign({}, data, { force: true }));
+          } else {
+            // 서버 것을 따른다 — 내 변경은 버리고 최신 버전으로 맞춘다
+            if (typeof info.serverVersion === 'number') baseVersion = info.serverVersion;
+            pendingClear();
+            return false;
+          }
+        }
+
+        if (r.ok) {
+          const j = await r.json().catch(() => ({}));
+          if (typeof j.version === 'number') baseVersion = j.version;
+          pendingClear();
+        } else stash();
         return r.ok;
       } catch (e) {
         console.error('클라우드 저장 실패 (로컬에는 저장됨)', e);
@@ -182,6 +212,9 @@
 
   window.CloudSync = {
     detect, ensureAuth, logout, api: cloudApi, authFetch,
+    // 충돌 안내 UI 등록 — 'overwrite' | 'reload' 중 하나를 돌려주면 된다
+    setConflictHandler: (fn) => { onConflict = fn; },
+    getVersion: () => baseVersion,
     token: () => token || '',
     pending: pendingGet,
     clearPending: pendingClear,

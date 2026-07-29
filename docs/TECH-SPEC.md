@@ -156,8 +156,8 @@ SCLM (로그인 게이트: 앱 비밀번호)
 | 메서드·경로 | 설명 | 비고 |
 |---|---|---|
 | `GET /api/health` | 클라우드 모드 감지 핑 | **인증 없음** |
-| `GET /api/data` | `main` 문서 조회 | |
-| `PUT /api/data` | `main` 문서 저장(통짜 덮어쓰기) | **vault 보존 규칙**: 본문에 `vault` 키가 없으면 기존 암호문 유지, `vault:null`만 명시 삭제 |
+| `GET /api/data` | `main` 문서 조회 | `{ data, version }` — version은 저장 시 `baseVersion`으로 되돌려 보낸다 |
+| `PUT /api/data` | `main` 문서 저장(통짜 덮어쓰기) | **vault 보존 규칙**: 본문에 `vault` 키가 없으면 기존 암호문 유지, `vault:null`만 명시 삭제 · **버전 검사**: `baseVersion`이 서버 `updated_at`과 다르면 `409 {error:'conflict', serverVersion, data}` (덮어쓰려면 `force:true`) |
 | `GET /api/snapshots` | 백업 목록(데이터 제외) | |
 | `POST /api/snapshots` | 생성(`{reason, force}`) / 복원(`{action:'restore', id}`) | force 아니면 하루 1회, 복원 전 자동 백업, 20개 보관 |
 

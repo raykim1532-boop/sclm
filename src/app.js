@@ -184,6 +184,7 @@ async function init() {
   setupOfflineBar();
   renderAll();
   if (cloudMode) {
+    setupConflictHandler();
     setupCloudUI(); setupGoogle(); setupSheet(); setupBackup(); setupPush(); setupAssistant();
     // 화면을 먼저 그린 뒤에 미반영 변경분을 확인한다
     if (CloudSync.wasOnline && CloudSync.wasOnline()) reconcileOffline();
@@ -929,6 +930,7 @@ function setupCloudUI() {
 }
 
 function renderAll() {
+  refreshBulkSelects();
   renderDashboard();
   renderSidebarProjects();
   refreshCalendarEvents();
@@ -2333,7 +2335,50 @@ function updateBulkBar() {
   }
 }
 
+/* 선택한 할 일들에 분류를 한꺼번에 지정한다.
+   (중분류로 걸러 전체 선택 → 소분류 지정) 하나씩 여는 수고를 줄이려는 것. */
+function bulkAssign(field, value, label) {
+  if (!value || todoSelected.size === 0) return;
+  const clear = value === '__clear__';
+  const v = clear ? '' : value;
+  let n = 0;
+  state.todos.forEach((t) => {
+    if (!todoSelected.has(t.id)) return;
+    if ((t[field] || '') === v) return;
+    t[field] = v;
+    n++;
+  });
+  if (!clear && v) { if (field === 'channel') addMid(v); else addSub(v); }
+  todoSelected.clear();
+  persist(); renderAll();
+  toast(clear ? `${label} ${n}건 비웠어요` : `${n}건을 ${label} "${v}"(으)로 지정했어요`);
+}
+
+// 일괄 지정 드롭다운 채우기 (분류 목록이 바뀔 때마다 다시 그린다)
+function refreshBulkSelects() {
+  taxoInit();
+  const fill = (id, head, list) => {
+    const sel = document.getElementById(id);
+    if (!sel) return;
+    sel.innerHTML = `<option value="">${head}</option>`
+      + list.map((v) => `<option value="${escapeHtml(v)}">→ ${escapeHtml(v)}</option>`).join('')
+      + '<option value="__clear__">→ (비우기)</option>';
+  };
+  fill('todoBulkSub', '소분류 일괄 지정…', state.subMaster);
+  fill('todoBulkMid', '중분류 일괄 지정…', state.channels);
+}
+
 function setupTodoBulk() {
+  const subSel = document.getElementById('todoBulkSub');
+  const midSel = document.getElementById('todoBulkMid');
+  if (subSel) subSel.addEventListener('change', () => {
+    const v = subSel.value; subSel.value = '';
+    bulkAssign('subChannel', v, '소분류');
+  });
+  if (midSel) midSel.addEventListener('change', () => {
+    const v = midSel.value; midSel.value = '';
+    bulkAssign('channel', v, '중분류');
+  });
   const statusSel = document.getElementById('todoBulkStatus');
   if (statusSel && statusSel.options.length <= 1) {
     TODO_STATUS_OPTIONS.forEach((s) => {
@@ -3324,6 +3369,48 @@ function applyTheme() {
   document.documentElement.setAttribute('data-theme', state.settings.theme);
   document.documentElement.style.setProperty('--accent', state.settings.accent);
   document.documentElement.style.setProperty('--accent-soft', state.settings.accent + '22');
+}
+
+/* 저장 충돌: 내가 읽은 뒤 다른 기기·탭이 먼저 저장한 경우.
+   조용히 덮어쓰면 그쪽 작업이 통째로 날아가므로(실제 사고 있었음) 반드시 물어본다. */
+function setupConflictHandler() {
+  if (!window.CloudSync || !CloudSync.setConflictHandler) return;
+  CloudSync.setConflictHandler((info) => new Promise((resolve) => {
+    const sv = info && info.serverVersion ? new Date(info.serverVersion) : null;
+    const when = sv ? sv.toLocaleString('ko-KR') : '알 수 없음';
+    const sd = (info && info.data) || {};
+    const cnt = (x) => (Array.isArray(x) ? x.length : 0);
+    showModal({
+      title: '⚠️ 다른 곳에서 먼저 저장했어요',
+      saveLabel: '서버 것 불러오기',
+      bodyHtml: `
+        <p class="hint" style="margin-top:0">이 화면을 연 뒤에 <b>다른 기기나 탭</b>에서 저장이 있었어요(${escapeHtml(when)}).
+        지금 그대로 저장하면 그쪽 작업이 <b>사라집니다</b>.</p>
+        <div class="field"><label>서버에 있는 데이터</label>
+          <div class="ro-view">할 일 ${cnt(sd.todos)}건 · 일정 ${cnt(sd.events)}건 · 중분류 ${cnt(sd.channels)}개 · 소분류 ${cnt(sd.subMaster)}개</div>
+        </div>
+        <div class="field"><label>이 화면(내 변경)</label>
+          <div class="ro-view">할 일 ${cnt(state.todos)}건 · 일정 ${cnt(state.events)}건 · 중분류 ${cnt(state.channels)}개 · 소분류 ${cnt(state.subMaster)}개</div>
+        </div>
+        <p class="hint" style="margin:0"><b>서버 것 불러오기</b>를 누르면 이 화면의 변경은 버려집니다(권장).
+        내 것이 확실히 최신이면 아래 <b>내 것으로 덮어쓰기</b>를 누르세요.</p>
+        <button type="button" class="btn btn-danger" id="conflictOverwrite" style="margin-top:10px">내 것으로 덮어쓰기</button>`,
+      onOpen: () => {
+        const b = document.getElementById('conflictOverwrite');
+        if (b) b.onclick = () => { closeModal(); resolve('overwrite'); };
+      },
+      onSave: () => {
+        resolve('reload');
+        setTimeout(async () => {
+          state = await window.api.loadData();
+          migrateTaxonomy(state);
+          applyTheme(); renderAll();
+          toast('서버의 최신 데이터를 불러왔어요');
+        }, 0);
+        return true;
+      }
+    });
+  }));
 }
 
 /* ---------- 여러 기기 동기화 ---------- */

@@ -16,7 +16,8 @@ export function results() { return { passed, failed, failures }; }
 
 // D1 모의: documents 테이블(id → JSON 문자열)만 흉내낸다.
 // docs 객체를 그대로 들고 있으므로 테스트에서 저장 결과를 바로 확인할 수 있다.
-export function mockDB(docs) {
+// versions: 문서별 updated_at(=저장 버전). 저장 충돌 감지 테스트에서 쓴다.
+export function mockDB(docs, versions = {}) {
   return {
     prepare(q) {
       return {
@@ -24,12 +25,12 @@ export function mockDB(docs) {
         bind(...a) { this._b = a; return this; },
         async first() {
           const m = q.match(/id = '(\w+)'/);
-          return m && docs[m[1]] ? { data: docs[m[1]] } : null;
+          return m && docs[m[1]] ? { data: docs[m[1]], updated_at: versions[m[1]] || 0 } : null;
         },
         async all() { return { results: [] }; },
         async run() {
           const m = q.match(/VALUES \('(\w+)'/);
-          if (m) docs[m[1]] = this._b[0];
+          if (m) { docs[m[1]] = this._b[0]; versions[m[1]] = this._b[1]; }
           return {};
         },
       };
