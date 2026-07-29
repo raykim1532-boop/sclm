@@ -122,3 +122,46 @@ section('핸들러 선택자 충돌 방지');
   const tabMarkup = (body.match(/data-taxo="[^"]*"[^>]*>/) || [''])[0];
   check('분류 탭 버튼에 data-months 가 없다', !!tabMarkup && !tabMarkup.includes('data-months'));
 }
+
+section('밀리는 분류 (computeStuckTaxo)');
+{
+  const computeStuckTaxo = new Function(
+    grab(/function computeStuckTaxo\([\s\S]*?\r?\n}/, 'computeStuckTaxo') + '; return computeStuckTaxo;'
+  )();
+
+  const TODAY = '2026-07-29';
+  const AX = [{ label: '중분류', pick: (t) => t.channel || '' }];
+  const T = (ch, due, status) => ({ id: Math.random().toString(36).slice(2), text: '업무', channel: ch, dueDate: due, status: status || '대기' });
+
+  // 엔터식스: 지연 3건 / 쿠팡: 지연 1건 / 11번가: 표본 2건뿐
+  const todos = [
+    T('엔터식스', '2026-07-10'), T('엔터식스', '2026-07-20'), T('엔터식스', '2026-07-25'),
+    T('엔터식스', '2026-08-10'), T('엔터식스', '2026-07-01', '완료'),
+    T('쿠팡', '2026-07-20'), T('쿠팡', '2026-08-01'), T('쿠팡', '2026-08-02'),
+    T('11번가', '2026-07-01'), T('11번가', '2026-07-02')
+  ];
+  const r = computeStuckTaxo(todos, AX, TODAY, 3, 5);
+  check('지연 2건 이상만 잡는다', r.length === 1 && r[0].name === '엔터식스');
+  check('지연 건수 정확', r[0].overdue === 3);
+  check('평균 지연일 정확', r[0].avgLate === 10.7);           // (19+9+4)/3 = 10.67
+  check('완료율 함께 보고', r[0].donePct === 20);              // 5건 중 1건 완료
+  check('축 이름 표시', r[0].axis === '중분류');
+  check('표본 3건 미만은 제외', !r.some((x) => x.name === '11번가'));
+  check('지연 1건짜리는 제외', !r.some((x) => x.name === '쿠팡'));
+
+  // (미지정)은 데이터 점검 몫이라 여기서 다루지 않는다
+  const blanks = [T('', '2026-07-01'), T('', '2026-07-02'), T('', '2026-07-03')];
+  check('빈 분류는 대상 아님', computeStuckTaxo(blanks, AX, TODAY, 3, 5).length === 0);
+
+  // 정렬: 지연 많은 순 → 평균 지연일 순
+  const two = [
+    T('A', '2026-07-27'), T('A', '2026-07-28'), T('A', '2026-07-26'),
+    T('B', '2026-07-01'), T('B', '2026-07-02'), T('B', '2026-07-03')
+  ];
+  const s2 = computeStuckTaxo(two, AX, TODAY, 3, 5);
+  check('지연 수가 같으면 오래 밀린 쪽이 위로', s2[0].name === 'B');
+
+  check('빈 입력도 안전', computeStuckTaxo([], AX, TODAY, 3, 5).length === 0);
+  check('축이 없으면 빈 결과', computeStuckTaxo(todos, [], TODAY, 3, 5).length === 0);
+  check('limit 적용', computeStuckTaxo(two, AX, TODAY, 3, 1).length === 1);
+}

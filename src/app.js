@@ -1397,6 +1397,48 @@ function openDataIssueModal(kind) {
   });
 }
 
+/* 밀리는 분류를 눌렀을 때 — 그 분류의 지연 건을 오래 밀린 순으로 보여준다.
+   여기서 항목을 누르면 바로 편집 모달이 열려, 발견에서 처리까지 한 번에 이어진다. */
+function openStuckTaxoModal(axisLabel, name) {
+  const axis = TAXO_AXES.filter((a) => a.label === axisLabel)[0] || TAXO_AXES[1];
+  const today = todayStr();
+  const daysLate = (d) => Math.round((new Date(today) - new Date(d)) / 864e5);
+  const items = (state.todos || [])
+    .filter((t) => ((axis.pick(t) || '') + '').trim() === name && !todoIsDone(t) && t.dueDate && t.dueDate < today)
+    .sort((a, b) => a.dueDate.localeCompare(b.dueDate));
+  const esc = escapeHtml;
+  const md = (d) => (d ? d.slice(5).replace('-', '/') : '');
+
+  const plain = [`🐢 ${axisLabel} · ${name} — 지연 ${items.length}건`, '']
+    .concat(items.map((t) => `- ${todoTag(t)} ${t.text} — ${md(t.dueDate)} 마감 (${daysLate(t.dueDate)}일 지연, ${todoStatus(t)})`))
+    .join('\n');
+
+  showModal({
+    title: '🐢 ' + axisLabel + ' · ' + name,
+    wide: true,
+    saveLabel: '📋 복사',
+    bodyHtml: `
+      <div class="rep-range">지연 ${items.length}건 · 오래 밀린 순</div>
+      <div class="rep-sec">${items.length ? '<ul>' + items.map((t) => `<li data-goto="${esc(t.id)}">
+        ${esc(t.text)} <span class="rep-meta" style="color:var(--danger)">${md(t.dueDate)} 마감 · ${daysLate(t.dueDate)}일 지연 · ${esc(todoStatus(t))}</span>
+      </li>`).join('') + '</ul>' : '<div class="rep-empty">지연 건이 없습니다</div>'}</div>
+      <div class="an-note">항목을 누르면 바로 편집할 수 있어요.</div>`,
+    onOpen: () => {
+      document.querySelectorAll('.modal [data-goto]').forEach((li) => {
+        li.style.cursor = 'pointer';
+        li.onclick = () => {
+          const t = byId(state.todos, li.getAttribute('data-goto'));
+          if (t) openTodoModal(t);
+        };
+      });
+    },
+    onSave: () => {
+      navigator.clipboard.writeText(plain).then(() => toast('목록을 복사했어요')).catch(() => toast('복사 실패'));
+      return false;
+    }
+  });
+}
+
 /* 추이 기간(개월). 카드 안 토글로 바꾸며 기기별로 기억한다. */
 let trendMonths = (() => {
   const v = parseInt(localStorage.getItem('trendMonths') || '6', 10);
@@ -1443,6 +1485,50 @@ function taxoRowHtml(r, color, maxTotal) {
     <span class="an-bar"><i style="width:${w}%;background:color-mix(in srgb, ${color} 22%, transparent)"><b style="width:${pct}%;background:${color}"></b></i></span>
     <span class="an-val an-val-wide"><b>${r.open}</b> 남음 <span class="an-sub">/ ${r.total} · ${pct}%</span></span>
   </div>`;
+}
+
+/* 밀리는 분류 찾기 — 순수 함수(테스트에서 추출해 검증한다).
+   "어느 분류가 계속 밀리고 있나"를 지연 건수로 잡아낸다.
+
+   판정 기준을 이렇게 잡은 이유:
+   - 표본 하한(minItems, 기본 3): 1~2건짜리 분류는 우연히 하나 늦어도 '100% 지연'이 돼
+     경고가 소음이 된다.
+   - 지연 2건 이상: 한 건은 사고, 두 건부터가 경향이다.
+   - 정렬은 지연 건수 → 평균 지연일 순. 완료율은 참고로만 보여준다(오래된 완료가 많으면
+     완료율은 높은데 지금 밀리는 경우가 실제로 있다).
+   (미지정)은 분류가 아니라 입력 누락이므로 대상에서 뺀다 — 그건 데이터 점검 카드 몫이다. */
+function computeStuckTaxo(todos, axes, today, minItems, limit) {
+  const isDone = (t) => { const s = t.status || (t.done ? '완료' : '대기'); return s === '완료' || s === '지연완료'; };
+  const days = (from, to) => Math.round((new Date(to + 'T00:00:00Z') - new Date(from + 'T00:00:00Z')) / 864e5);
+  const min = minItems || 3;
+  const list = Array.isArray(todos) ? todos : [];
+  const out = [];
+
+  (axes || []).forEach((axis) => {
+    const map = new Map();
+    list.forEach((t) => {
+      const name = ((axis.pick(t) || '') + '').trim();
+      if (!name) return;                       // (미지정)은 데이터 점검 카드에서 다룬다
+      let e = map.get(name);
+      if (!e) { e = { axis: axis.label, name: name, total: 0, done: 0, open: 0, overdue: 0, lateSum: 0 }; map.set(name, e); }
+      e.total++;
+      if (isDone(t)) { e.done++; return; }
+      e.open++;
+      if (t.dueDate && t.dueDate < today) { e.overdue++; e.lateSum += days(t.dueDate, today); }
+    });
+    map.forEach((e) => {
+      if (e.total < min || e.overdue < 2) return;
+      out.push({
+        axis: e.axis, name: e.name, total: e.total, done: e.done, open: e.open,
+        overdue: e.overdue,
+        avgLate: +(e.lateSum / e.overdue).toFixed(1),
+        donePct: Math.round(e.done / e.total * 100)
+      });
+    });
+  });
+
+  out.sort((a, b) => (b.overdue - a.overdue) || (b.avgLate - a.avgLate) || (a.donePct - b.donePct));
+  return limit ? out.slice(0, limit) : out;
 }
 
 function computeTaxoTop(todos, pick, isDone, limit) {
@@ -1574,7 +1660,26 @@ function renderDashAnalytics() {
       <div class="di-rows">${issueRows}</div>
     </div>` : '';
 
-  box.innerHTML = issueCard + `
+  // 7) 밀리는 분류 — 지연이 2건 이상 쌓인 분류만. 없으면 카드 자체를 띄우지 않는다.
+  const stuck = computeStuckTaxo(todos, TAXO_AXES, todayStr(), 3, 5);
+  const stuckRows = stuck.map((r) => {
+    const color = (TAXO_AXES.filter((a) => a.label === r.axis)[0] || TAXO_AXES[1]).color(r.name);
+    return `<button type="button" class="di-row st-row" data-stuck-axis="${escapeHtml(r.axis)}" data-stuck-name="${escapeHtml(r.name)}"
+        title="${escapeHtml(r.axis + ' · ' + r.name + ' — 전체 ' + r.total + '건 중 지연 ' + r.overdue + '건, 평균 ' + r.avgLate + '일 경과')}">
+      <span class="st-dot" style="background:${color}"></span>
+      <span class="di-label"><b>${escapeHtml(r.name)}</b> <span class="an-sub">${escapeHtml(r.axis)}</span></span>
+      <span class="st-meta">지연 <b>${r.overdue}</b>건 · 평균 ${r.avgLate}일 · 완료 ${r.donePct}%</span>
+      <span class="di-go">보기 ›</span>
+    </button>`;
+  }).join('');
+  const stuckCard = stuck.length ? `
+    <div class="an-card an-card-wide an-card-stuck">
+      <h3>🐢 밀리는 분류<span class="an-total">지연 2건 이상 · 3건 이상인 분류만</span></h3>
+      <div class="di-rows">${stuckRows}</div>
+      <div class="an-note">지연 건수가 많은 순입니다. 완료율은 참고용 — 과거 완료가 많으면 완료율이 높아도 지금 밀릴 수 있어요.</div>
+    </div>` : '';
+
+  box.innerHTML = issueCard + stuckCard + `
     <div class="an-card an-card-wide">
       <h3>처리 지표<span class="an-total">완료 ${todos.filter(todoIsDone).length}건 기준</span></h3>
       ${kpiHtml}
@@ -1621,6 +1726,11 @@ function renderDashAnalytics() {
 
   box.querySelectorAll('[data-issue]').forEach((b) => {
     b.onclick = () => openDataIssueModal(b.dataset.issue);
+  });
+
+  // 밀리는 분류를 누르면 그 분류의 지연 건만 모아 보여준다
+  box.querySelectorAll('[data-stuck-name]').forEach((b) => {
+    b.onclick = () => openStuckTaxoModal(b.dataset.stuckAxis, b.dataset.stuckName);
   });
 
   // 분류 축 전환 — 기기별로 기억하고 이 카드만 다시 그린다
