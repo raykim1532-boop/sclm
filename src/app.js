@@ -1618,8 +1618,14 @@ function taxoRowHtml(r, color, maxTotal) {
    - 지연 2건 이상: 한 건은 사고, 두 건부터가 경향이다.
    - 정렬은 지연 건수 → 평균 지연일 순. 완료율은 참고로만 보여준다(오래된 완료가 많으면
      완료율은 높은데 지금 밀리는 경우가 실제로 있다).
-   (미지정)은 분류가 아니라 입력 누락이므로 대상에서 뺀다 — 그건 데이터 점검 카드 몫이다. */
+   (미지정)은 분류가 아니라 입력 누락이므로 대상에서 뺀다 — 그건 데이터 점검 카드 몫이다.
+   '기타'도 같은 이유로 뺀다: 서로 무관한 건이 모이는 잡동사니라 "이 분류가 밀린다"가
+   행동으로 이어지지 않는다. 2026-07-30 실데이터 replay에서 확인 — 카드가 뜬 이틀 중 하루가
+   소분류 '기타'였는데 묶인 건 '폴더 정리'와 '외장하드 구매'로 아무 관계가 없었다.
+   분류값 운영 규칙상 '기타'는 애초에 쓰지 않고 비우는 값이기도 하다(CLAUDE.md).
+   ⚠️ 이 함수는 테스트가 소스에서 통째로 떼어내 실행하므로 바깥 상수를 참조하지 말 것. */
 function computeStuckTaxo(todos, axes, today, minItems, limit) {
+  const SKIP = ['기타'];
   const isDone = (t) => { const s = t.status || (t.done ? '완료' : '대기'); return s === '완료' || s === '지연완료'; };
   const days = (from, to) => Math.round((new Date(to + 'T00:00:00Z') - new Date(from + 'T00:00:00Z')) / 864e5);
   const min = minItems || 3;
@@ -1630,7 +1636,7 @@ function computeStuckTaxo(todos, axes, today, minItems, limit) {
     const map = new Map();
     list.forEach((t) => {
       const name = ((axis.pick(t) || '') + '').trim();
-      if (!name) return;                       // (미지정)은 데이터 점검 카드에서 다룬다
+      if (!name || SKIP.includes(name)) return;  // (미지정)은 데이터 점검 카드에서, '기타'는 분류가 아니라 제외
       let e = map.get(name);
       if (!e) { e = { axis: axis.label, name: name, total: 0, done: 0, open: 0, overdue: 0, lateSum: 0 }; map.set(name, e); }
       e.total++;
