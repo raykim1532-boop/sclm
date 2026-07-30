@@ -19,6 +19,12 @@
   let baseVersion = 0;
   // 충돌이 났을 때 앱에 알리는 콜백 (app.js가 등록). 등록 전이면 그냥 실패 처리.
   let onConflict = null;
+  // 마지막으로 서버와 맞춘 상태의 사본. 3자 병합의 기준점(base)이다.
+  // 저장에 성공할 때마다, 그리고 불러올 때마다 갱신한다.
+  let baseSnapshot = null;
+  // 병합으로 조용히 넘어간 것들을 앱에 알리는 콜백(토스트용).
+  let onMerged = null;
+  const snap = (d) => { try { return JSON.parse(JSON.stringify(d)); } catch (e) { return null; } };
 
   const isHttp = () => location.protocol === 'http:' || location.protocol === 'https:';
 
@@ -38,6 +44,104 @@
       tasks: Array.isArray(d.tasks) ? d.tasks : [],
       vault: d.vault || undefined // 계정 금고(암호문). 있으면 그대로 보존.
     });
+  }
+
+  /* ---------- 3자 병합 ----------
+     두 기기를 동시에 켜 두면 충돌은 예외가 아니라 필연이다(앱이 연 뒤로 서버를 다시 안 읽으므로).
+     그런데 실제로 부딪히는 건 드물다 — 대개 서로 **다른 할 일**을 고친다.
+     그래서 "내가 읽어온 시점(base) · 내 것(mine) · 서버 것(theirs)" 셋을 비교해
+     한쪽만 바꾼 건 그대로 반영하고, 같은 걸 양쪽에서 바꾼 것만 충돌로 돌려준다.
+
+     ⚠️ **모르는 키도 반드시 살린다** — 2026-07-29 화이트리스트 때문에 소분류 목록이 통째로
+        사라진 적이 있다. 아래는 키 이름을 열거하지 않고 세 쪽의 키를 모두 훑는다.
+     ⚠️ 금고(vault)는 통짜 암호문이라 합칠 수 없다. 한쪽만 바뀌었으면 그쪽, 양쪽 다 바뀌었으면
+        충돌로 올려 사용자에게 묻는다(조용히 하나를 버리면 계정이 사라진다). */
+
+  const RECORD_KEYS = ['todos', 'events', 'projects'];   // id 로 짝지어 비교하는 배열
+  const LIST_KEYS = ['channels', 'subMaster'];             // 단순 문자열 목록
+
+  const eq = (a, b) => JSON.stringify(a === undefined ? null : a) === JSON.stringify(b === undefined ? null : b);
+  const byId = (arr) => {
+    const m = new Map();
+    (Array.isArray(arr) ? arr : []).forEach((x) => { if (x && x.id != null) m.set(String(x.id), x); });
+    return m;
+  };
+
+  /* 레코드 배열 하나를 병합. 순서는 theirs 를 기준으로 두고 내가 새로 만든 것을 뒤에 붙인다. */
+  function mergeRecords(baseArr, mineArr, theirsArr, kind, conflicts) {
+    const b = byId(baseArr), m = byId(mineArr), t = byId(theirsArr);
+    const ids = [];
+    (Array.isArray(theirsArr) ? theirsArr : []).forEach((x) => { if (x && x.id != null) ids.push(String(x.id)); });
+    (Array.isArray(mineArr) ? mineArr : []).forEach((x) => { if (x && x.id != null && !ids.includes(String(x.id))) ids.push(String(x.id)); });
+
+    const out = [];
+    ids.forEach((id) => {
+      const B = b.get(id), M = m.get(id), T = t.get(id);
+      const mineChanged = !eq(B, M);
+      const theirsChanged = !eq(B, T);
+      let pick;
+      if (!mineChanged) pick = T;                 // 나는 안 건드림 → 서버 따름(추가·수정·삭제 모두)
+      else if (!theirsChanged) pick = M;          // 서버가 안 건드림 → 내 것
+      else if (M === undefined && T === undefined) pick = undefined;   // 양쪽 다 삭제
+      else if (M === undefined || T === undefined) {
+        // 한쪽은 지우고 한쪽은 고쳤다 → 남기는 쪽을 택한다. 지우는 건 다시 할 수 있지만 잃은 건 못 되돌린다.
+        pick = M === undefined ? T : M;
+        conflicts.push({ kind: kind, id: id, why: 'deleted-vs-edited', label: recLabel(pick) });
+      } else {
+        // 같은 항목을 양쪽에서 고쳤다 → 지금 저장을 누른 이 창의 의도를 택하고 반드시 알린다.
+        pick = M;
+        conflicts.push({ kind: kind, id: id, why: 'both-edited', label: recLabel(M), theirs: T });
+      }
+      if (pick !== undefined) out.push(pick);
+    });
+    return out;
+  }
+
+  function recLabel(r) {
+    if (!r) return '';
+    return String(r.text || r.title || r.name || r.id || '').slice(0, 40);
+  }
+
+  /* 문자열 목록: 서버 것에서 내가 지운 것을 빼고, 내가 더한 것을 붙인다. */
+  function mergeList(baseArr, mineArr, theirsArr) {
+    const B = Array.isArray(baseArr) ? baseArr : [];
+    const M = Array.isArray(mineArr) ? mineArr : [];
+    const T = Array.isArray(theirsArr) ? theirsArr : [];
+    const removedByMe = B.filter((v) => !M.includes(v));
+    const addedByMe = M.filter((v) => !B.includes(v));
+    const out = T.filter((v) => !removedByMe.includes(v));
+    addedByMe.forEach((v) => { if (!out.includes(v)) out.push(v); });
+    return out;
+  }
+
+  /* base=내가 읽어온 것, mine=지금 저장하려는 것, theirs=서버 최신.
+     → { data, conflicts, needsAsk }. needsAsk 는 금고가 양쪽에서 바뀐 경우처럼 자동으로 못 정하는 때만 true. */
+  function mergeStates(base, mine, theirs) {
+    base = base || {}; mine = mine || {}; theirs = theirs || {};
+    const conflicts = [];
+    let needsAsk = false;
+    const out = {};
+    const keys = [];
+    [theirs, mine, base].forEach((o) => Object.keys(o).forEach((k) => { if (!keys.includes(k)) keys.push(k); }));
+
+    keys.forEach((k) => {
+      if (RECORD_KEYS.indexOf(k) > -1) { out[k] = mergeRecords(base[k], mine[k], theirs[k], k, conflicts); return; }
+      if (LIST_KEYS.indexOf(k) > -1) { out[k] = mergeList(base[k], mine[k], theirs[k]); return; }
+
+      const mineChanged = !eq(base[k], mine[k]);
+      const theirsChanged = !eq(base[k], theirs[k]);
+      if (k === 'vault') {
+        if (mineChanged && theirsChanged) { needsAsk = true; conflicts.push({ kind: 'vault', why: 'both-edited', label: '계정 금고' }); out[k] = theirs[k]; }
+        else out[k] = mineChanged ? mine[k] : theirs[k];
+        return;
+      }
+      // 그 밖의 모든 키(설정·모르는 키 포함): 한쪽만 바뀌었으면 그쪽, 둘 다면 내 것.
+      out[k] = mineChanged ? mine[k] : theirs[k];
+      if (mineChanged && theirsChanged) conflicts.push({ kind: k, why: 'both-edited', label: k });
+    });
+
+    Object.keys(out).forEach((k) => { if (out[k] === undefined) delete out[k]; });
+    return { data: out, conflicts: conflicts, needsAsk: needsAsk };
   }
 
   function authHeaders(extra) {
@@ -141,6 +245,8 @@
         if (lastLoadOnline && j && typeof j.version === 'number') baseVersion = j.version;
         if (j && j.data) {
           let data = ensureShape(j.data);
+          // 서버에서 온 그대로를 병합 기준점으로 삼는다(내 미반영분을 얹기 전 상태여야 한다)
+          if (lastLoadOnline) baseSnapshot = snap(data);
           // 오프라인 캐시 응답인데 이 기기에 미반영 변경분이 있으면 그쪽이 더 최신이다
           if (!lastLoadOnline) { const p = pendingGet(); if (p && p.data) data = ensureShape(p.data); }
           try { localStorage.setItem(LS_DATA_KEY, JSON.stringify(data)); } catch (e) {}
@@ -174,23 +280,48 @@
         let r = await put(Object.assign({}, data, baseVersion ? { baseVersion } : {}));
         if (r.status === 401) { logout(); location.reload(); return false; }
 
-        // 409 = 내가 읽은 뒤 다른 곳에서 먼저 저장했다. 조용히 덮어쓰지 않고 사용자에게 묻는다.
+        // 409 = 내가 읽은 뒤 다른 곳에서 먼저 저장했다.
+        // 대개는 서로 **다른 항목**을 고친 것이므로 먼저 3자 병합을 시도하고,
+        // 자동으로 못 정하는 경우(같은 금고를 양쪽에서 바꿈)에만 사용자에게 묻는다.
         if (r.status === 409) {
           const info = await r.json().catch(() => ({}));
-          const choice = onConflict ? await onConflict(info) : 'cancel';
-          if (choice === 'overwrite') {
-            r = await put(Object.assign({}, data, { force: true }));
-          } else {
-            // 서버 것을 따른다 — 내 변경은 버리고 최신 버전으로 맞춘다
-            if (typeof info.serverVersion === 'number') baseVersion = info.serverVersion;
-            pendingClear();
-            return false;
+          // 서버 원본은 기본값이 빠져 있을 수 있다. 기준점(base)은 이미 정규화돼 있으므로
+          // 같은 모양으로 맞춰야 settings 같은 키가 엉뚱하게 충돌로 잡히지 않는다.
+          const theirs = info && info.data ? ensureShape(info.data) : null;
+          let handled = false;
+
+          if (theirs && baseSnapshot) {
+            const m = mergeStates(baseSnapshot, data, theirs);
+            if (!m.needsAsk) {
+              // 병합 결과를 서버 버전 위에 얹어 다시 저장한다(서버 것을 이미 반영했으므로 force).
+              const merged = ensureShape(m.data);
+              r = await put(Object.assign({}, merged, { force: true }));
+              if (r.ok) {
+                data = merged;
+                try { localStorage.setItem(LS_DATA_KEY, JSON.stringify(merged)); } catch (e) {}
+                if (onMerged) { try { onMerged(merged, m.conflicts); } catch (e) {} }
+              }
+              handled = true;
+            }
+          }
+
+          if (!handled) {
+            const choice = onConflict ? await onConflict(info) : 'cancel';
+            if (choice === 'overwrite') {
+              r = await put(Object.assign({}, data, { force: true }));
+            } else {
+              // 서버 것을 따른다 — 내 변경은 버리고 최신 버전으로 맞춘다
+              if (typeof info.serverVersion === 'number') baseVersion = info.serverVersion;
+              pendingClear();
+              return false;
+            }
           }
         }
 
         if (r.ok) {
           const j = await r.json().catch(() => ({}));
           if (typeof j.version === 'number') baseVersion = j.version;
+          baseSnapshot = snap(data);   // 지금 서버에 올린 것이 다음 병합의 기준점
           pendingClear();
         } else stash();
         return r.ok;
@@ -219,6 +350,9 @@
     detect, ensureAuth, logout, api: cloudApi, authFetch,
     // 충돌 안내 UI 등록 — 'overwrite' | 'reload' 중 하나를 돌려주면 된다
     setConflictHandler: (fn) => { onConflict = fn; },
+    // 자동 병합이 일어났을 때 알려 준다 — (병합된 데이터, 충돌목록)
+    setMergeHandler: (fn) => { onMerged = fn; },
+    mergeStates,                       // 테스트·디버그용
     getVersion: () => baseVersion,
     token: () => token || '',
     pending: pendingGet,

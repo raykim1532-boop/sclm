@@ -189,6 +189,8 @@ async function init() {
   renderAll();
   if (cloudMode) {
     setupConflictHandler();
+    setupMergeNotice();
+    setupAutoRefresh();
     setupCloudUI(); setupGoogle(); setupSheet(); setupBackup(); setupPush(); setupAssistant();
     // 화면을 먼저 그린 뒤에 미반영 변경분을 확인한다
     if (CloudSync.wasOnline && CloudSync.wasOnline()) reconcileOffline();
@@ -3807,6 +3809,52 @@ function applyTheme() {
 
 /* 저장 충돌: 내가 읽은 뒤 다른 기기·탭이 먼저 저장한 경우.
    조용히 덮어쓰면 그쪽 작업이 통째로 날아가므로(실제 사고 있었음) 반드시 물어본다. */
+/* 자동 병합이 일어났을 때 — 화면 상태를 병합 결과로 맞추고 무슨 일이 있었는지 알린다.
+   ⚠️ state 를 갱신하지 않으면 화면은 옛 데이터를 들고 있게 되고, 다음 저장에서 또 갈라진다. */
+function setupMergeNotice() {
+  if (!window.CloudSync || !CloudSync.setMergeHandler) return;
+  CloudSync.setMergeHandler((merged, conflicts) => {
+    state = merged;
+    migrateTaxonomy(state);
+    applyTheme(); renderAll();
+    if (!conflicts || !conflicts.length) { toast('다른 기기의 변경과 자동으로 합쳤어요'); return; }
+    // 같은 항목을 양쪽에서 고친 경우 — 조용히 넘어가면 안 되므로 무엇이었는지 보여 준다
+    const names = conflicts.map((c) => c.label).filter(Boolean).slice(0, 3).join(', ');
+    const more = conflicts.length > 3 ? ` 외 ${conflicts.length - 3}건` : '';
+    toast(`합쳤어요 — ${names}${more}는 양쪽에서 고쳐서 이 화면 것을 남겼어요`);
+  });
+}
+
+/* 창을 다시 볼 때 서버를 확인한다.
+   두 기기를 켜 두면 충돌이 잦았던 근본 원인은 "앱이 연 뒤로 서버를 다시 안 읽는 것"이었다.
+   편집 중(모달 열림)에는 건드리지 않고, 잦은 재조회를 막으려 20초 간격을 둔다. */
+function setupAutoRefresh() {
+  if (!window.CloudSync || !CloudSync.getVersion) return;
+  let last = 0;
+  let busy = false;
+  const check = async () => {
+    if (document.hidden || busy) return;
+    const overlay = document.getElementById('modalOverlay');
+    if (overlay && !overlay.classList.contains('hidden')) return;   // 편집 중이면 건드리지 않는다
+    if (Date.now() - last < 20000) return;
+    last = Date.now();
+    busy = true;
+    try {
+      const before = CloudSync.getVersion();
+      const fresh = await window.api.loadData();
+      if (CloudSync.getVersion() !== before) {
+        state = fresh;
+        migrateTaxonomy(state);
+        applyTheme(); renderAll();
+        toast('다른 기기의 변경을 불러왔어요');
+      }
+    } catch (e) { /* 오프라인 등 — 다음 기회에 */ }
+    busy = false;
+  };
+  document.addEventListener('visibilitychange', check);
+  window.addEventListener('focus', check);
+}
+
 function setupConflictHandler() {
   if (!window.CloudSync || !CloudSync.setConflictHandler) return;
   CloudSync.setConflictHandler((info) => new Promise((resolve) => {
