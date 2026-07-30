@@ -2926,7 +2926,7 @@ function openTodoModal(todo, presets) {
         <div id="f-logs" class="log-list">${logRowsHtml(todoLogs(data))}</div>
         <div class="log-add">
           <input type="date" id="f-log-date" class="log-date" value="${todayStr()}" />
-          <input type="text" id="f-log-text" class="log-text" placeholder="오늘 한 일 (예: 김선화 차장 자료 전달)" />
+          <input type="text" id="f-log-text" class="log-text" placeholder="오늘 한 일 (예: 담당자 메일 발송)" />
           <button type="button" class="btn" id="f-log-add">기록</button>
         </div>
       </div>
