@@ -871,10 +871,7 @@ function setupVault() {
   $('vfCancelBtn').onclick = () => { $('vaultEditCard').classList.add('hidden'); $('vaultOpen').classList.remove('hidden'); };
   $('vfDeleteBtn').onclick = async () => {
     if (!vaultEditId) return;
-    if (!confirm('이 계정을 삭제할까요?')) return;
-    vaultEntries = vaultEntries.filter((e) => e.id !== vaultEditId);
-    await vaultSave();
-    toast('삭제했어요');
+    if (!(await vaultDeleteEntry(vaultEditId))) return;
     $('vaultEditCard').classList.add('hidden'); renderVault();
   };
   $('vfSaveBtn').onclick = async () => {
@@ -920,6 +917,19 @@ function openVaultEdit(id) {
   $('vaultOpen').classList.add('hidden');
   $('vaultEditCard').classList.remove('hidden');
   $('vfSite').focus();
+}
+
+/* 계정 삭제 — 목록의 🗑 버튼과 편집 화면의 [삭제]가 함께 쓴다.
+   되돌리기가 없으므로 어느 계정인지 이름을 확인 문구에 넣는다(목록에서 지울 땐 특히 오클릭이 쉽다).
+   지웠으면 true. 취소하거나 없는 id면 false. */
+async function vaultDeleteEntry(id) {
+  const e = vaultEntries.find((x) => x.id === id);
+  if (!e) return false;
+  if (!confirm('"' + (e.site || '이름 없음') + '" 계정을 삭제할까요?\n되돌릴 수 없어요.')) return false;
+  vaultEntries = vaultEntries.filter((x) => x.id !== id);
+  await vaultSave();
+  toast('삭제했어요');
+  return true;
 }
 
 async function vaultCopy(text, label) {
@@ -990,11 +1000,13 @@ function renderVaultList() {
       +   (e.user ? '<button class="vault-copy" data-act="user" title="아이디 복사">아이디</button>' : '')
       +   (e.pass ? '<button class="vault-copy" data-act="pass" title="비밀번호 복사">비번</button>' : '')
       +   (url ? '<button class="vault-copy vi-open" data-act="open" title="사이트 열기">열기 ↗</button>' : '')
+      +   '<button class="vault-copy vi-del" data-act="del" title="이 계정 삭제" aria-label="삭제">🗑</button>'
       + '</div>';
     const wire = (sel, fn) => { const el = row.querySelector(sel); if (el) el.onclick = (ev) => { ev.stopPropagation(); fn(); }; };
     wire('[data-act="user"]', () => vaultCopy(e.user, '아이디'));
     wire('[data-act="pass"]', () => vaultCopy(e.pass, '비밀번호'));
     wire('[data-act="open"]', () => window.open(url, '_blank', 'noopener'));
+    wire('[data-act="del"]', async () => { if (await vaultDeleteEntry(e.id)) renderVault(); });
     const link = row.querySelector('[data-act="link"]');
     if (link) link.addEventListener('click', (ev) => ev.stopPropagation()); // 링크 기본 이동은 유지, 편집 열림만 방지
     row.onclick = () => openVaultEdit(e.id);

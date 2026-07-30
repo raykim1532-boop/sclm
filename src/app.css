@@ -252,6 +252,12 @@ html, body {
 .vault-copy { border: 1px solid var(--border); border-radius: 8px; background: transparent; padding: 5px 10px; font-size: 12px; cursor: pointer; color: inherit; white-space: nowrap; }
 .vault-copy:hover { border-color: var(--accent); color: var(--accent); }
 .vault-copy.vi-open { border-color: var(--accent); color: var(--accent); }
+/* 삭제는 목록에 늘 보이되 평소엔 죽여 둔다 — 복사 버튼 옆이라 오클릭이 쉽다.
+   마우스를 올렸을 때만 빨갛게 살아난다. 확인 대화상자에 계정 이름도 함께 뜬다. */
+.vault-copy.vi-del { border-color: transparent; opacity: .4; padding: 5px 9px; font-size: 13px; line-height: 1; }
+.vault-item:hover .vault-copy.vi-del { opacity: .7; }
+.vault-copy.vi-del:hover { opacity: 1; border-color: var(--danger); color: var(--danger); background: color-mix(in srgb, var(--danger) 10%, transparent); }
+.vault-copy.vi-del:focus-visible { opacity: 1; border-color: var(--danger); }
 .vault-empty { padding: 24px; text-align: center; opacity: .6; font-size: 13px; }
 @media (max-width: 620px) { .vault-item .vi-link { max-width: 120px; } .vault-copy { padding: 5px 8px; } }
 
