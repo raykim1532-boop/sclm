@@ -11,6 +11,40 @@ import { parseHTML } from 'linkedom';
 const SHELL = new URL('../../src/shell.html', import.meta.url);
 const APP = new URL('../../src/app.js', import.meta.url);
 
+/* FullCalendar 가짜 구현 — 라이브러리를 검증하려는 게 아니라 **우리 배선**을 본다.
+   진짜 번들은 30만 자에 ResizeObserver 같은 브라우저 API를 요구해 linkedom 에선 못 돌린다.
+   대신 앱이 넘긴 옵션을 붙잡아 두고, 테스트가 콜백을 직접 발사할 수 있게 한다.
+     · cal.opts                    앱이 넘긴 설정 전체
+     · cal.events()                events 콜백이 만들어 준 항목 배열(= 매핑 결과)
+     · cal.fire('dateClick', …)    날짜·일정 클릭 등 콜백 호출
+     · cal.renders / cal.refetches render()·refetchEvents() 호출 횟수
+   메인 캘린더 + 할 일 미니 캘린더가 각각 만들어지므로 생성 순서대로 배열에 모은다. */
+function makeFullCalendarStub(calendars) {
+  function Calendar(el, opts) {
+    const rec = {
+      el, opts, renders: 0, refetches: 0,
+      events() {                                  // (info, success) => success([...])
+        let out = [];
+        if (typeof opts.events === 'function') opts.events({}, (arr) => { out = arr; });
+        else if (Array.isArray(opts.events)) out = opts.events;
+        return out;
+      },
+      fire(name, arg) {
+        const fn = opts[name];
+        if (typeof fn !== 'function') throw new Error('콜백이 없음: ' + name);
+        return fn(arg);
+      },
+      render() { this.renders++; },
+      refetchEvents() { this.refetches++; },
+      destroy() {}, setOption() {}, changeView() {}, gotoDate() {},
+      getDate: () => new Date(),
+    };
+    calendars.push(rec);
+    return rec;
+  }
+  return { Calendar };
+}
+
 /* app.js 안에서 이름으로 꺼내 쓸 것들. 여기 없는 함수는 테스트에서 못 부른다(추가하면 된다). */
 const EXPORTS = [
   'openTodoModal', 'closeModal', 'showModal',
@@ -20,6 +54,9 @@ const EXPORTS = [
   'computeTaxoTop', 'taxoRowHtml', 'escapeHtml', 'todayStr', 'toast',
   'filterTodos', 'buildTodosCsv', 'renderKanban', 'openWeeklyReport', 'openMonthlyReport',
   'bulkAssign', 'refreshBulkSelects', 'todoSortValue', 'renderAll', 'weekRange',
+  // 캘린더 배선
+  'setupCalendar', 'buildCalendarEvents', 'refreshCalendarEvents', 'openEventModal',
+  'isGoogleImported', 'projectColor',
 ];
 
 /* linkedom 의 <select>.value 는 읽기 전용이라 앱 코드(`sel.value = ...`)가 막힌다.
@@ -77,19 +114,20 @@ export function bootApp(opts = {}) {
     + ' setProjectView: (v) => { currentProjectViewId = v; } };'
   );
 
+  const calendars = [];
   const app = fn(
     window, document, localStorage,
     { protocol: 'https:', href: 'https://sclm.pages.dev/', reload() {} },
     { clipboard: { writeText: async () => {} }, serviceWorker: undefined },
     async () => ({ ok: false, status: 404, json: async () => ({}), text: async () => '' }),
     { log() {}, warn() {}, error() {} },
-    function () { return { render() {}, refetchEvents() {}, destroy() {} }; },
+    makeFullCalendarStub(calendars),
     opts.confirm || (() => true),
     opts.prompt || (() => null),
     () => {}
   );
 
-  return { app, document, window, saves, store, localStorage };
+  return { app, document, window, saves, store, localStorage, calendars };
 }
 
 /* DOM 조회 도우미 */

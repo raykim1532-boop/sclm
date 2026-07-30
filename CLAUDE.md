@@ -125,6 +125,14 @@ Worker `sclm-push-cron`: `CRON_SECRET`(Pages와 동일 값).
   - 데이터 점검 카드는 결함이 있을 때만 뜨며, 항목 클릭 시 `openDataIssueModal`이 대상 목록을 보여준다. 시트 유입 건은 앱에서 고쳐도 다음 동기화에 덮이므로 **"시트에서 고치라"는 안내를 반드시 유지**할 것.
   - 추이 차트는 막대(`.an-cols`)와 잔량선 SVG(`.an-line`)가 **같은 박스를 덮어야** 눈금이 맞는다. SVG는 대체요소라 inset만으로는 고유비율로 그려지므로 `width/height`를 명시해 둠 — 건드리면 정렬이 깨진다. 잔량선은 막대와 **척도가 다르다**(범례·가이드에 명시).
 
+### 화면 동작 테스트 하네스 (`web/tests/_dom.mjs`)
+`src/shell.html`을 linkedom으로 띄우고 그 안에서 `src/app.js`를 통째로 실행한다 → `renderTodos()`·`openTodoModal()` 같은 **실제 함수를 실제 DOM 위에서** 호출한다. 순수 함수 테스트로 못 잡는 것(버튼 배선·이벤트 전파·DOM 갱신)이 여기 몫이다. `ui-*.test.mjs` 6개가 이걸 쓴다.
+- 테스트에서 부르려면 **`EXPORTS` 배열에 함수 이름을 추가**해야 한다. 없으면 `undefined`라 조용히 통과하는 게 아니라 호출에서 죽는다.
+- **FullCalendar는 가짜다**(라이브러리가 아니라 우리 배선을 검증). `bootApp()`이 돌려주는 `calendars[]`로 앱이 넘긴 옵션을 보고 콜백을 발사한다: `cal.opts` / `cal.events()`(매핑 결과) / `cal.fire('dateClick'|'eventClick', arg)` / `cal.renders`·`cal.refetches`. 검증: `ui-calendar.test.mjs`.
+  - ⚠️ 종일 일정의 `end`는 FullCalendar 규칙상 **포함하지 않는 경계**라 여러 날이면 마지막날 **+1일**을 넘겨야 한다. 이걸 빼면 마지막 날이 화면에서 사라진다(테스트로 고정해 둠).
+- 하네스로 **못 잡는 것**: 실제 브라우저 렌더링(CSS·레이아웃·반응형), FullCalendar 내부 동작, 서비스워커/오프라인, 실제 네트워크 왕복(fetch는 항상 404). 이건 Browser 도구로 눈으로 확인할 몫이다.
+- `<select>.value`는 linkedom에서 읽기 전용이라 setter를 덧붙여 브라우저와 같게 맞춰 뒀다 — **테스트 환경의 한계를 메우는 것이지 앱 동작을 바꾸는 게 아니다.**
+
 ## 로컬 검증 흐름
 빌드(`node build.js`) → 정적 서버(예: `python -m http.server`)로 `web/public` 서빙 → 브라우저로 확인. `/api/health`가 없으면 로컬(비클라우드) 모드로 뜬다. 함수/D1까지 보려면 `npm run dev`(wrangler pages dev).
 - 클라우드 경로 검증 팁: `run-daily`를 `X-Cron-Secret`으로 직접 호출하면 D1+시크릿+발송을 한 번에 확인.
