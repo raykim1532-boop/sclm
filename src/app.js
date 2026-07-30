@@ -1074,9 +1074,12 @@ async function deleteTodoFiles(todos) {
   return keys.length;
 }
 
+/* 서버까지 저장. 실패하면 여기서 알리고 false 를 돌려준다 —
+   부르는 쪽이 성공 토스트를 덧씌워 실패를 가리지 않도록. */
 async function persist() {
   const ok = await window.api.saveData(state);
-  if (ok === false) toast('⚠ 클라우드 저장 실패 — 네트워크 확인 필요 (변경은 이 기기에 임시 저장됨)');
+  if (ok === false) { toast('⚠ 클라우드 저장 실패 — 네트워크 확인 필요 (변경은 이 기기에 임시 저장됨)'); return false; }
+  return true;
 }
 
 function toast(msg) {
@@ -2924,7 +2927,7 @@ function openTodoModal(todo, presets) {
       <div class="field"><label>완료일(선택)</label><input type="date" id="f-completed" value="${data.completedDate || ''}" /></div>
       ${todoDueHistory(data).length ? `<div class="due-hist">📌 마감일 변경 ${todoDueHistory(data).length}회\n        ${todoDueHistory(data).map((h) => `<span>${escapeHtml(mmddDot(h.from) || '없음')} → ${escapeHtml(mmddDot(h.to) || '없음')}${h.at ? ' (' + escapeHtml(mmddDot(h.at)) + ')' : ''}</span>`).join('')}\n      </div>` : ''}
       <div class="field">
-        <label>업무 로그<span class="hint-inline">한 줄 적으면 날짜가 붙어 쌓여요</span></label>
+        <label>업무 로그<span class="hint-inline">${isNew ? '한 줄 적으면 날짜가 붙어 쌓여요' : '적으면 바로 저장돼요'}</span></label>
         <div id="f-logs" class="log-list">${logRowsHtml(todoLogs(data))}</div>
         <div class="log-add">
           <input type="date" id="f-log-date" class="log-date" value="${todayStr()}" />
@@ -3017,25 +3020,41 @@ function openTodoModal(todo, presets) {
       persist(); renderAll();
     },
     onOpen: () => {
-      // 업무 로그: [기록] 또는 Enter 로 한 줄 추가, ✕ 로 삭제. 실제 저장은 [저장] 때.
+      // 업무 로그: [기록]/Enter 로 추가, ✕ 로 삭제.
+      // ⚠️ 기존 할 일이면 **적는 즉시 저장**한다 — 로그는 "적으면 남는다"가 자연스럽고,
+      //    적어 놓고 [취소]를 눌러 잃는 사고가 실제로 있었다. 새로 만드는 중인 할 일은
+      //    아직 저장할 대상이 없으므로 [저장] 때 함께 반영된다.
       const logBox = document.getElementById('f-logs');
       const logDate = document.getElementById('f-log-date');
       const logText = document.getElementById('f-log-text');
-      const addLog = () => {
+      // 화면에 보이는 줄들을 그대로 할 일에 옮겨 담는다(표시와 데이터가 어긋날 여지를 없앤다)
+      const syncLogs = async () => {
+        if (isNew || !todo) return false;
+        todo.logs = [...logBox.querySelectorAll('.log-row')]
+          .map((r) => ({ at: r.dataset.at || '', text: r.dataset.text || '' }))
+          .filter((l) => l.text.trim());
+        const ok = await persist();
+        renderTodos();
+        return ok;   // 실패했으면 성공 토스트를 띄우지 않는다
+      };
+      const addLog = async () => {
         const v = (logText.value || '').trim();
         if (!v) { logText.focus(); return; }
         logBox.insertAdjacentHTML('afterbegin', logRowHtml({ at: logDate.value || todayStr(), text: v }));
         logText.value = '';
         logText.focus();
+        if (await syncLogs()) toast('기록했어요');
       };
       const logAddBtn = document.getElementById('f-log-add');
       if (logAddBtn) logAddBtn.onclick = addLog;
       if (logText) logText.addEventListener('keydown', (e) => {
         if (e.key === 'Enter') { e.preventDefault(); addLog(); }   // 폼 제출(=저장) 대신 로그 추가
       });
-      if (logBox) logBox.addEventListener('click', (e) => {
+      if (logBox) logBox.addEventListener('click', async (e) => {
         const del = e.target.closest('.lr-del');
-        if (del) del.closest('.log-row').remove();
+        if (!del) return;
+        del.closest('.log-row').remove();
+        if (await syncLogs()) toast('로그를 지웠어요');
       });
 
       // 대분류·중분류·소분류는 서로 독립이라 한쪽을 바꿔도 다른 칸을 건드리지 않는다.

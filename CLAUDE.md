@@ -21,7 +21,9 @@
     - 대시보드 분석 카드는 `renderDashAnalytics()` 하나가 다 그린다. 계산은 순수 함수(`computeWorkStats` / `computeTrend` / `computeDataIssues` / `computeTaxoTop`)로 빼 두었고 `web/tests/`에서 소스에서 정규식으로 떼어내 검증하므로, **이름이나 시그니처를 바꾸면 테스트의 `grab(...)` 정규식도 같이 고쳐야 한다.**
     - **업무 로그 · 마감일 변경 이력** (2026-07-30). 둘 다 할 일에 배열로 붙는다 — `logs: [{at:'YYYY-MM-DD', text}]`, `dueHistory: [{from, to, at}]`. 순수 함수(`todoLogs`/`todoLogLatest`/`todoProgressCell`/`dueMoveCount`/`dueHistoryText`/`pushDueHistory`)로 빼 두었고 `todo-log.test.mjs`가 소스에서 추출해 검증한다.
       - ⚠️ **옛 `progress`(자유 텍스트)는 건드리지 않는다.** 43건에 내용이 있고 CSV·시트 머리글 매핑이 그 필드를 쓴다. 표는 로그가 있으면 로그를, 없으면 `progress`를 보여줄 뿐이다(`todoProgressCell`). 마이그레이션하지 말 것.
-      - 로그는 모달 DOM(`.log-row`의 `data-at`/`data-text`)에 쌓아 두고 **[저장] 때 수집**한다. 별도 상태를 두지 않아 [취소]하면 자연히 버려진다.
+      - 로그는 모달 DOM(`.log-row`의 `data-at`/`data-text`)이 표시의 원본이고, `syncLogs()`가 그걸 그대로 `todo.logs`로 옮겨 담는다(표시와 데이터가 어긋날 여지를 없앤다).
+      - ⚠️ **기존 할 일의 로그는 [기록]/✕ 즉시 저장**된다(2026-07-30). 로그는 "적으면 남는다"가 자연스러운데, [저장]을 눌러야 남는 구조라 적어 놓고 잃는 일이 있었다. **새로 만드는 중인 할 일만** 저장할 대상이 없어 [저장] 때 함께 반영된다.
+      - `persist()`는 성공 여부를 돌려준다. 즉시저장 경로에서 성공 토스트가 **저장 실패 토스트를 덮어쓰지 않도록** 반드시 반환값을 보고 띄울 것.
       - `dueMoveCount`는 **뒤로 민 것만** 센다(앞당긴 건 이력엔 남지만 배지로 경고하지 않는다). 보고 싶은 건 "이 건이 자꾸 밀린다"이지 날짜가 몇 번 바뀌었나가 아니다.
     - **분류 Top**은 대·중·소를 카드 하나에서 탭으로 바꿔 보는 구조(`TAXO_AXES` + `taxoTab`). 세 축이 같은 눈금(막대 = 전체 건수, 진한 부분 = 완료 비율)을 쓰는 게 핵심이라, 축마다 다른 지표를 쓰지 말 것 — 예전에 대분류만 "진행률", 중분류만 "미완료 건수"였던 탓에 서로 비교가 안 됐다.
 - **FullCalendar 임베드 번들(`src/shell.html` 안의 대용량 `<script>` 4개)은 수정하지 말 것.**
