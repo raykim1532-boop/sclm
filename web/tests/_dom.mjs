@@ -18,6 +18,8 @@ const EXPORTS = [
   'logRowHtml', 'logRowsHtml', 'todoLogs', 'todoLogLatest', 'todoProgressCell',
   'dueBadgeHtml', 'dueMoveCount', 'pushDueHistory', 'todoDueHistory',
   'computeTaxoTop', 'taxoRowHtml', 'escapeHtml', 'todayStr', 'toast',
+  'filterTodos', 'buildTodosCsv', 'renderKanban', 'openWeeklyReport', 'openMonthlyReport',
+  'bulkAssign', 'refreshBulkSelects', 'todoSortValue', 'renderAll', 'weekRange',
 ];
 
 /* linkedom 의 <select>.value 는 읽기 전용이라 앱 코드(`sel.value = ...`)가 막힌다.
@@ -71,7 +73,8 @@ export function bootApp(opts = {}) {
     src + '\n;return {' + EXPORTS.map((k) => `${k}: typeof ${k} === 'function' ? ${k} : undefined`).join(',') +
     ', getState: () => state, setState: (v) => { state = v; },'
     + ' getVaultEntries: () => vaultEntries, setVaultEntries: (v) => { vaultEntries = v; },'
-    + ' setVaultKey: (v) => { vaultKey = v; }, setVaultSalt: (v) => { vaultSalt = v; } };'
+    + ' setVaultKey: (v) => { vaultKey = v; }, setVaultSalt: (v) => { vaultSalt = v; },'
+    + ' setProjectView: (v) => { currentProjectViewId = v; } };'
   );
 
   const app = fn(

@@ -2477,12 +2477,12 @@ function openMonthlyReport() {
 }
 
 // 현재 필터·정렬된 할 일 목록을 CSV(엑셀)로 내보내기. Excel 한글 깨짐 방지 BOM 포함.
-function exportTodosCsv() {
-  const items = filterTodos();
-  // 열 순서는 시트 머리글 매핑과 맞춰 둔 것이라 앞부분은 건드리지 않는다. 새 열은 끝에 붙인다.
-  const headers = ['No', '등록일', '대분류', '중분류', '소분류', '우선순위', '업무내용', '담당자', '마감일', '진행상태', '점검필요', '완료일', '진행사항', '비고', '산출물링크', '업무로그', '마감변경'];
+/* 내보낼 CSV 문자열 만들기 — 순수 함수(테스트에서 직접 부른다).
+   열 순서는 시트 머리글 매핑과 맞춰 둔 것이라 앞부분은 건드리지 않는다. 새 열은 끝에 붙인다. */
+const TODO_CSV_HEADERS = ['No', '등록일', '대분류', '중분류', '소분류', '우선순위', '업무내용', '담당자', '마감일', '진행상태', '점검필요', '완료일', '진행사항', '비고', '산출물링크', '업무로그', '마감변경'];
+function buildTodosCsv(items) {
   const esc = (v) => { const s = (v == null ? '' : String(v)); return /[",\n\r]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
-  const rows = items.map((t) => {
+  const rows = (items || []).map((t) => {
     const proj = byId(state.projects, t.projectId);
     return [t.no || '', t.registeredDate || '', proj ? proj.name : '', t.channel || '', t.subChannel || '', t.priority || '',
       t.text || '', t.assignee || '', t.dueDate || '', todoStatus(t), t.needsCheck || '',
@@ -2491,7 +2491,12 @@ function exportTodosCsv() {
         .map((l) => mmddDot(l.at) + ' ' + l.text).join(' / '),
       dueHistoryText(t).replace(/\n/g, ' / ')].map(esc).join(',');
   });
-  const csv = '﻿' + [headers.join(','), ...rows].join('\r\n');
+    // 엑셀이 UTF-8로 열도록 BOM 을 앞에 둔다
+  return '﻿' + [TODO_CSV_HEADERS.join(','), ...rows].join('\r\n');
+}
+
+function exportTodosCsv() {
+  const csv = buildTodosCsv(filterTodos());
   const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
