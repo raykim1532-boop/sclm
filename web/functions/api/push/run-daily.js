@@ -71,27 +71,15 @@ export async function onRequestPost(context) {
   // 시트 동기화는 2026-07-28 종료(앱이 원천). 알림 전 선동기화 단계도 함께 제거했다.
   const s = await computeSummary(env);
 
-  // 알릴 것이 없으면(지연·오늘·임박 모두 0) 발송하지 않음
-  if (s.overdue === 0 && s.dueToday === 0 && s.upcoming === 0) {
+  // 알릴 것이 없으면(지연·오늘·임박·일정 모두 0) 발송하지 않음.
+  // ⚠️ 일정도 조건에 넣어야 한다 — 할 일이 없어도 오늘 회의가 있으면 알려야 하므로.
+  if (s.overdue === 0 && s.dueToday === 0 && s.upcoming === 0 && s.events === 0) {
     try { await recordAttempt(env, source, 'nothing_due'); } catch (e) {}
     return Response.json({ ok: true, skipped: 'nothing_due', source, summary: summaryCounts(s) });
   }
 
-  // 1) 웹푸시 (지연/오늘/임박 — 항목명까지 나열)
-  const parts = [];
-  if (s.overdue) parts.push(`지연 ${s.overdue}`);
-  if (s.dueToday) parts.push(`오늘 ${s.dueToday}`);
-  if (s.upcoming) parts.push(`임박 ${s.upcoming}`);
-  const short = (t) => { const x = String(t.text || '').replace(/^\s*\[[^\]]*\]\s*/, '').trim(); return x.length > 24 ? x.slice(0, 24) + '…' : x; };
-  const md = (iso) => (iso ? iso.slice(5).replace('-', '/') : '');
-  const lines = [];
-  (s.overdueList || []).slice(0, 3).forEach((t) => lines.push(`⏰ ${short(t)} (${md(t.dueDate)} 지연)`));
-  (s.todayList || []).slice(0, 3).forEach((t) => lines.push(`📅 ${short(t)} 오늘 마감`));
-  (s.upcomingList || []).slice(0, 3).forEach((t) => lines.push(`🔜 ${short(t)} (${md(t.dueDate)})`));
-  const shown = lines.length;
-  const more = (s.overdue + s.dueToday + s.upcoming) - shown;
-  const body = (parts.join(' · ') + '건') + (lines.length ? '\n' + lines.join('\n') : '') + (more > 0 ? `\n외 ${more}건` : '');
-  const payload = { title: '📌 오늘의 할 일', body: body.slice(0, 320), tag: 'sclm-daily', url: '/' };
+  // 1) 웹푸시
+  const payload = { title: '📌 오늘의 할 일과 일정', body: buildPushBody(s), tag: 'sclm-daily', url: '/' };
   const push = await sendToAll(env, payload);
 
   // 2) 카카오톡 메모 (설정돼 있을 때만; 길면 자동 분할 발송. 실패해도 푸시 결과는 유지)
@@ -122,6 +110,37 @@ export async function onRequestPost(context) {
   return Response.json({ ok: true, push, kakao, source, parts: messages.length, summary: summaryCounts(s) });
 }
 
+/* 웹푸시 본문 만들기 — 순수 함수(테스트에서 직접 부른다).
+   각 구분마다 최대 3건까지 항목명을 보여 주고, 나머지는 "외 N건"으로 접는다.
+   ⚠️ 길이 제한은 줄 단위로 처리한다 — 그냥 slice 하면 글자 중간에서 잘려
+   "마리오아울…" 같은 토막 줄이 남는다. 덜어낸 만큼 "외 N건"이 자동으로 늘어난다. */
+export function buildPushBody(s, limit = 320) {
+  const parts = [];
+  if (s.overdue) parts.push(`지연 ${s.overdue}`);
+  if (s.dueToday) parts.push(`오늘 ${s.dueToday}`);
+  if (s.upcoming) parts.push(`임박 ${s.upcoming}`);
+  if (s.events) parts.push(`일정 ${s.events}`);
+  const short = (t) => { const x = String(t.text || '').replace(/^\s*\[[^\]]*\]\s*/, '').trim(); return x.length > 24 ? x.slice(0, 24) + '…' : x; };
+  const md = (iso) => (iso ? iso.slice(5).replace('-', '/') : '');
+  const evAt = (e) => (e.allDay === false && e.startTime ? String(e.startTime).slice(0, 5) : '종일');
+  const lines = [];
+  (s.overdueList || []).slice(0, 3).forEach((t) => lines.push(`⏰ ${short(t)} (${md(t.dueDate)} 지연)`));
+  (s.todayList || []).slice(0, 3).forEach((t) => lines.push(`📅 ${short(t)} 오늘 마감`));
+  (s.upcomingList || []).slice(0, 3).forEach((t) => lines.push(`🔜 ${short(t)} (${md(t.dueDate)})`));
+  (s.eventList || []).slice(0, 3).forEach((e) => lines.push(`🗓 ${evAt(e)} ${short({ text: e.title })}`));
+
+  const total = (s.overdue || 0) + (s.dueToday || 0) + (s.upcoming || 0) + (s.events || 0);
+  const head = parts.join(' · ') + '건';
+  const compose = (ls) => {
+    const more = total - ls.length;
+    return head + (ls.length ? '\n' + ls.join('\n') : '') + (more > 0 ? `\n외 ${more}건` : '');
+  };
+  const shown = lines.slice();
+  let body = compose(shown);
+  while (body.length > limit && shown.length) { shown.pop(); body = compose(shown); }
+  return body.slice(0, limit);
+}
+
 function summaryCounts(s) {
-  return { overdue: s.overdue, dueToday: s.dueToday, upcoming: s.upcoming };
+  return { overdue: s.overdue, dueToday: s.dueToday, upcoming: s.upcoming, events: s.events };
 }

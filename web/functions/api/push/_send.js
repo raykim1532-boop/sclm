@@ -18,13 +18,35 @@ function isDone(t) {
   return s === '완료' || s === '지연완료';
 }
 
-// documents 'main' 에서 오늘 마감/지연 건수 계산
+/* 오늘에 걸친 일정을 뽑는다(종일 → 시간순).
+   여러 날짜에 걸친 일정도 오늘이 그 사이면 포함한다(start <= 오늘 <= end).
+   구글에서 읽기 전용으로 가져온 일정(roCal)도 같은 events 배열에 있으므로 함께 잡힌다.
+   순수 함수 — 테스트에서 추출해 검증한다. */
+export function pickTodayEvents(events, today) {
+  const list = (Array.isArray(events) ? events : []).filter((e) => {
+    const s = String((e && e.start) || '').slice(0, 10);
+    if (!s) return false;
+    const en = String((e.end || e.start) || '').slice(0, 10) || s;
+    return s <= today && today <= en;
+  });
+  // 종일이 위, 그다음 시작시각 순. 구글 캘린더와 같은 배열이라 눈에 익다.
+  const at = (e) => (e.allDay === false && e.startTime ? e.startTime : '');
+  return list.sort((a, b) => {
+    const x = at(a), y = at(b);
+    if (!x !== !y) return x ? 1 : -1;
+    if (x !== y) return x < y ? -1 : 1;
+    return String(a.title || '').localeCompare(String(b.title || ''));
+  });
+}
+
+// documents 'main' 에서 오늘 마감/지연 건수 + 오늘 일정 계산
 export async function computeSummary(env) {
   const row = await env.DB.prepare("SELECT data FROM documents WHERE id = 'main'").first();
   let state = {};
   try { state = JSON.parse(row.data); } catch (e) {}
   const todos = Array.isArray(state.todos) ? state.todos : [];
   const today = todayStrKST();
+  const eventList = pickTodayEvents(state.events, today);
   const soonLimit = addDaysIso(today, SOON_DAYS);
   const open = todos.filter((t) => !isDone(t) && isIso(t.dueDate));
   const overdue = open.filter((t) => t.dueDate < today);
@@ -38,9 +60,11 @@ export async function computeSummary(env) {
     overdue: overdue.length,
     dueToday: dueToday.length,
     upcoming: upcoming.length,
+    events: eventList.length,
     overdueList: overdue,
     todayList: dueToday,
     upcomingList: upcoming,
+    eventList,
   };
 }
 

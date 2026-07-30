@@ -34,8 +34,9 @@
    - GitHub Actions 지연이 상시인지는 며칠 더 관측이 필요하다. 지각이 반복되면 GH Actions 쪽을 정리하거나 시각을 앞당길 것.
    - 판정 방법: `run-daily`가 호출자를 `X-Cron-Source`(`cf-cron`/`gh-actions`/`cf-manual`/`manual`)로 기록한다. 아침 이후 `SELECT data FROM documents WHERE id='daily'`의 `attempts`를 보면 어느 쪽이 실제로 발사됐는지(그리고 중복이라 `skipped`됐는지) 알 수 있다.
    - GitHub 저장소 시크릿 `CRON_SECRET`(Pages와 동일 값) 필요 — Settings → Secrets → Actions.
-   - `/api/push/run-daily` — 마감/지연 요약 푸시·카카오 발송 (시트 선동기화는 2026-07-28 제거)
    - `/api/google/sync` — 캘린더 양방향 동기화(`truncated`면 최대 3회 이어서). URL은 `CAL_URL` 또는 `TARGET_URL`에서 자동 유추.
+   - `/api/push/run-daily` — 마감/지연 + **오늘 일정** 요약 푸시·카카오 발송 (시트 선동기화는 2026-07-28 제거)
+   - ⚠️ **호출 순서가 중요하다: 캘린더 동기화 → 브리핑.** 브리핑이 `state.events`에서 오늘 일정을 읽으므로 캘린더를 먼저 맞춰야 한다. 반대로 두면 **어제 동기화분**을 보고 나간다(2026-07-30 이전이 그 상태였다). 동기화 실패가 브리핑을 막지 않도록 `try/catch`로 끊어 두었으니 이 보호를 없애지 말 것. GitHub Actions 워크플로(`daily-alarm.yml`)도 같은 순서다.
    - ⚠️ 요청을 나눈 이유: Cloudflare **서브리퀘스트 한도(요청당 50)**를 각각 따로 쓰기 위해. 한 요청에 합치지 말 것.
    - 클라이언트의 15분 주기 폴링은 **제거**됨(앱 열 때 1회 + 수동 버튼만). 정기 갱신은 이 크론이 담당하므로, 탭을 안 켜도 캘린더가 최신 유지된다.
 
@@ -50,6 +51,10 @@
     - 선택에서 뺀 캘린더의 가져온 일정은 다음 동기화에서 정리된다. 캘린더 수 상한 8개(서브리퀘스트 한도). + ~~시트 읽기 전용 가져오기~~(`_sheets.js`, `sheet-config.js`, `sheet-sync.js`).
   - 🛑 **시트 연동은 2026-07-28 종료. 이 앱이 업무 데이터의 원천이다.** 시트가 원천이면 앱에서 바꾼 상태·첨부·링크가 다음 동기화 때 되돌아가고(실제 사고 2건), 앱 전용 기능(첨부·반복·캘린더·AI 등록)은 시트에 담을 수도 없다. 코드는 복구용으로 남겨두되 D1 `google` 문서의 `sheet.disabled = true` 로 막혀 있고(`runSheetSync`가 `sheet_sync_disabled` 반환), `run-daily`의 선동기화 호출과 앱 설정 UI도 제거했다. **되살리려면** 플래그를 지우고 UI·`run-daily` 호출을 복원할 것 — 단, 그 전에 앱 전용 필드 보존 규칙을 반드시 확인. 시트 동기화는 **시트에 쓰지 않고**(수식·구조 보존) 고정 열 위치로 파싱, 헤더 구조 가드 후 `todos`를 시트 기준으로 교체(id=등록일+업무내용 해시로 안정). ⚠️ **교체 시 시트에 없는 앱 전용 필드(`googleId`·`gSig`·`files`·`links`)는 이전 값에서 반드시 되살릴 것** — 2026-07-28 이 누락으로 첨부파일이 동기화 한 번에 사라지고 R2 객체만 고아로 남는 사고가 있었다. 필드를 추가할 때마다 이 목록도 갱신하고 `sheet-sync.test.mjs`의 '앱 전용 데이터 보존' 절에 케이스를 넣을 것. 공용 `runSheetSync(env)`를 엔드포인트와 `push/run-daily`가 함께 사용. ⚠️ 과거 양방향(full-rewrite)이 실사용 시트를 훼손해 읽기 전용으로 전환함.
   - `push/*` — 웹푸시(aes128gcm+VAPID) + 카카오 '나에게 보내기': `subscribe`, `test`, `run-daily`(요약 계산 → 발송, 호출자를 `X-Cron-Source`로 기록), `kakao-test`, `_webpush.js`, `_send.js`, `_kakao.js`. `public/sw.js`=서비스워커.
+    - 아침 브리핑 = **지연 · 오늘 마감 · 임박(3일) · 오늘 일정** 네 구분. 계산은 `_send.js`의 `computeSummary`(순수 함수 `pickTodayEvents` 사용), 푸시 본문은 `run-daily.js`의 `buildPushBody`, 카카오 본문은 `_kakao.js`의 `summaryLines`. **셋 다 따로 만들므로 구분을 추가하면 세 곳을 같이 고칠 것.**
+    - 일정은 `state.events`에서 `start <= 오늘 <= end`로 뽑는다(여러 날 걸친 일정 포함). 정렬은 종일 → 시작시각 순. 구글에서 읽기 전용으로 가져온 일정(`roCal`)도 같은 배열이라 함께 잡히며, 공휴일 캘린더도 그렇게 들어온다.
+    - ⚠️ **발송 여부 판정에 일정도 포함**된다(`s.events === 0`까지 봐야 `nothing_due`). 할 일이 없어도 오늘 회의가 있으면 알려야 하기 때문 — 이 조건에서 일정을 빼면 조용히 안 가는 날이 생긴다.
+    - ⚠️ 푸시 본문 320자 제한은 **줄 단위로** 처리한다(`buildPushBody`가 뒤에서부터 덜어내고 "외 N건"을 늘림). 그냥 `slice`하면 글자 중간에서 잘려 토막 줄이 남는다. 검증: `brief-events.test.mjs`.
   - `files/[[path]].js` — **파일 첨부**(R2 버킷 `sclm-files`, 바인딩 `FILES`). POST 업로드(multipart, 25MB) / GET 다운로드(`?t=<APP_PASSWORD>` 쿼리도 허용 — `<a href>`용) / DELETE. 키는 서버 생성 + 형식 검증. 할일의 `files:[{key,name,size}]`에 저장, 표에 📎N 배지. **할 일을 지우는 모든 경로는 첨부도 함께 지운다** — 앱은 `deleteTodoFiles()`(행 삭제·벌크 삭제·모달 개별/반복 전체 4곳), 서버는 `assistant.js`의 `delete_todo`가 `deleteFiles` 키를 반환하면 호출부가 `env.FILES.delete()`. 새 삭제 경로를 만들면 여기도 연결할 것(안 하면 접근 불가한 고아 객체가 쌓인다). ⚠️ `wrangler r2 bucket info`의 object_count는 반영이 지연되니, 검증은 `wrangler r2 object get`으로.
   - `assistant.js` — **AI 일정 비서**(자연어 채팅). **무료 Google Gemini**(`gemini-2.5-flash`) function-calling으로 D1 직접 조회·생성. 도구: list_schedule / find_free_slots / add_event / add_todo / complete_todo / update_todo / delete_todo / weekly_report / monthly_report / **search_todos(조건 검색)** / **count_todos(집계, group_by)** / **work_stats(처리 지표)**. `runTool`은 테스트에서 직접 호출하므로 **export 유지**(`web/tests/assistant-tools.test.mjs`). 프론트는 우하단 🤖 위젯(`setupAssistant`, 클라우드 전용), 실행 시 상태 자동 새로고침. `GEMINI_API_KEY` 필요. (유료 Claude로 바꾸려면 이 파일의 API 호출부만 교체.)
 - `web/wrangler.toml` — D1 바인딩(`DB` = scheduler-db) + R2 바인딩(`FILES` = sclm-files). `web/schema.sql`, `web/seed.sql`.

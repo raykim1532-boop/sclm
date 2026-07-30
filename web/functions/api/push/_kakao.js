@@ -119,7 +119,18 @@ function summaryLines(s) {
   add('⏰지연', s.overdueList, false);
   add('📅오늘', s.todayList, false);
   add('🔜임박', s.upcomingList, true);
+  // 일정은 할 일과 성격이 다르므로(마감이 아니라 시각) 맨 아래 따로 둔다
+  const ev = s.eventList || [];
+  if (ev.length) {
+    lines.push(`🗓일정 ${ev.length}`);
+    for (const e of ev) lines.push('· ' + eventTime(e) + ' ' + shortTitle({ text: e.title }));
+  }
   return lines;
+}
+
+// 시간이 지정된 일정은 HH:MM, 아니면 '종일'
+function eventTime(e) {
+  return e && e.allDay === false && e.startTime ? String(e.startTime).slice(0, 5) : '종일';
 }
 
 // 줄 단위로 ≤max 청크로 묶어 여러 메시지로. 2건 이상이면 제목에 (k/N) 표기.
@@ -150,6 +161,8 @@ function chunkMessages(title, lines, max = MSG_LIMIT) {
 
 // computeSummary 결과 → 발송할 메시지 배열(길면 자동 분할).
 export function buildKakaoMessages(s) {
-  const title = `📌 SCLM 할 일 (${mmdd(s.today)})`;
+  // 일정이 있는 날엔 제목도 그렇게 말해 준다(내용과 제목이 어긋나지 않게)
+  const what = (s.eventList || []).length ? '할 일·일정' : '할 일';
+  const title = `📌 SCLM ${what} (${mmdd(s.today)})`;
   return chunkMessages(title, summaryLines(s));
 }

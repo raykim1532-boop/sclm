@@ -25,7 +25,22 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: run-daily (시트 동기화 + 카카오·푸시 발송)
+      # ⚠️ 캘린더를 먼저 맞춘다 — 브리핑이 오늘 일정을 읽기 때문.
+      #    동기화가 실패해도 브리핑은 나가야 하므로 continue-on-error.
+      - name: calendar sync (구글 캘린더 동기화, truncated 시 최대 3회)
+        continue-on-error: true
+        run: |
+          for i in 1 2 3; do
+            code=$(curl -s -o /tmp/cal.json -w "%{http_code}" -X POST \
+              -H "X-Cron-Secret: ${{ secrets.CRON_SECRET }}" \
+              -H "X-Cron-Source: gh-actions" \
+              https://sclm.pages.dev/api/google/sync)
+            echo "try $i: HTTP $code"
+            cat /tmp/cal.json
+            grep -q '"truncated":true' /tmp/cal.json || break
+          done
+
+      - name: run-daily (아침 브리핑 — 할 일 + 오늘 일정, 카카오·푸시 발송)
         run: |
           code=$(curl -s -o /tmp/daily.json -w "%{http_code}" -X POST \
             -H "X-Cron-Secret: ${{ secrets.CRON_SECRET }}" \
@@ -34,15 +49,3 @@ jobs:
           echo "HTTP $code"
           cat /tmp/daily.json
           [ "$code" = "200" ] || exit 1
-
-      - name: calendar sync (구글 캘린더 동기화, truncated 시 최대 3회)
-        run: |
-          for i in 1 2 3; do
-            code=$(curl -s -o /tmp/cal.json -w "%{http_code}" -X POST \
-              -H "X-Cron-Secret: ${{ secrets.CRON_SECRET }}" \
-            -H "X-Cron-Source: gh-actions" \
-              https://sclm.pages.dev/api/google/sync)
-            echo "try $i: HTTP $code"
-            cat /tmp/cal.json
-            grep -q '"truncated":true' /tmp/cal.json || break
-          done
