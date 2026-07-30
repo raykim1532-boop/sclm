@@ -19,6 +19,10 @@
   | `src/cloud-sync.js` | 클라우드 동기화(`window.CloudSync`) |
   | `src/app.js` | 앱 로직 전부(렌더·모달·대시보드·금고 등) |
     - 대시보드 분석 카드는 `renderDashAnalytics()` 하나가 다 그린다. 계산은 순수 함수(`computeWorkStats` / `computeTrend` / `computeDataIssues` / `computeTaxoTop`)로 빼 두었고 `web/tests/`에서 소스에서 정규식으로 떼어내 검증하므로, **이름이나 시그니처를 바꾸면 테스트의 `grab(...)` 정규식도 같이 고쳐야 한다.**
+    - **업무 로그 · 마감일 변경 이력** (2026-07-30). 둘 다 할 일에 배열로 붙는다 — `logs: [{at:'YYYY-MM-DD', text}]`, `dueHistory: [{from, to, at}]`. 순수 함수(`todoLogs`/`todoLogLatest`/`todoProgressCell`/`dueMoveCount`/`dueHistoryText`/`pushDueHistory`)로 빼 두었고 `todo-log.test.mjs`가 소스에서 추출해 검증한다.
+      - ⚠️ **옛 `progress`(자유 텍스트)는 건드리지 않는다.** 43건에 내용이 있고 CSV·시트 머리글 매핑이 그 필드를 쓴다. 표는 로그가 있으면 로그를, 없으면 `progress`를 보여줄 뿐이다(`todoProgressCell`). 마이그레이션하지 말 것.
+      - 로그는 모달 DOM(`.log-row`의 `data-at`/`data-text`)에 쌓아 두고 **[저장] 때 수집**한다. 별도 상태를 두지 않아 [취소]하면 자연히 버려진다.
+      - `dueMoveCount`는 **뒤로 민 것만** 센다(앞당긴 건 이력엔 남지만 배지로 경고하지 않는다). 보고 싶은 건 "이 건이 자꾸 밀린다"이지 날짜가 몇 번 바뀌었나가 아니다.
     - **분류 Top**은 대·중·소를 카드 하나에서 탭으로 바꿔 보는 구조(`TAXO_AXES` + `taxoTab`). 세 축이 같은 눈금(막대 = 전체 건수, 진한 부분 = 완료 비율)을 쓰는 게 핵심이라, 축마다 다른 지표를 쓰지 말 것 — 예전에 대분류만 "진행률", 중분류만 "미완료 건수"였던 탓에 서로 비교가 안 됐다.
 - **FullCalendar 임베드 번들(`src/shell.html` 안의 대용량 `<script>` 4개)은 수정하지 말 것.**
 - `build.js`는 `<!--@include ...-->` 자리표시자를 파일 내용으로 치환할 뿐이다. 조각을 추가하려면 shell.html에 자리표시자를 넣고 파일을 만들면 된다. 처리 못 한 자리표시자가 남으면 빌드가 실패한다.
@@ -49,7 +53,7 @@
   - `google/*` — 구글 OAuth(`_util.js`, 스코프 `calendar`+`spreadsheets`) + 캘린더 양방향 동기화(`sync.js`, 전용 "SCLM" 캘린더) + **다른 캘린더 읽기 전용 가져오기**(`calendars.js`로 선택, `gdoc.readCalendars`에 저장)
     - ⚠️ **쓰기는 오직 "SCLM" 캘린더에만.** 가져온 항목은 `roCal`(출처 캘린더 id)로 표시되며 **① 푸시 루프에서 `continue`** ② **삭제 판정에서 제외**(present 집합은 SCLM 캘린더 것이라 그냥 두면 즉시 지워진다) ③ 앱에서 `openReadOnlyEventModal`로 보기 전용. 이 세 가지 중 하나라도 빠지면 개인 일정이 SCLM 캘린더로 복사되거나 사라진다. 검증: `calendar-sync.test.mjs`의 '읽기 전용 캘린더 가져오기' 절.
     - 선택에서 뺀 캘린더의 가져온 일정은 다음 동기화에서 정리된다. 캘린더 수 상한 8개(서브리퀘스트 한도). + ~~시트 읽기 전용 가져오기~~(`_sheets.js`, `sheet-config.js`, `sheet-sync.js`).
-  - 🛑 **시트 연동은 2026-07-28 종료. 이 앱이 업무 데이터의 원천이다.** 시트가 원천이면 앱에서 바꾼 상태·첨부·링크가 다음 동기화 때 되돌아가고(실제 사고 2건), 앱 전용 기능(첨부·반복·캘린더·AI 등록)은 시트에 담을 수도 없다. 코드는 복구용으로 남겨두되 D1 `google` 문서의 `sheet.disabled = true` 로 막혀 있고(`runSheetSync`가 `sheet_sync_disabled` 반환), `run-daily`의 선동기화 호출과 앱 설정 UI도 제거했다. **되살리려면** 플래그를 지우고 UI·`run-daily` 호출을 복원할 것 — 단, 그 전에 앱 전용 필드 보존 규칙을 반드시 확인. 시트 동기화는 **시트에 쓰지 않고**(수식·구조 보존) 고정 열 위치로 파싱, 헤더 구조 가드 후 `todos`를 시트 기준으로 교체(id=등록일+업무내용 해시로 안정). ⚠️ **교체 시 시트에 없는 앱 전용 필드(`googleId`·`gSig`·`files`·`links`)는 이전 값에서 반드시 되살릴 것** — 2026-07-28 이 누락으로 첨부파일이 동기화 한 번에 사라지고 R2 객체만 고아로 남는 사고가 있었다. 필드를 추가할 때마다 이 목록도 갱신하고 `sheet-sync.test.mjs`의 '앱 전용 데이터 보존' 절에 케이스를 넣을 것. 공용 `runSheetSync(env)`를 엔드포인트와 `push/run-daily`가 함께 사용. ⚠️ 과거 양방향(full-rewrite)이 실사용 시트를 훼손해 읽기 전용으로 전환함.
+  - 🛑 **시트 연동은 2026-07-28 종료. 이 앱이 업무 데이터의 원천이다.** 시트가 원천이면 앱에서 바꾼 상태·첨부·링크가 다음 동기화 때 되돌아가고(실제 사고 2건), 앱 전용 기능(첨부·반복·캘린더·AI 등록)은 시트에 담을 수도 없다. 코드는 복구용으로 남겨두되 D1 `google` 문서의 `sheet.disabled = true` 로 막혀 있고(`runSheetSync`가 `sheet_sync_disabled` 반환), `run-daily`의 선동기화 호출과 앱 설정 UI도 제거했다. **되살리려면** 플래그를 지우고 UI·`run-daily` 호출을 복원할 것 — 단, 그 전에 앱 전용 필드 보존 규칙을 반드시 확인. 시트 동기화는 **시트에 쓰지 않고**(수식·구조 보존) 고정 열 위치로 파싱, 헤더 구조 가드 후 `todos`를 시트 기준으로 교체(id=등록일+업무내용 해시로 안정). ⚠️ **교체 시 시트에 없는 앱 전용 필드(`googleId`·`gSig`·`files`·`links`·`logs`·`dueHistory`)는 이전 값에서 반드시 되살릴 것** — 2026-07-28 이 누락으로 첨부파일이 동기화 한 번에 사라지고 R2 객체만 고아로 남는 사고가 있었다. 필드를 추가할 때마다 이 목록도 갱신하고 `sheet-sync.test.mjs`의 '앱 전용 데이터 보존' 절에 케이스를 넣을 것. 공용 `runSheetSync(env)`를 엔드포인트와 `push/run-daily`가 함께 사용. ⚠️ 과거 양방향(full-rewrite)이 실사용 시트를 훼손해 읽기 전용으로 전환함.
   - `push/*` — 웹푸시(aes128gcm+VAPID) + 카카오 '나에게 보내기': `subscribe`, `test`, `run-daily`(요약 계산 → 발송, 호출자를 `X-Cron-Source`로 기록), `kakao-test`, `_webpush.js`, `_send.js`, `_kakao.js`. `public/sw.js`=서비스워커.
     - 아침 브리핑 = **지연 · 오늘 마감 · 임박(3일) · 오늘 일정** 네 구분. 계산은 `_send.js`의 `computeSummary`(순수 함수 `pickTodayEvents` 사용), 푸시 본문은 `run-daily.js`의 `buildPushBody`, 카카오 본문은 `_kakao.js`의 `summaryLines`. **셋 다 따로 만들므로 구분을 추가하면 세 곳을 같이 고칠 것.**
     - 일정은 `state.events`에서 `start <= 오늘 <= end`로 뽑는다(여러 날 걸친 일정 포함). 정렬은 종일 → 시작시각 순. 구글에서 읽기 전용으로 가져온 일정(`roCal`)도 같은 배열이라 함께 잡히며, 공휴일 캘린더도 그렇게 들어온다.
@@ -97,6 +101,8 @@ Worker `sclm-push-cron`: `CRON_SECRET`(Pages와 동일 값).
 - `data-vault` 금고 보존 규칙(저장 요청에 vault 없으면 기존 암호문 유지) · `sheet-sync` 비파괴/구조가드/앱항목 보존/id 안정성
 - `taxonomy` 분류 트리 마이그레이션(소속 추론·기존 값 보존·빈 값 처리)
 - `calendar-sync` 공용 함수·크론 인증 · `kakao` refresh_token 회전 저장·200자 분할 · `vault-crypto` 암호화 왕복·마스터 비번 변경
+- `todo-log` 업무 로그·마감일 변경 이력(정규화·최신 판정·표 표시 우선순위·밀림 횟수)
+  - ⚠️ `uid()` 는 **세션 카운터 + 난수** 조합이다. 난수만 쓰면 같은 밀리초에 대량 생성할 때 겹친다 — 금고 CSV 1000건 가져오기에서 실제로 충돌해 테스트가 간헐 실패했다. 카운터를 빼지 말 것.
 - `vault-csv` Password 관리자 CSV 가져오기(크롬·구글·Bitwarden 머리글 매핑, BOM, 따옴표/쉼표/줄바꿈, 대량 id 고유성)
   - ⚠️ **`parseDelimitedTable`의 구분자 판별은 첫 줄(머리글)만 본다.** 파일 전체에서 `\t`를 찾으면(예전 코드) 메모나 비밀번호에 탭이 하나만 섞여도 쉼표 CSV가 통째로 TSV로 읽혀 **모든 행이 한 칸으로 뭉개진다** — 그런데도 "N건 가져왔어요"가 뜨고 비밀번호가 빈 채로 저장되는 조용한 실패였다(2026-07-30 발견). 이 함수는 구글시트 붙여넣기(TSV)와 금고 CSV가 **함께 쓰므로** 손댈 때 양쪽 테스트를 다 볼 것.
   - 금고 CSV는 **평문**이다. 내보내기 전 확인 대화상자를 띄우고 즉시 삭제를 권고하는 문구가 있으니 없애지 말 것.

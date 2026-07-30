@@ -70,7 +70,11 @@ function todoCalendarPrefix(t) {
   return mark;
 }
 
-const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+/* 고유 id. ⚠️ 같은 밀리초에 여러 개를 만드는 경우(CSV 대량 가져오기 등)가 있어
+   난수만으로는 부족하다 — 금고 CSV 1000건에서 실제로 충돌했다. 세션 내 증가 카운터를
+   섞어 **구조적으로** 겹치지 않게 한다(난수는 세션 간 충돌 방지용으로 남긴다). */
+let _uidSeq = 0;
+const uid = () => Date.now().toString(36) + (++_uidSeq).toString(36) + '_' + Math.random().toString(36).slice(2, 8);
 
 function byId(arr, id) { return arr.find((x) => x.id === id); }
 function projectColor(projectId) {
@@ -689,7 +693,7 @@ function vaultCsvRowsToEntries(rows) {
     cols.forEach((field, i) => { if (field) rec[field] = (r[i] != null ? String(r[i]).trim() : ''); });
     if (!rec.site && !rec.user && !rec.pass) return;
     out.push({
-      id: 'v_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+      id: 'v_' + uid(),
       site: rec.site || rec.url || '(이름 없음)',
       url: rec.url || '', user: rec.user || '', pass: rec.pass || '',
       category: rec.category || '', memo: rec.memo || '', updatedAt: Date.now(),
@@ -878,7 +882,7 @@ function setupVault() {
     const site = $('vfSite').value.trim();
     if (!site) { toast('사이트/서비스명을 입력해주세요'); return; }
     const entry = {
-      id: vaultEditId || ('v_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6)),
+      id: vaultEditId || ('v_' + uid()),
       site, url: $('vfUrl').value.trim(), user: $('vfUser').value, pass: $('vfPass').value,
       category: $('vfCategory').value.trim(), memo: $('vfMemo').value, updatedAt: Date.now(),
     };
@@ -1867,6 +1871,109 @@ function renderDashAnalytics() {
   });
 }
 
+/* 모달의 로그 한 줄. 값은 data-at/data-text 에 담아 두고 저장 시 그대로 수집한다
+   (별도 상태를 두지 않아 [취소]하면 자연히 반영되지 않는다). 최신이 위로 오게 정렬. */
+function logRowsHtml(logs) {
+  return (logs || []).slice()
+    .sort((a, b) => (b.at || '').localeCompare(a.at || ''))
+    .map(logRowHtml).join('');
+}
+function logRowHtml(l) {
+  const at = l.at || '', text = l.text || '';
+  return '<div class="log-row" data-at="' + escapeHtml(at) + '" data-text="' + escapeHtml(text) + '">'
+    + '<span class="lr-at">' + escapeHtml(mmddDot(at) || '날짜없음') + '</span>'
+    + '<span class="lr-text">' + escapeHtml(text) + '</span>'
+    + '<button type="button" class="lr-del" title="이 로그 삭제" aria-label="삭제">✕</button>'
+    + '</div>';
+}
+
+/* 마감일 옆 "⟳N" 배지 — 뒤로 민 적이 있을 때만. 툴팁에 변경 이력 전체를 담는다. */
+function dueBadgeHtml(t) {
+  const n = dueMoveCount(t);
+  if (!n) return '';
+  return ' <span class="due-moved" title="' + escapeHtml(n + '회 미룸\n' + dueHistoryText(t)) + '">⟳' + n + '</span>';
+}
+
+/* 로그가 2건 이상이면 개수 배지 — 표엔 최신 한 줄만 보이므로 더 있다는 걸 알린다 */
+function logCountHtml(t) {
+  const n = todoLogs(t).length;
+  return n > 1 ? ' <span class="log-count">+' + (n - 1) + '</span>' : '';
+}
+
+/* 진행사항 칸 툴팁: 로그 전체 + (있으면) 옛 progress */
+function todoProgressTitle(t) {
+  const ls = todoLogs(t).slice().sort((a, b) => (b.at || '').localeCompare(a.at || ''));
+  const lines = ls.map((l) => mmddDot(l.at) + '  ' + l.text);
+  const legacy = (t && t.progress || '').trim();
+  if (legacy) lines.push((lines.length ? '\n[진행사항]\n' : '') + legacy);
+  return lines.join('\n');
+}
+
+/* ---------- 업무 로그 · 마감일 변경 이력 ----------
+   둘 다 할 일에 배열로 붙는다. 옛 데이터엔 없으므로 읽는 쪽에서 항상 배열로 정규화한다.
+     todo.logs       = [{ at:'YYYY-MM-DD', text }]   진행 경과를 한 줄씩 쌓는다
+     todo.dueHistory = [{ from, to, at }]            마감일을 바꿀 때마다 남는다
+   ⚠️ 기존 `progress`(자유 텍스트)는 그대로 둔다 — 43건에 내용이 있고 CSV·시트 매핑이
+      그 필드를 쓴다. 로그가 있으면 표에서 로그를 우선 보여줄 뿐 데이터는 건드리지 않는다. */
+
+function todoLogs(t) {
+  return Array.isArray(t && t.logs) ? t.logs.filter((l) => l && (l.text || '').trim()) : [];
+}
+
+/* 최신 로그 한 건. 날짜 내림차순, 같은 날이면 나중에 적은 것이 뒤이므로 뒤쪽을 택한다. */
+function todoLogLatest(t) {
+  const ls = todoLogs(t);
+  if (!ls.length) return null;
+  let best = ls[0];
+  for (const l of ls) if ((l.at || '') >= (best.at || '')) best = l;
+  return best;
+}
+
+/* 표의 진행사항 칸에 보일 문자열. 로그가 있으면 최신 로그, 없으면 옛 progress. */
+function todoProgressCell(t) {
+  const last = todoLogLatest(t);
+  if (!last) return (t && t.progress) || '';
+  return mmddDot(last.at) + ' ' + last.text;
+}
+
+// '2026-07-30' → '07/30' (빈 값이면 빈 문자열)
+function mmddDot(iso) {
+  return /^\d{4}-\d{2}-\d{2}$/.test(iso || '') ? iso.slice(5).replace('-', '/') : '';
+}
+
+/* 검색·리포트용: 로그 전체를 한 줄로 이어 붙인다 */
+function todoLogsText(t) {
+  return todoLogs(t).map((l) => mmddDot(l.at) + ' ' + l.text).join(' ');
+}
+
+function todoDueHistory(t) {
+  return Array.isArray(t && t.dueHistory) ? t.dueHistory.filter((h) => h && (h.from || h.to)) : [];
+}
+
+/* 뒤로 민 횟수만 센다. 앞당긴 것은 이력엔 남지만 배지로 경고하지 않는다 —
+   보고 싶은 건 "이 건이 자꾸 밀린다"이지 날짜가 몇 번 바뀌었나가 아니다. */
+function dueMoveCount(t) {
+  return todoDueHistory(t).filter((h) => h.from && h.to && h.to > h.from).length;
+}
+
+/* 배지 툴팁 문구: "07/24 → 07/31 (07/24 변경)" 을 줄바꿈으로 */
+function dueHistoryText(t) {
+  return todoDueHistory(t)
+    .map((h) => (mmddDot(h.from) || '없음') + ' → ' + (mmddDot(h.to) || '없음') + (h.at ? '  (' + mmddDot(h.at) + ' 변경)' : ''))
+    .join('\n');
+}
+
+/* 마감일이 바뀌었으면 이력 한 줄을 남긴다. 새 할 일(이전 값 없음)에는 남기지 않는다. */
+function pushDueHistory(todo, nextDue, todayIso) {
+  const prev = (todo && todo.dueDate) || '';
+  const next = nextDue || '';
+  if (prev === next) return false;
+  if (!prev) return false;   // 처음 마감일을 넣는 것은 '변경'이 아니다
+  if (!Array.isArray(todo.dueHistory)) todo.dueHistory = [];
+  todo.dueHistory.push({ from: prev, to: next, at: todayIso });
+  return true;
+}
+
 /* ---------- 프로젝트 select 옵션 생성 ---------- */
 function projectOptionsHtml(selectedId) {
   return state.projects.map((p) => `<option value="${p.id}" ${p.id === selectedId ? 'selected' : ''}>${escapeHtml(p.name)}</option>`).join('');
@@ -2367,13 +2474,17 @@ function openMonthlyReport() {
 // 현재 필터·정렬된 할 일 목록을 CSV(엑셀)로 내보내기. Excel 한글 깨짐 방지 BOM 포함.
 function exportTodosCsv() {
   const items = filterTodos();
-  const headers = ['No', '등록일', '대분류', '중분류', '소분류', '우선순위', '업무내용', '담당자', '마감일', '진행상태', '점검필요', '완료일', '진행사항', '비고', '산출물링크'];
+  // 열 순서는 시트 머리글 매핑과 맞춰 둔 것이라 앞부분은 건드리지 않는다. 새 열은 끝에 붙인다.
+  const headers = ['No', '등록일', '대분류', '중분류', '소분류', '우선순위', '업무내용', '담당자', '마감일', '진행상태', '점검필요', '완료일', '진행사항', '비고', '산출물링크', '업무로그', '마감변경'];
   const esc = (v) => { const s = (v == null ? '' : String(v)); return /[",\n\r]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
   const rows = items.map((t) => {
     const proj = byId(state.projects, t.projectId);
     return [t.no || '', t.registeredDate || '', proj ? proj.name : '', t.channel || '', t.subChannel || '', t.priority || '',
       t.text || '', t.assignee || '', t.dueDate || '', todoStatus(t), t.needsCheck || '',
-      t.completedDate || '', t.progress || '', t.remarks || '', todoLinks(t).join(' | ')].map(esc).join(',');
+      t.completedDate || '', t.progress || '', t.remarks || '', todoLinks(t).join(' | '),
+      todoLogs(t).slice().sort((a, b) => (a.at || '').localeCompare(b.at || ''))
+        .map((l) => mmddDot(l.at) + ' ' + l.text).join(' / '),
+      dueHistoryText(t).replace(/\n/g, ' / ')].map(esc).join(',');
   });
   const csv = '﻿' + [headers.join(','), ...rows].join('\r\n');
   const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
@@ -2420,7 +2531,7 @@ function filterTodos() {
   };
   const matchesSearch = (t) => {
     if (!q) return true;
-    return [t.text, t.channel, t.subChannel, t.assignee, t.progress, t.remarks, t.priority, String(t.no || '')]
+    return [t.text, t.channel, t.subChannel, t.assignee, t.progress, todoLogsText(t), t.remarks, t.priority, String(t.no || '')]
       .some((v) => (v || '').toString().toLowerCase().includes(q));
   };
   const matchesDate = (t) => {
@@ -2563,11 +2674,11 @@ function renderTodos() {
       <td>${escapeHtml(t.priority || '')}</td>
       <td class="col-title">${escapeHtml(t.text || '')}</td>
       <td>${escapeHtml(t.assignee || '')}</td>
-      <td class="col-date col-due">${t.dueDate || ''}</td>
+      <td class="col-date col-due">${t.dueDate || ''}${dueBadgeHtml(t)}</td>
       <td><span class="status-tag" style="background:${statusColor}1f;color:${statusColor}">${escapeHtml(status)}</span></td>
       <td class="col-check">${escapeHtml(t.needsCheck || '')}</td>
       <td class="col-date">${t.completedDate || ''}</td>
-      <td class="col-notes" title="${escapeHtml(t.progress || '')}">${escapeHtml(t.progress || '')}</td>
+      <td class="col-notes" title="${escapeHtml(todoProgressTitle(t))}">${escapeHtml(todoProgressCell(t))}${logCountHtml(t)}</td>
       <td class="col-notes" title="${escapeHtml(t.remarks || '')}">${escapeHtml(t.remarks || '')}</td>
       <td class="col-link">${todoLinksCellHtml(t)}${todoFilesCellHtml(t)}</td>
       <td class="col-actions"><button class="icon-btn del-btn" title="삭제">🗑</button></td>
@@ -2809,8 +2920,18 @@ function openTodoModal(todo, presets) {
         </div>
       </div>
       <div class="field"><label>완료일(선택)</label><input type="date" id="f-completed" value="${data.completedDate || ''}" /></div>
+      ${todoDueHistory(data).length ? `<div class="due-hist">📌 마감일 변경 ${todoDueHistory(data).length}회\n        ${todoDueHistory(data).map((h) => `<span>${escapeHtml(mmddDot(h.from) || '없음')} → ${escapeHtml(mmddDot(h.to) || '없음')}${h.at ? ' (' + escapeHtml(mmddDot(h.at)) + ')' : ''}</span>`).join('')}\n      </div>` : ''}
+      <div class="field">
+        <label>업무 로그<span class="hint-inline">한 줄 적으면 날짜가 붙어 쌓여요</span></label>
+        <div id="f-logs" class="log-list">${logRowsHtml(todoLogs(data))}</div>
+        <div class="log-add">
+          <input type="date" id="f-log-date" class="log-date" value="${todayStr()}" />
+          <input type="text" id="f-log-text" class="log-text" placeholder="오늘 한 일 (예: 김선화 차장 자료 전달)" />
+          <button type="button" class="btn" id="f-log-add">기록</button>
+        </div>
+      </div>
       <div class="field-row">
-        <div class="field"><label>진행사항</label><textarea id="f-progress" placeholder="진행 상황 기록">${escapeHtml(data.progress || '')}</textarea></div>
+        <div class="field"><label>진행사항<span class="hint-inline">한 줄 요약 · 예전 기록</span></label><textarea id="f-progress" placeholder="진행 상황 요약">${escapeHtml(data.progress || '')}</textarea></div>
         <div class="field"><label>비고</label><textarea id="f-remarks" placeholder="기타 메모">${escapeHtml(data.remarks || '')}</textarea></div>
       </div>
       <div class="field"><label>산출물 링크 (선택 · 여러 개 가능)</label>
@@ -2841,6 +2962,10 @@ function openTodoModal(todo, presets) {
       const needsCheck = document.getElementById('f-needscheck').value;
       const completedDate = document.getElementById('f-completed').value;
       const progress = document.getElementById('f-progress').value;
+      // 화면에 쌓아 둔 로그를 그대로 읽는다(취소하면 반영되지 않도록 저장 시점에 수집)
+      const logs = [...document.querySelectorAll('#f-logs .log-row')]
+        .map((r) => ({ at: r.dataset.at || '', text: r.dataset.text || '' }))
+        .filter((l) => l.text.trim());
       const remarks = document.getElementById('f-remarks').value;
       const links = [...document.querySelectorAll('#f-links .f-link-input')].map((i) => i.value.trim()).filter(Boolean);
       const link = links[0] || ''; // 구형 호환(구글 동기화 등)
@@ -2856,16 +2981,18 @@ function openTodoModal(todo, presets) {
         const group = 'rg' + uid();
         let no = nextNo;
         dates.forEach((d) => {
-          state.todos.push({ id: uid(), no: no++, registeredDate, projectId, channel, subChannel, priority, text, assignee, dueDate: d, status: '대기', needsCheck, completedDate: '', progress, remarks, links, link, files, done: false, recurGroup: group });
+          state.todos.push({ id: uid(), no: no++, registeredDate, projectId, channel, subChannel, priority, text, assignee, dueDate: d, status: '대기', needsCheck, completedDate: '', progress, remarks, links, link, files, done: false, recurGroup: group, logs: logs.slice() });
         });
         persist(); renderAll();
         toast(`반복 할일 ${dates.length}개를 추가했어요`);
         return true;
       }
       if (isNew) {
-        state.todos.push({ id: uid(), no: nextNo, registeredDate, projectId, channel, subChannel, priority, text, assignee, dueDate, status, needsCheck, completedDate, progress, remarks, links, link, files, done });
+        state.todos.push({ id: uid(), no: nextNo, registeredDate, projectId, channel, subChannel, priority, text, assignee, dueDate, status, needsCheck, completedDate, progress, remarks, links, link, files, done, logs });
       } else {
-        Object.assign(todo, { registeredDate, projectId, channel, subChannel, priority, text, assignee, dueDate, status, needsCheck, completedDate, progress, remarks, links, link, files, done });
+        // 마감일을 바꿨으면 이력을 남긴다 — Object.assign 으로 덮기 전에 옛 값을 봐야 한다
+        pushDueHistory(todo, dueDate, todayStr());
+        Object.assign(todo, { registeredDate, projectId, channel, subChannel, priority, text, assignee, dueDate, status, needsCheck, completedDate, progress, remarks, links, link, files, done, logs });
       }
       persist(); renderAll();
       return true;
@@ -2888,6 +3015,27 @@ function openTodoModal(todo, presets) {
       persist(); renderAll();
     },
     onOpen: () => {
+      // 업무 로그: [기록] 또는 Enter 로 한 줄 추가, ✕ 로 삭제. 실제 저장은 [저장] 때.
+      const logBox = document.getElementById('f-logs');
+      const logDate = document.getElementById('f-log-date');
+      const logText = document.getElementById('f-log-text');
+      const addLog = () => {
+        const v = (logText.value || '').trim();
+        if (!v) { logText.focus(); return; }
+        logBox.insertAdjacentHTML('afterbegin', logRowHtml({ at: logDate.value || todayStr(), text: v }));
+        logText.value = '';
+        logText.focus();
+      };
+      const logAddBtn = document.getElementById('f-log-add');
+      if (logAddBtn) logAddBtn.onclick = addLog;
+      if (logText) logText.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') { e.preventDefault(); addLog(); }   // 폼 제출(=저장) 대신 로그 추가
+      });
+      if (logBox) logBox.addEventListener('click', (e) => {
+        const del = e.target.closest('.lr-del');
+        if (del) del.closest('.log-row').remove();
+      });
+
       // 대분류·중분류·소분류는 서로 독립이라 한쪽을 바꿔도 다른 칸을 건드리지 않는다.
       const box = document.getElementById('f-links');
       const add = document.getElementById('f-link-add');

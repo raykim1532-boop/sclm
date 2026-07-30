@@ -104,6 +104,8 @@ export async function runSheetSync(env) {
         // 동기화 한 번에 조용히 사라진다(실제로 첨부파일이 그렇게 유실됐다).
         files: prev && prev.files && prev.files.length ? prev.files : undefined,
         links: prev && prev.links && prev.links.length ? prev.links : undefined,
+        logs: prev && prev.logs && prev.logs.length ? prev.logs : undefined,
+        dueHistory: prev && prev.dueHistory && prev.dueHistory.length ? prev.dueHistory : undefined,
         no: Number(noRaw) || noRaw || '',
         registeredDate: reg,
         dueDate: norm(r[COL.dueDate]),

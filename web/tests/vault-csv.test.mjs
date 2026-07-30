@@ -6,7 +6,9 @@ import { check, section } from './_helpers.mjs';
 
 const src = readFileSync(new URL('../../src/app.js', import.meta.url), 'utf8');
 const grab = (re, name) => { const m = src.match(re); if (!m) throw new Error('함수 추출 실패: ' + name); return m[0]; };
+// uid()도 실제 소스에서 가져온다 — 대량 가져오기 id 고유성이 여기에 달려 있다
 const { parseDelimitedTable, vaultCsvRowsToEntries } = new Function([
+  grab(/let _uidSeq = 0;\r?\nconst uid = [^\r\n]*/, 'uid'),
   grab(/function parseDelimitedTable\([\s\S]*?\r?\n}/, 'parseDelimitedTable'),
   grab(/function normHeaderKey\([^\r\n]*/, 'normHeaderKey'),
   grab(/const VAULT_CSV_HEADER_MAP = \{[\s\S]*?\r?\n\};/, 'VAULT_CSV_HEADER_MAP'),
