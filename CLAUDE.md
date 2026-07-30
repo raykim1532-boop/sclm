@@ -34,10 +34,10 @@
 ## 배포물이 2개다 (중요)
 1. **Pages `sclm`** — 앱 + Functions(`web/functions/api/**`). 배포: `cd web && npm run deploy`.
 2. **별도 Worker `sclm-push-cron`** (`web/push-cron/`) — 매일 08:00·08:10 KST에 **두 엔드포인트를 각각** `X-Cron-Secret`으로 호출. 배포: `cd web/push-cron && npx wrangler deploy`.
-   - 스케줄러가 **둘 다 살아 있다**: 이 워커(08:00·08:10 KST)와 GitHub Actions(`.github/workflows/daily-alarm.yml`, 07:57·08:12 KST). `run-daily`의 하루 1회 가드(documents id='daily')가 양쪽 중복 발송을 막으므로 둘을 함께 둬도 알림은 하루 한 번만 간다.
-   - **2026-07-29 실측**: `cf-cron`이 08:00:16 KST에 **정시 발사해 실제 발송**했고, 08:10 재시도는 가드로 skipped. `gh-actions`는 예정(07:57·08:12)보다 **9시간 14분 늦은 17:11에** 두 건이 몰려 실행돼 둘 다 skipped. 즉 **Cloudflare 크론은 정상이고, 오히려 GitHub Actions가 크게 지연**됐다.
+   - **정기 발송은 이 워커가 단독으로 한다**(08:00 본발사 + 08:10 재시도). GitHub Actions(`.github/workflows/daily-alarm.yml`)는 **정기 스케줄을 해제**하고 `workflow_dispatch` 수동 예비용으로만 남겼다 — 아침에 알림이 안 오면 Actions 탭에서 [Run workflow].
+   - **2일 연속 실측(2026-07-29·30)**: `cf-cron` 08:00:16 정시 발송(양일 동일, 초 단위 일치) / 08:10 재시도는 가드로 skipped. `gh-actions`는 예정(07:57·08:12)보다 **9시간 이상 지각**(07-29 17:11, 07-30 16:56)해 둘 다 skipped. **저녁에 오는 아침 브리핑은 백업 역할도 못 하므로 정기 실행을 껐다.**
    - ⚠️ 그 이전의 "이 계정 크론은 발사되지 않는다"는 진단은 **틀렸다**. 워커를 재생성한 뒤 아직 23:00 UTC가 지나지 않아 발사 기회가 없던 것을 미발사로 오해했고, `wrangler tail`이 실행 중인 동안의 이벤트만 보여주는 것도 오해를 키웠다(낮에 띄워 아무것도 없는 건 정상). **관측 없이 미발사로 단정하지 말 것.**
-   - GitHub Actions 지연이 상시인지는 며칠 더 관측이 필요하다. 지각이 반복되면 GH Actions 쪽을 정리하거나 시각을 앞당길 것.
+   - 단독 운영의 위험은 08:10 재시도와 수동 예비(위)로 받는다. 아침 알림이 안 온 날이 있으면 `daily` 문서의 `attempts`를 먼저 볼 것 — 발사는 됐는데 `nothing_due`로 걸렀을 수도 있다.
    - 판정 방법: `run-daily`가 호출자를 `X-Cron-Source`(`cf-cron`/`gh-actions`/`cf-manual`/`manual`)로 기록한다. 아침 이후 `SELECT data FROM documents WHERE id='daily'`의 `attempts`를 보면 어느 쪽이 실제로 발사됐는지(그리고 중복이라 `skipped`됐는지) 알 수 있다.
    - GitHub 저장소 시크릿 `CRON_SECRET`(Pages와 동일 값) 필요 — Settings → Secrets → Actions.
    - `/api/google/sync` — 캘린더 양방향 동기화(`truncated`면 최대 3회 이어서). URL은 `CAL_URL` 또는 `TARGET_URL`에서 자동 유추.

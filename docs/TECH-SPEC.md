@@ -211,14 +211,23 @@ SCLM (로그인 게이트: 앱 비밀번호)
 
 ## 5. 자동화 파이프라인 (매일 아침)
 
-**스케줄러 이중화**: Cloudflare Worker `sclm-push-cron`(08:00·08:10 KST)과 GitHub Actions(`.github/workflows/daily-alarm.yml`, 07:57·08:12 KST)가 같은 엔드포인트를 호출한다. `run-daily`의 **하루 1회 가드**(documents id='daily'의 `lastSentDay`)가 중복 발송을 차단하므로 알림은 하루 한 번만 간다. 수동(Bearer) 호출은 가드와 무관하게 항상 발송된다.
+**스케줄러**: Cloudflare Worker `sclm-push-cron`이 단독으로 정기 발송한다(08:00 본발사 + 08:10 재시도, KST). `run-daily`의 **하루 1회 가드**(documents id='daily'의 `lastSentDay`)가 중복 발송을 차단하므로 재시도가 두 번 울리지 않는다. 수동(Bearer) 호출은 가드와 무관하게 항상 발송된다.
+
+GitHub Actions(`.github/workflows/daily-alarm.yml`)는 **정기 스케줄 해제, `workflow_dispatch` 수동 예비용**으로만 유지한다(2026-07-30). 아침 알림이 오지 않은 날 Actions 탭에서 [Run workflow]로 즉시 발송할 수 있고, 이미 발송된 날 눌러도 가드가 막는다.
 
 호출자는 `X-Cron-Source`(`cf-cron`/`gh-actions`/`cf-manual`/`manual`)로 `daily` 문서의 `attempts`에 기록된다 — 발송/건너뜀까지 남으므로 "발사 자체가 없었는지, 중복이라 건너뛴 것인지" 사후 판별이 가능하다.
 
-> **2026-07-29 실측** — `cf-cron` 08:00:16 발송, 08:10 재시도 skipped / `gh-actions`는 9시간 14분 지연된 17:11에 두 건 몰려 실행돼 모두 skipped. **Cloudflare 크론은 정상 동작하며, 그 이전의 "크론 미발사" 진단은 오진이었다**(워커 재생성 후 아직 발사 시각이 오지 않았던 것 + `wrangler tail`이 실행 중 이벤트만 보여주는 특성). GitHub Actions 지연이 상시인지는 추가 관측 필요.
+> **2일 연속 실측 (2026-07-29 · 07-30)**
+>
+> | 날짜 | cf-cron | gh-actions (예정 07:57·08:12) |
+> |---|---|---|
+> | 07-29 | **08:00:16 발송** · 08:10:13 skipped | 17:11 (9h14m 지각) skipped |
+> | 07-30 | **08:00:16 발송** · 08:10:13 skipped | 16:56 (9h 지각) skipped |
+>
+> Cloudflare 크론은 이틀 모두 **초 단위로 동일하게** 정시 발사했고, 그 이전의 "크론 미발사" 진단은 오진이었다(워커 재생성 후 아직 발사 시각이 오지 않았던 것 + `wrangler tail`이 실행 중 이벤트만 보여주는 특성). 반면 GitHub Actions 는 이틀 연속 9시간 이상 지각 — 무료 러너의 schedule 큐 적체로 보이며, 저녁에 도착하는 아침 브리핑은 백업 역할도 못 하므로 정기 실행을 해제했다.
 
 ```
-GitHub Actions / sclm-push-cron (cron, UTC)
+sclm-push-cron (cron 0 23 / 10 23 UTC = 08:00 / 08:10 KST)
  ├─ ① POST /api/push/run-daily        (X-Cron-Secret)
  │     1. computeSummary               지연 / 오늘 마감 / 임박(3일 내) 분류
  │     3. (0건이면 여기서 종료)
