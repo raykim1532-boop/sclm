@@ -12,6 +12,7 @@
     "db:init": "wrangler d1 execute scheduler-db --remote --file=schema.sql"
   },
   "devDependencies": {
+    "linkedom": "^0.18.13",
     "wrangler": "^4.114.0"
   }
 }

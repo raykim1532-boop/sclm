@@ -104,7 +104,12 @@ Worker `sclm-push-cron`: `CRON_SECRET`(Pages와 동일 값).
 - 로컬 미리보기: `web/.dev.vars`에 `APP_PASSWORD=...` (gitignore됨) 후 `npm run dev`.
 
 ## 테스트
-`cd web && npm test` — `web/tests/*.test.mjs`를 모두 실행(외부 의존성 없음, D1/fetch 모의). **코드 수정 후 반드시 실행할 것.**
+`cd web && npm test` — `web/tests/*.test.mjs`를 모두 실행(D1/fetch 모의). **코드 수정 후 반드시 실행할 것.** 약 5초.
+- **화면 동작 테스트**(`ui-*.test.mjs`)는 `_dom.mjs` 하네스가 `src/shell.html` 마크업을 linkedom 으로 띄우고 그 안에서 `src/app.js`를 통째로 실행한다. 그래서 `openTodoModal()`·`renderDashAnalytics()` 같은 **실제 함수를 실제 DOM 위에서** 부르고 버튼을 눌러 볼 수 있다.
+  - ⚠️ 이게 있는 이유: 2026-07-30 분류 Top 탭이 **배포까지 나간 뒤에** 안 눌린다는 걸 알았다(공용 클래스로 핸들러를 걸어 서로 덮어씀). 계산은 멀쩡했으므로 순수 함수 테스트로는 못 잡는다. **배선·이벤트 전파·DOM 갱신은 눌러 봐야 안다.**
+  - 하네스가 메우는 환경 차이: linkedom 의 `<select>.value` 는 읽기 전용이라 setter 를 붙여 준다(`patchSelectValue`). shell.html 의 `<script>` 는 전부 걷어낸다(FullCalendar 번들 30만 자).
+  - 앱 내부 변수를 테스트에서 만지려면 `_dom.mjs` 의 `EXPORTS` 와 반환 객체에 접근자를 추가한다(`getState`/`setVaultKey` 등).
+  - ⚠️ `run.mjs` 는 마지막에 `process.exit(0)` 한다. app.js 가 남기는 타이머(금고 자동잠금 30초 간격) 때문에 결과를 다 찍고도 node 가 안 죽는다. 이 줄을 빼면 테스트가 2분 넘게 매달린 것처럼 보인다.
 - `data-vault` 금고 보존 규칙(저장 요청에 vault 없으면 기존 암호문 유지) · `sheet-sync` 비파괴/구조가드/앱항목 보존/id 안정성
 - `taxonomy` 분류 트리 마이그레이션(소속 추론·기존 값 보존·빈 값 처리)
 - `calendar-sync` 공용 함수·크론 인증 · `kakao` refresh_token 회전 저장·200자 분할 · `vault-crypto` 암호화 왕복·마스터 비번 변경

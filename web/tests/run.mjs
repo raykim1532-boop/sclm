@@ -21,3 +21,6 @@ if (failed) {
   process.exit(1);
 }
 console.log('✅ 전부 통과');
+// UI 테스트가 app.js 를 통째로 실행하면서 남긴 타이머(금고 자동잠금 30초 간격 등) 때문에
+// 결과를 다 찍고도 node 가 안 죽는다. 러너는 판정이 끝나면 바로 나가는 게 맞다.
+process.exit(0);
