@@ -3115,7 +3115,14 @@ function openTaskModal(status, task) {
    구분자/줄바꿈을 존중한다(진행사항 같은 여러 줄 셀 대응). */
 function parseDelimitedTable(text) {
   const src = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
-  const delim = src.includes('\t') ? '\t' : ',';
+  // 구분자는 **첫 줄(머리글)만 보고** 정한다.
+  // ⚠️ 예전엔 src.includes('\t') 로 파일 전체를 봤다. 그러면 메모나 비밀번호에 탭이
+  //    하나만 섞여도 쉼표 CSV를 통째로 TSV로 읽어, 모든 행이 한 칸으로 뭉개진다
+  //    (비밀번호 CSV 가져오기에서 값이 조용히 전부 사라졌다). 머리글에는 탭이 섞일 일이 없다.
+  const firstLine = src.slice(0, src.indexOf('\n') + 1 || src.length);
+  const tabs = (firstLine.match(/\t/g) || []).length;
+  const commas = (firstLine.match(/,/g) || []).length;
+  const delim = tabs > 0 && tabs >= commas ? '\t' : ',';
   const rows = [];
   let row = [], cell = '', inQuotes = false;
   for (let i = 0; i < src.length; i++) {

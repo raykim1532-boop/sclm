@@ -97,6 +97,9 @@ Worker `sclm-push-cron`: `CRON_SECRET`(Pages와 동일 값).
 - `data-vault` 금고 보존 규칙(저장 요청에 vault 없으면 기존 암호문 유지) · `sheet-sync` 비파괴/구조가드/앱항목 보존/id 안정성
 - `taxonomy` 분류 트리 마이그레이션(소속 추론·기존 값 보존·빈 값 처리)
 - `calendar-sync` 공용 함수·크론 인증 · `kakao` refresh_token 회전 저장·200자 분할 · `vault-crypto` 암호화 왕복·마스터 비번 변경
+- `vault-csv` Password 관리자 CSV 가져오기(크롬·구글·Bitwarden 머리글 매핑, BOM, 따옴표/쉼표/줄바꿈, 대량 id 고유성)
+  - ⚠️ **`parseDelimitedTable`의 구분자 판별은 첫 줄(머리글)만 본다.** 파일 전체에서 `\t`를 찾으면(예전 코드) 메모나 비밀번호에 탭이 하나만 섞여도 쉼표 CSV가 통째로 TSV로 읽혀 **모든 행이 한 칸으로 뭉개진다** — 그런데도 "N건 가져왔어요"가 뜨고 비밀번호가 빈 채로 저장되는 조용한 실패였다(2026-07-30 발견). 이 함수는 구글시트 붙여넣기(TSV)와 금고 CSV가 **함께 쓰므로** 손댈 때 양쪽 테스트를 다 볼 것.
+  - 금고 CSV는 **평문**이다. 내보내기 전 확인 대화상자를 띄우고 즉시 삭제를 권고하는 문구가 있으니 없애지 말 것.
 - `vault-crypto`는 `src/app.js`에서 함수를 **정규식으로 추출**해 검증하므로, 해당 함수명(`vaultDeriveKey`·`vB64e`·`vB64d`·`vaultGeneratePassword`·`VAULT_ITER`)을 바꾸면 테스트도 함께 고칠 것.
 - `work-stats`도 같은 방식으로 `computeWorkStats`(처리 지표)·`computeTrend`(월별 등록/완료/월말 미완료 잔량)·`computeDataIssues`(지표를 왜곡하는 입력 누락 탐지)를 추출해 검증한다. 세 함수는 **순수 함수로 유지**할 것(state 참조 금지).
   - 데이터 점검 카드는 결함이 있을 때만 뜨며, 항목 클릭 시 `openDataIssueModal`이 대상 목록을 보여준다. 시트 유입 건은 앱에서 고쳐도 다음 동기화에 덮이므로 **"시트에서 고치라"는 안내를 반드시 유지**할 것.
