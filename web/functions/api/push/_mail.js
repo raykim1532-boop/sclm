@@ -13,6 +13,11 @@
 //   MAIL_FROM       — (선택) 기본값 'SCLM <onboarding@resend.dev>'
 
 const SEND_URL = 'https://api.resend.com/emails';
+const APP_URL = 'https://sclm.pages.dev';
+
+/* 메일에서 누르면 그 항목이 바로 열리는 주소. 앱의 openFromUrl() 이 받는다. */
+const todoLink = (t) => APP_URL + '/?todo=' + encodeURIComponent((t && t.id) || '');
+const eventLink = (e) => APP_URL + '/?event=' + encodeURIComponent((e && e.id) || '');
 const DEFAULT_FROM = 'SCLM <onboarding@resend.dev>';
 
 export function mailConfigured(env) {
@@ -39,7 +44,9 @@ export function buildMailBody(s) {
       + '<table style="width:100%;border-collapse:collapse;font-size:13px">'
       + rows.map((r) => `<tr>
           <td style="padding:6px 8px;border-bottom:1px solid #eee;color:#9b9a97;white-space:nowrap;width:64px">${esc(r.when)}</td>
-          <td style="padding:6px 8px;border-bottom:1px solid #eee">${esc(r.text)}</td>
+          <td style="padding:6px 8px;border-bottom:1px solid #eee">${r.link
+            ? `<a href="${esc(r.link)}" style="color:#37352f;text-decoration:none">${esc(r.text)}</a>`
+            : esc(r.text)}</td>
           <td style="padding:6px 8px;border-bottom:1px solid #eee;color:#9b9a97;white-space:nowrap">${esc(r.tag)}</td>
         </tr>`).join('')
       + '</table>';
@@ -48,10 +55,10 @@ export function buildMailBody(s) {
   const daysLate = (due) => Math.max(0, Math.round((new Date(s.today) - new Date(due)) / 864e5));
   const tag = (t) => [t.channel, t.subChannel].filter(Boolean).join(' · ');
 
-  const overdue = (s.overdueList || []).map((t) => ({ when: daysLate(t.dueDate) + '일', text: shortText(t), tag: tag(t) }));
-  const today = (s.todayList || []).map((t) => ({ when: '오늘', text: shortText(t), tag: tag(t) }));
-  const soon = (s.upcomingList || []).map((t) => ({ when: mmdd(t.dueDate), text: shortText(t), tag: tag(t) }));
-  const events = (s.eventList || []).map((e) => ({ when: evAt(e), text: String(e.title || ''), tag: e.roCalName || '' }));
+  const overdue = (s.overdueList || []).map((t) => ({ when: daysLate(t.dueDate) + '일', text: shortText(t), tag: tag(t), link: todoLink(t) }));
+  const today = (s.todayList || []).map((t) => ({ when: '오늘', text: shortText(t), tag: tag(t), link: todoLink(t) }));
+  const soon = (s.upcomingList || []).map((t) => ({ when: mmdd(t.dueDate), text: shortText(t), tag: tag(t), link: todoLink(t) }));
+  const events = (s.eventList || []).map((e) => ({ when: evAt(e), text: String(e.title || ''), tag: e.roCalName || '', link: eventLink(e) }));
 
   const counts = [
     s.overdue ? `지연 ${s.overdue}` : '',
@@ -60,10 +67,20 @@ export function buildMailBody(s) {
     s.events ? `일정 ${s.events}` : '',
   ].filter(Boolean).join(' · ');
 
+  // 같은 분류에서 반복해서 밀리는 게 보이면 한 줄 알린다 — 한 건씩 보면 안 보이는 경향이다
+  const stuck = (s.stuckList || []).slice(0, 3);
+  const stuckHtml = stuck.length
+    ? `<div style="margin:18px 0 0;padding:10px 12px;border-radius:8px;background:#fff4e5;border:1px solid #ffd8a8;font-size:13px">
+        <b>⚠ 계속 밀리는 분류</b><br>
+        ${stuck.map((x) => `${esc(x.name)} — 지연 ${x.overdue}건 / 전체 ${x.total} · 평균 ${x.avgLate}일 밀림`).join('<br>')}
+      </div>`
+    : '';
+
   const html = `<div style="font-family:-apple-system,'Malgun Gothic','Segoe UI',sans-serif;max-width:680px;color:#37352f">
     <div style="font-size:12px;color:#9b9a97">${esc(s.today)}</div>
     <h2 style="margin:4px 0 0;font-size:18px">오늘의 할 일과 일정</h2>
     <div style="margin:6px 0 0;font-size:13px;color:#9b9a97">${esc(counts || '알릴 것이 없어요')}</div>
+    ${stuckHtml}
     ${sec('⏰ 지연', overdue)}
     ${sec('📅 오늘 마감', today)}
     ${sec('🔜 임박', soon)}
@@ -76,11 +93,73 @@ export function buildMailBody(s) {
   // 텍스트본도 함께 보낸다 — 일부 클라이언트가 평문만 보여 주고, 스팸 점수에도 유리하다
   const line = (r) => `- ${r.when}  ${r.text}${r.tag ? '  [' + r.tag + ']' : ''}`;
   const tsec = (title, rows) => (rows.length ? `\n${title} (${rows.length}건)\n` + rows.map(line).join('\n') + '\n' : '');
-  const text = `${s.today}  오늘의 할 일과 일정\n${counts || '알릴 것이 없어요'}\n`
+  const stuckText = stuck.length ? '\n[계속 밀리는 분류]\n' + stuck.map((x) => `- ${x.name}  지연 ${x.overdue}건 / 전체 ${x.total} · 평균 ${x.avgLate}일 밀림`).join('\n') + '\n' : '';
+  const text = `${s.today}  오늘의 할 일과 일정\n${counts || '알릴 것이 없어요'}\n` + stuckText
     + tsec('[지연]', overdue) + tsec('[오늘 마감]', today) + tsec('[임박]', soon) + tsec('[오늘 일정]', events)
     + '\nhttps://sclm.pages.dev';
 
   return { subject: `[SCLM] ${mmdd(s.today)} ${counts || '오늘 알릴 것 없음'}`, html, text };
+}
+
+/* 금요일 주간 요약 메일 본문 (순수 함수).
+   아침 브리핑이 "오늘 뭘 하나"라면 이건 "이번 주에 뭘 했고 다음 주에 뭐가 오나"다. */
+export function buildWeeklyMailBody(w) {
+  const tag = (t) => [t.channel, t.subChannel].filter(Boolean).join(' · ');
+  const daysLate = (due) => Math.max(0, Math.round((new Date(w.today) - new Date(due)) / 864e5));
+
+  const sec = (title, rows) => {
+    if (!rows.length) return `<h3 style="margin:22px 0 8px;font-size:14px">${esc(title)} <span style="color:#9b9a97;font-weight:400">없음</span></h3>`;
+    return `<h3 style="margin:22px 0 8px;font-size:14px;color:#37352f">${esc(title)} <span style="color:#9b9a97;font-weight:400">${rows.length}건</span></h3>`
+      + '<table style="width:100%;border-collapse:collapse;font-size:13px">'
+      + rows.map((r) => `<tr>
+          <td style="padding:6px 8px;border-bottom:1px solid #eee;color:#9b9a97;white-space:nowrap;width:64px">${esc(r.when)}</td>
+          <td style="padding:6px 8px;border-bottom:1px solid #eee"><a href="${esc(r.link)}" style="color:#37352f;text-decoration:none">${esc(r.text)}</a></td>
+          <td style="padding:6px 8px;border-bottom:1px solid #eee;color:#9b9a97;white-space:nowrap">${esc(r.tag)}</td>
+        </tr>`).join('')
+      + '</table>';
+  };
+
+  const done = (w.doneList || []).map((t) => ({ when: mmdd(t.completedDate), text: shortText(t), tag: tag(t), link: todoLink(t) }));
+  const next = (w.nextList || []).map((t) => ({ when: mmdd(t.dueDate), text: shortText(t), tag: tag(t), link: todoLink(t) }));
+  const late = (w.lateList || []).map((t) => ({ when: daysLate(t.dueDate) + '일', text: shortText(t), tag: tag(t), link: todoLink(t) }));
+
+  const html = `<div style="font-family:-apple-system,'Malgun Gothic','Segoe UI',sans-serif;max-width:680px;color:#37352f">
+    <div style="font-size:12px;color:#9b9a97">${esc(w.week.start)} ~ ${esc(w.week.end)}</div>
+    <h2 style="margin:4px 0 0;font-size:18px">주간 리포트</h2>
+    <div style="margin:6px 0 0;font-size:13px;color:#9b9a97">완료 ${w.done} · 다음 주 마감 ${w.next} · 아직 지연 ${w.late}</div>
+    ${sec('✅ 이번 주 완료', done)}
+    ${sec('🔜 다음 주 마감 예정', next)}
+    ${sec('⏰ 아직 지연', late)}
+    <p style="margin:26px 0 0;font-size:12px;color:#9b9a97">
+      <a href="${APP_URL}" style="color:#1a73e8">SCLM 열기</a> · 매주 금요일 아침에 보냅니다.
+    </p>
+  </div>`;
+
+  const line = (r) => `- ${r.when}  ${r.text}${r.tag ? ' [' + r.tag + ']' : ''}`;
+  const tsec = (title, rows) => `\n${title} (${rows.length}건)\n` + (rows.length ? rows.map(line).join('\n') : '- (없음)') + '\n';
+  const text = `주간 리포트  ${w.week.start} ~ ${w.week.end}\n완료 ${w.done} · 다음 주 마감 ${w.next} · 아직 지연 ${w.late}\n`
+    + tsec('[이번 주 완료]', done) + tsec('[다음 주 마감 예정]', next) + tsec('[아직 지연]', late)
+    + '\n' + APP_URL;
+
+  return { subject: `[SCLM] 주간 리포트 ${mmdd(w.week.start)}~${mmdd(w.week.end)} · 완료 ${w.done} · 지연 ${w.late}`, html, text };
+}
+
+/* 주간 리포트 발송 — 금요일에만 부른다(판정은 호출부). */
+export async function sendWeeklyMail(env, weekly) {
+  if (!mailConfigured(env)) return { skipped: 'not_configured' };
+  const { subject, html, text } = buildWeeklyMailBody(weekly);
+  try {
+    const r = await fetch(SEND_URL, {
+      method: 'POST',
+      headers: { Authorization: 'Bearer ' + env.RESEND_API_KEY, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ from: env.MAIL_FROM || DEFAULT_FROM, to: [env.MAIL_TO], subject, html, text }),
+    });
+    const body = await r.json().catch(() => ({}));
+    if (!r.ok) return { ok: false, status: r.status, error: String(body.message || body.error || '').slice(0, 200) };
+    return { ok: true, id: body.id || '' };
+  } catch (e) {
+    return { ok: false, error: String((e && e.message) || e).slice(0, 200) };
+  }
 }
 
 /* 실제 발송. 설정이 없으면 조용히 건너뛴다(다른 채널을 막지 않는다). */

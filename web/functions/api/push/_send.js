@@ -39,6 +39,68 @@ export function pickTodayEvents(events, today) {
   });
 }
 
+/* 그 주의 월~일 범위. 앱의 weekRange 와 같은 규칙(월요일 시작). */
+export function weekRangeKST(baseIso, offset) {
+  const d = new Date(baseIso + 'T00:00:00Z');
+  const dow = (d.getUTCDay() + 6) % 7;                 // 월=0
+  d.setUTCDate(d.getUTCDate() - dow + (offset || 0) * 7);
+  const start = d.toISOString().slice(0, 10);
+  const e = new Date(d); e.setUTCDate(e.getUTCDate() + 6);
+  return { start: start, end: e.toISOString().slice(0, 10) };
+}
+
+/* 금요일에 보낼 주간 요약 — 이번 주 완료 / 다음 주 마감 / 아직 지연.
+   앱의 주간 리포트와 같은 구간을 쓴다(이번 주 월~일, 다음 주 월~일). */
+export async function computeWeekly(env, todayIso) {
+  const row = await env.DB.prepare("SELECT data FROM documents WHERE id = 'main'").first();
+  let state = {};
+  try { state = JSON.parse(row.data); } catch (e) {}
+  const todos = Array.isArray(state.todos) ? state.todos : [];
+  const today = todayIso || todayStrKST();
+  const tw = weekRangeKST(today, 0);
+  const nw = weekRangeKST(today, 1);
+
+  const done = todos.filter((t) => isDone(t) && t.completedDate && t.completedDate >= tw.start && t.completedDate <= tw.end)
+    .sort((a, b) => (a.completedDate < b.completedDate ? -1 : 1));
+  const next = todos.filter((t) => !isDone(t) && isIso(t.dueDate) && t.dueDate >= nw.start && t.dueDate <= nw.end)
+    .sort((a, b) => (a.dueDate < b.dueDate ? -1 : 1));
+  const stillLate = todos.filter((t) => !isDone(t) && isIso(t.dueDate) && t.dueDate < today)
+    .sort((a, b) => (a.dueDate < b.dueDate ? -1 : 1));
+
+  return { today, week: tw, nextWeek: nw, doneList: done, nextList: next, lateList: stillLate,
+    done: done.length, next: next.length, late: stillLate.length };
+}
+
+/* 같은 분류에서 **반복해서** 밀리는 것을 찾는다 — 한 건씩 보면 안 보이는 경향이다.
+   앱의 `computeStuckTaxo` 와 같은 규칙을 쓴다:
+     · 표본 3건 이상 + 지연 2건 이상만 (1~2건짜리는 하나만 늦어도 '전부 지연'이 돼 소음이 된다)
+     · '기타'는 분류가 아니라 잡동사니라 제외
+     · 정렬은 지연 건수 → 평균 지연일
+   ⚠️ 규칙을 바꾸면 app.js 의 computeStuckTaxo 도 같이 고칠 것 — 화면과 메일이 다른 말을 하면 안 된다.
+   메일에서는 **중분류(거래처)** 축만 본다. 거기가 가장 행동으로 이어지는 축이다. */
+export function computeStuckChannels(todos, today, minItems, limit) {
+  const SKIP = ['기타'];
+  const min = minItems || 3;
+  const days = (from, to) => Math.round((new Date(to + 'T00:00:00Z') - new Date(from + 'T00:00:00Z')) / 864e5);
+  const map = new Map();
+  (Array.isArray(todos) ? todos : []).forEach((t) => {
+    const name = ((t && t.channel) || '').trim();
+    if (!name || SKIP.indexOf(name) > -1) return;
+    let e = map.get(name);
+    if (!e) { e = { name: name, total: 0, overdue: 0, lateSum: 0 }; map.set(name, e); }
+    e.total++;
+    if (isDone(t)) return;
+    if (t.dueDate && t.dueDate < today) { e.overdue++; e.lateSum += days(t.dueDate, today); }
+  });
+  const out = [];
+  map.forEach((e) => {
+    if (e.total < min || e.overdue < 2) return;
+    out.push({ name: e.name, total: e.total, overdue: e.overdue, avgLate: +(e.lateSum / e.overdue).toFixed(1) });
+  });
+  out.sort((a, b) => (b.overdue - a.overdue) || (b.avgLate - a.avgLate));
+  return limit ? out.slice(0, limit) : out;
+}
+
 // documents 'main' 에서 오늘 마감/지연 건수 + 오늘 일정 계산
 export async function computeSummary(env) {
   const row = await env.DB.prepare("SELECT data FROM documents WHERE id = 'main'").first();
@@ -64,6 +126,7 @@ export async function computeSummary(env) {
     dueToday: dueToday.length,
     upcoming: upcoming.length,
     events: eventList.length,
+    stuckList: computeStuckChannels(todos, today, 3, 3),
     overdueList: overdue,
     todayList: dueToday,
     upcomingList: upcoming,

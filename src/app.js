@@ -200,6 +200,9 @@ async function init() {
   // 이번 달치 정기업무 생성 — 화면을 다 그린 뒤에 한다(만들어지면 목록이 다시 그려진다).
   // 실패해도 앱 구동을 막지 않는다.
   try { await runMonthlyTemplates(); } catch (e) { console.error('정기업무 생성 실패', e); }
+
+  // 메일·카카오 링크로 들어온 경우 해당 항목을 연다(정기업무 생성보다 뒤여야 방금 만든 것도 열린다)
+  try { openFromUrl(); } catch (e) { console.error('딥링크 처리 실패', e); }
 }
 
 /* ---------- AI 일정 비서 (클라우드 전용) ---------- */
@@ -1901,6 +1904,34 @@ function logRowHtml(l) {
     + '<span class="lr-text">' + escapeHtml(text) + '</span>'
     + '<button type="button" class="lr-del" title="이 로그 삭제" aria-label="삭제">✕</button>'
     + '</div>';
+}
+
+/* ---------- 딥링크 ----------
+   메일·카카오에서 항목을 눌렀을 때 그 할 일/일정을 바로 연다.
+     ?todo=<id>   할 일 화면으로 가서 편집창을 연다
+     ?event=<id>  캘린더로 가서 일정을 연다
+   ⚠️ 연 뒤에는 주소에서 지운다. 안 지우면 새로고침할 때마다 같은 창이 다시 뜬다.
+   ⚠️ 지워진 항목일 수 있으므로(메일은 며칠 뒤에 열어보기도 한다) 못 찾으면 조용히 알린다. */
+function openFromUrl() {
+  const p = new URLSearchParams(location.search);
+  const todoId = p.get('todo');
+  const eventId = p.get('event');
+  if (!todoId && !eventId) return false;
+  try { history.replaceState(null, '', location.pathname); } catch (e) {}
+
+  const goto = (view) => { const b = document.querySelector('.nav-btn[data-view="' + view + '"]'); if (b) b.click(); };
+  if (todoId) {
+    const t = byId(state.todos, todoId);
+    if (!t) { toast('그 할 일을 찾지 못했어요 — 지워졌거나 이미 정리된 것 같아요'); return false; }
+    goto('todos');
+    openTodoModal(t);
+    return true;
+  }
+  const e = byId(state.events, eventId);
+  if (!e) { toast('그 일정을 찾지 못했어요'); return false; }
+  goto('calendar');
+  openEventModal(e);
+  return true;
 }
 
 /* ---------- 마감일 빠르게 옮기기 ----------

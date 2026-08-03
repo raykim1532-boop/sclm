@@ -63,6 +63,7 @@ const EXPORTS = [
   'nextMonday', 'moveDueDate', 'openDueMenu', 'closeDueMenu', 'addDays', 'mmddDot',
   // 일정에서 할 일 만들기
   'todoPresetFromEvent', 'makeTodoFromEvent', 'openReadOnlyEventModal',
+  'openFromUrl', 'setupNav',
   'isGoogleImported', 'projectColor',
 ];
 
@@ -131,7 +132,7 @@ export function bootApp(opts = {}) {
 
   const src = readFileSync(APP, 'utf8');
   const fn = new Function(
-    'window', 'document', 'localStorage', 'location', 'navigator', 'fetch', 'console', 'FullCalendar', 'confirm', 'prompt', 'alert',
+    'window', 'document', 'localStorage', 'location', 'navigator', 'fetch', 'console', 'FullCalendar', 'confirm', 'prompt', 'alert', 'history',
     src + '\n;return {' + EXPORTS.map((k) => `${k}: typeof ${k} === 'function' ? ${k} : undefined`).join(',') +
     ', getState: () => state, setState: (v) => { state = v; }, DUE_MOVES,'
     + ' getVaultEntries: () => vaultEntries, setVaultEntries: (v) => { vaultEntries = v; },'
@@ -140,16 +141,21 @@ export function bootApp(opts = {}) {
   );
 
   const calendars = [];
+  // 딥링크(?todo=…) 테스트용. opts.search 로 쿼리를 흉내낸다.
+  const search = opts.search || '';
+  // history 는 앱이 주소를 지울 때 쓴다. window.history 를 갈아끼우면 테스트가 관찰할 수 있다.
+  window.history = window.history || { replaceState() {} };
   const app = fn(
     window, document, localStorage,
-    { protocol: 'https:', href: 'https://sclm.pages.dev/', reload() {} },
+    { protocol: 'https:', href: 'https://sclm.pages.dev/' + search, pathname: '/', search, reload() {} },
     { clipboard: { writeText: async () => {} }, serviceWorker: undefined },
     async () => ({ ok: false, status: 404, json: async () => ({}), text: async () => '' }),
     { log() {}, warn() {}, error() {} },
     makeFullCalendarStub(calendars),
     opts.confirm || (() => true),
     opts.prompt || (() => null),
-    () => {}
+    () => {},
+    { replaceState: (...a) => window.history.replaceState(...a) }
   );
 
   return { app, document, window, saves, store, localStorage, calendars };
