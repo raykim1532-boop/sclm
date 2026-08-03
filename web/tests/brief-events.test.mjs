@@ -141,3 +141,22 @@ section('일정이 없으면 예전과 똑같이 동작');
   check('일정 표기 없음', !b.includes('일정') && !b.includes('🗓'));
   check('접을 게 없으면 외 N건도 없음', !b.includes('외 '));
 }
+
+section('지연은 오래 밀린 순으로 나온다');
+{
+  // 정렬이 없으면 입력 순서대로 나가 메일에서 3일 → 4일 → 3일 처럼 뒤섞인다.
+  const T2 = (id, due) => ({ id, no: 1, text: '업무 ' + id, dueDate: due, status: '대기' });
+  const docs = { main: JSON.stringify({ todos: [
+    T2('a', day(-3)), T2('b', day(-9)), T2('c', day(-1)), T2('d', day(-5)),
+  ], events: [] }) };
+  const s = await computeSummary({ DB: mockDB(docs) });
+  check('4건', s.overdue === 4);
+  check('가장 오래 밀린 것이 맨 앞', s.overdueList[0].id === 'b');
+  check('그다음', s.overdueList[1].id === 'd');
+  check('마지막이 가장 최근', s.overdueList[3].id === 'c');
+
+  // 푸시 본문도 같은 순서로 나간다(앞 3건만 보여 주므로 순서가 중요하다)
+  const body = buildPushBody(s);
+  check('푸시도 오래 밀린 순', body.indexOf('업무 b') < body.indexOf('업무 d'));
+  check('가장 최근 건은 접힌다', body.indexOf('업무 c') === -1 && body.includes('외 1건'));
+}

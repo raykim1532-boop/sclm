@@ -49,7 +49,10 @@ export async function computeSummary(env) {
   const eventList = pickTodayEvents(state.events, today);
   const soonLimit = addDaysIso(today, SOON_DAYS);
   const open = todos.filter((t) => !isDone(t) && isIso(t.dueDate));
-  const overdue = open.filter((t) => t.dueDate < today);
+  // 지연은 **오래 밀린 순**(마감일 오름차순). 정렬을 안 하면 입력 순서대로 나가
+  // 메일·푸시·카카오에서 3일 → 4일 → 3일 처럼 뒤섞여 보인다.
+  const overdue = open.filter((t) => t.dueDate < today)
+    .sort((a, b) => (a.dueDate < b.dueDate ? -1 : (a.dueDate > b.dueDate ? 1 : 0)));
   const dueToday = open.filter((t) => t.dueDate === today);
   // 임박: 오늘 이후 ~ SOON_DAYS 일 이내 (오늘/지연 제외)
   const upcoming = open
