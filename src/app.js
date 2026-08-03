@@ -1903,6 +1903,75 @@ function logRowHtml(l) {
     + '</div>';
 }
 
+/* ---------- 마감일 빠르게 옮기기 ----------
+   마감일을 바꾸려면 행을 열고 → 날짜를 고르고 → 저장해야 했다. 그래서 아무도 안 옮겼다
+   (2026-08-03 기준 61건 중 0건). 결과적으로 지연 건수가 실제보다 부풀고 마감일이
+   신호 역할을 못 했다. 표에서 한 번에 옮길 수 있게 한다. */
+
+/* iso 다음에 오는 월요일 (그날이 월요일이면 다음 주 월요일) */
+function nextMonday(iso) {
+  const d = new Date(iso + 'T00:00:00');
+  const add = ((8 - d.getDay()) % 7) || 7;   // 일=0 … 월=1
+  return addDays(iso, add);
+}
+
+/* 표의 마감일 메뉴 항목. calc(현재마감일, 오늘) → 새 마감일 (순수 함수라 테스트에서 검증) */
+const DUE_MOVES = [
+  { key: 'today', label: '오늘', calc: (cur, today) => today },
+  { key: 'tomorrow', label: '내일', calc: (cur, today) => addDays(today, 1) },
+  { key: 'nextmon', label: '다음 주 월요일', calc: (cur, today) => nextMonday(today) },
+  { key: 'plus7', label: '일주일 미루기', calc: (cur, today) => addDays(cur || today, 7) },
+];
+
+/* 마감일 옮기기 — 이력을 남기고 저장한다. 바뀐 게 없으면 아무것도 안 한다. */
+async function moveDueDate(todo, nextIso) {
+  if (!todo || !isIsoDate(nextIso) || nextIso === todo.dueDate) return false;
+  const from = todo.dueDate || '';
+  pushDueHistory(todo, nextIso, todayStr());   // 처음 넣는 건 이력에 안 남는다(함수가 판단)
+  todo.dueDate = nextIso;
+  const ok = await persist();
+  renderAll();
+  if (ok) toast(`마감일을 ${mmddDot(nextIso)}로 옮겼어요` + (from ? ` (원래 ${mmddDot(from)})` : ''));
+  return ok;
+}
+
+/* 마감일 셀에서 여는 작은 메뉴. 바깥을 누르거나 Esc 면 닫는다. */
+function openDueMenu(anchor, todo) {
+  closeDueMenu();
+  const today = todayStr();
+  const menu = document.createElement('div');
+  menu.className = 'due-menu';
+  menu.innerHTML = DUE_MOVES.map((m) => {
+    const to = m.calc(todo.dueDate, today);
+    return '<button type="button" data-to="' + to + '">' + m.label + '<span>' + mmddDot(to) + '</span></button>';
+  }).join('') + '<button type="button" data-pick="1">직접 고르기…</button>';
+  document.body.appendChild(menu);
+
+  const r = anchor.getBoundingClientRect();
+  menu.style.top = (r.bottom + window.scrollY + 4) + 'px';
+  menu.style.left = Math.max(8, Math.min(r.left + window.scrollX, window.innerWidth - 190)) + 'px';
+
+  menu.addEventListener('click', async (e) => {
+    const b = e.target.closest('button');
+    if (!b) return;
+    e.stopPropagation();
+    closeDueMenu();
+    if (b.dataset.pick) { openTodoModal(todo); return; }
+    await moveDueDate(todo, b.dataset.to);
+  });
+  dueMenuEl = menu;
+  setTimeout(() => {
+    document.addEventListener('click', closeDueMenu, { once: true });
+    document.addEventListener('keydown', dueMenuEsc);
+  }, 0);
+}
+let dueMenuEl = null;
+function closeDueMenu() {
+  if (dueMenuEl) { dueMenuEl.remove(); dueMenuEl = null; }
+  document.removeEventListener('keydown', dueMenuEsc);
+}
+function dueMenuEsc(e) { if (e.key === 'Escape') closeDueMenu(); }
+
 /* 마감일 옆 "⟳N" 배지 — 뒤로 민 적이 있을 때만. 툴팁에 변경 이력 전체를 담는다. */
 function dueBadgeHtml(t) {
   const n = dueMoveCount(t);
@@ -2925,7 +2994,7 @@ function renderTodos() {
       <td>${escapeHtml(t.priority || '')}</td>
       <td class="col-title">${escapeHtml(t.text || '')}</td>
       <td>${escapeHtml(t.assignee || '')}</td>
-      <td class="col-date col-due">${t.dueDate || ''}${dueBadgeHtml(t)}</td>
+      <td class="col-date col-due">${t.dueDate || ''}${dueBadgeHtml(t)}<button class="due-move" data-act="duemove" title="마감일 옮기기" aria-label="마감일 옮기기">📅</button></td>
       <td><span class="status-tag" style="background:${statusColor}1f;color:${statusColor}">${escapeHtml(status)}</span></td>
       <td class="col-check">${escapeHtml(t.needsCheck || '')}</td>
       <td class="col-date">${t.completedDate || ''}</td>
@@ -2936,6 +3005,8 @@ function renderTodos() {
     `;
     tr.addEventListener('click', (e) => {
       if (e.target.closest('.del-btn') || e.target.closest('.todo-link') || e.target.closest('.col-select')) return;
+      // 마감일 버튼은 메뉴를 여는 것이므로 행 열기(편집)와 겹치면 안 된다
+      if (e.target.closest('.due-move')) { e.stopPropagation(); openDueMenu(e.target.closest('.due-move'), t); return; }
       openTodoModal(t);
     });
     tr.querySelector('.todo-check').addEventListener('change', (e) => {

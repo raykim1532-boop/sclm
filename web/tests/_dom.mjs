@@ -59,6 +59,8 @@ const EXPORTS = [
   // 월간 정기업무
   'renderRecurList', 'openRecurModal', 'setupRecur', 'runMonthlyTemplates', 'recurTemplates',
   'dueTemplatesFor', 'todoFromTemplate', 'fillMonthTokens', 'skipToLastRun', 'monthKey',
+  // 마감일 빠르게 옮기기
+  'nextMonday', 'moveDueDate', 'openDueMenu', 'closeDueMenu', 'addDays', 'mmddDot',
   'isGoogleImported', 'projectColor',
 ];
 
@@ -129,7 +131,7 @@ export function bootApp(opts = {}) {
   const fn = new Function(
     'window', 'document', 'localStorage', 'location', 'navigator', 'fetch', 'console', 'FullCalendar', 'confirm', 'prompt', 'alert',
     src + '\n;return {' + EXPORTS.map((k) => `${k}: typeof ${k} === 'function' ? ${k} : undefined`).join(',') +
-    ', getState: () => state, setState: (v) => { state = v; },'
+    ', getState: () => state, setState: (v) => { state = v; }, DUE_MOVES,'
     + ' getVaultEntries: () => vaultEntries, setVaultEntries: (v) => { vaultEntries = v; },'
     + ' setVaultKey: (v) => { vaultKey = v; }, setVaultSalt: (v) => { vaultSalt = v; },'
     + ' setProjectView: (v) => { currentProjectViewId = v; } };'

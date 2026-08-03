@@ -273,6 +273,28 @@ html, body {
 .rc-check { display: flex; align-items: flex-start; gap: 8px; cursor: pointer; font-size: 13px; }
 .rc-check input { margin-top: 2px; flex: 0 0 auto; }
 
+/* ---------- 마감일 빠르게 옮기기 ---------- */
+/* 평소엔 숨겨 두고 행에 마우스를 올렸을 때만 보인다 — 표가 복잡해지지 않게 */
+.due-move {
+  border: 0; background: transparent; cursor: pointer; padding: 0 2px; margin-left: 4px;
+  font-size: 11px; line-height: 1; opacity: 0; transition: opacity .12s;
+}
+.todo-table tbody tr:hover .due-move { opacity: .55; }
+.due-move:hover { opacity: 1 !important; }
+.due-move:focus-visible { opacity: 1; outline: 2px solid var(--accent); border-radius: 4px; }
+.due-menu {
+  position: absolute; z-index: 60; min-width: 180px; padding: 5px;
+  background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
+  box-shadow: var(--shadow-pop); display: flex; flex-direction: column; gap: 1px;
+}
+.due-menu button {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  border: 0; background: transparent; color: var(--text); font-family: inherit;
+  font-size: 13px; text-align: left; padding: 8px 10px; border-radius: 7px; cursor: pointer;
+}
+.due-menu button:hover { background: var(--surface-2); }
+.due-menu button span { color: var(--text-muted); font-size: 11.5px; font-variant-numeric: tabular-nums; }
+
 /* ---------- 업무 로그 · 마감일 변경 배지 ---------- */
 .hint-inline { font-weight: 400; font-size: 11px; color: var(--text-muted); margin-left: 8px; }
 .log-list { display: flex; flex-direction: column; gap: 4px; margin-bottom: 8px; }
