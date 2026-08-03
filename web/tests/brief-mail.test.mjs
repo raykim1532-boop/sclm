@@ -157,10 +157,18 @@ section('원클릭 완료 — ✓ 칸');
 {
   const links = { o1: 'https://sclm.pages.dev/api/mail-action?a=done&id=o1&s=SIG' };
   const withDone = buildMailBody(SUM, links);
-  check('링크 준 항목에 ✓ 가 붙는다', withDone.html.includes('>✓</a>'));
+  check('링크 준 항목에 완료 버튼이 붙는다', withDone.html.includes('✓ 완료</a>'));
   check('그 항목의 링크가 실린다', withDone.html.includes('a=done&amp;id=o1'));
-  check('링크 없는 항목엔 ✓ 칸이 없다', (withDone.html.match(/>✓<\/a>/g) || []).length === 1);
+  check('링크 없는 항목엔 버튼 칸이 없다', (withDone.html.match(/✓ 완료<\/a>/g) || []).length === 1);
   check('안내 문구가 붙는다', withDone.html.includes('완료 처리'));
+
+  // ⚠️ 2026-08-03: 글자 하나(✓)짜리 링크는 아웃룩에서 사실상 누를 수 없었다.
+  //    같은 줄의 업무 이름 링크(딥링크)가 줄 대부분을 차지해 그쪽만 눌리고,
+  //    서버에는 mail-action 호출이 한 번도 안 들어왔다. 누를 수 있는 크기를 지킬 것.
+  check('글자 하나가 아니라 버튼이다', withDone.html.includes('display:inline-block') && withDone.html.includes('padding:7px 12px'));
+  check('테두리가 있어 눌러야 할 것으로 보인다', withDone.html.includes('border:1px solid #1a73e8'));
+  check('업무 이름 링크와 다른 주소다',
+    withDone.html.includes('/?todo=o1') && withDone.html.includes('/api/mail-action?a=done&amp;id=o1'));
 
   const plain = buildMailBody(SUM);
   check('링크를 안 주면 예전 그대로', !plain.html.includes('✓'));

@@ -52,7 +52,7 @@ export function buildMailBody(s, done) {
             ? `<a href="${esc(r.link)}" style="color:#37352f;text-decoration:none">${esc(r.text)}</a>`
             : esc(r.text)}</td>
           <td style="padding:6px 8px;border-bottom:1px solid #eee;color:#9b9a97;white-space:nowrap">${esc(r.tag)}</td>
-          ${r.done ? `<td style="padding:6px 8px;border-bottom:1px solid #eee;white-space:nowrap;width:28px;text-align:center"><a href="${esc(r.done)}" title="완료 처리" style="color:#1a73e8;text-decoration:none;font-weight:700">✓</a></td>` : ''}
+          ${r.done ? `<td style="padding:6px 8px;border-bottom:1px solid #eee;white-space:nowrap;width:74px;text-align:right"><a href="${esc(r.done)}" title="완료 처리" style="display:inline-block;padding:7px 12px;border:1px solid #1a73e8;border-radius:6px;color:#1a73e8;text-decoration:none;font-weight:700;font-size:12px;line-height:1">✓ 완료</a></td>` : ''}
         </tr>`).join('')
       + '</table>';
   };
