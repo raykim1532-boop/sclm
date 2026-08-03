@@ -4,6 +4,7 @@
 import { authed } from '../_auth.js';
 import { sendToAll, computeSummary } from './_send.js';
 import { kakaoConfigured, sendKakaoMessages, buildKakaoMessages } from './_kakao.js';
+import { ensureDailySnapshot } from '../snapshots.js';
 
 // 'cron' | 'auth' | false — 호출 주체 구분(크론 재시도 중복 방지에 사용)
 function allowed(context) {
@@ -58,13 +59,20 @@ export async function onRequestPost(context) {
   if (!caller) return new Response(JSON.stringify({ error: 'unauthorized' }), { status: 401 });
   const source = caller === 'auth' ? 'manual' : callerSource(context);
 
+  // 하루 1회 백업 — **아래 조기 반환들보다 먼저** 한다.
+  // 알릴 게 없는 날(nothing_due)도, 08:10 재시도(skipped)로 끝나는 날도 백업은 남아야 한다.
+  // 실패해도 알림 발송을 막지 않는다(백업은 부수 작업이다).
+  let backup = null;
+  try { backup = await ensureDailySnapshot(env, 'daily-cron'); }
+  catch (e) { backup = { ok: false, error: String((e && e.message) || e).slice(0, 120) }; }
+
   if (caller === 'cron') {
     const daily = await readDaily(env);
     if (daily.lastSentDay === todayKST()) {
       // 건너뛴 호출도 기록한다 — "크론이 발사는 됐는데 중복이라 넘어간 것"과
       // "아예 발사되지 않은 것"을 구분하기 위한 유일한 증거다.
       try { await recordAttempt(env, source, 'skipped'); } catch (e) {}
-      return Response.json({ ok: true, skipped: 'already_sent_today', source });
+      return Response.json({ ok: true, skipped: 'already_sent_today', source, backup });
     }
   }
 
@@ -75,7 +83,7 @@ export async function onRequestPost(context) {
   // ⚠️ 일정도 조건에 넣어야 한다 — 할 일이 없어도 오늘 회의가 있으면 알려야 하므로.
   if (s.overdue === 0 && s.dueToday === 0 && s.upcoming === 0 && s.events === 0) {
     try { await recordAttempt(env, source, 'nothing_due'); } catch (e) {}
-    return Response.json({ ok: true, skipped: 'nothing_due', source, summary: summaryCounts(s) });
+    return Response.json({ ok: true, skipped: 'nothing_due', source, summary: summaryCounts(s), backup });
   }
 
   // 1) 웹푸시
@@ -107,7 +115,7 @@ export async function onRequestPost(context) {
   // 오늘 발송 완료 기록(크론 2차 발사가 중복 발송하지 않도록)
   try { await recordAttempt(env, source, 'sent'); } catch (e) {}
 
-  return Response.json({ ok: true, push, kakao, source, parts: messages.length, summary: summaryCounts(s) });
+  return Response.json({ ok: true, push, kakao, source, parts: messages.length, summary: summaryCounts(s), backup });
 }
 
 /* 웹푸시 본문 만들기 — 순수 함수(테스트에서 직접 부른다).

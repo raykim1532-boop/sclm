@@ -31,6 +31,17 @@ async function snapshotCurrent(env, reason) {
   return { id, created_at: now };
 }
 
+/* 하루 1회 자동 백업 — 엔드포인트와 아침 크론(run-daily)이 함께 쓴다.
+   ⚠️ 예전에는 앱이 열릴 때만(setupBackup) 불렀다. 그런데 데이터는 앱을 안 열어도 매일 바뀐다
+      (크론이 캘린더를 동기화한다). 며칠 앱을 안 열면 그 사이 변경이 백업 없이 쌓였다.
+      그래서 서버 쪽 아침 작업에서도 부른다. 중복은 여기 날짜 판정이 막는다. */
+export async function ensureDailySnapshot(env, reason) {
+  const last = await env.DB.prepare("SELECT created_at FROM snapshots ORDER BY created_at DESC LIMIT 1").first();
+  if (last && dayKey(last.created_at) === dayKey(Date.now())) return { ok: true, skipped: true };
+  const res = await snapshotCurrent(env, reason || 'auto');
+  return res ? { ok: true, id: res.id, created_at: res.created_at } : { ok: false, error: 'no_data' };
+}
+
 export async function onRequestGet(context) {
   if (!authed(context)) return unauthorized();
   const rows = await context.env.DB
@@ -79,13 +90,11 @@ export async function onRequestPost(context) {
     return Response.json({ ok: true, restored: true, vaultKept });
   }
 
-  // 생성 (force 아니면 하루 1회로 제한)
-  const force = !!body.force;
-  if (!force) {
-    const last = await env.DB.prepare("SELECT created_at FROM snapshots ORDER BY created_at DESC LIMIT 1").first();
-    if (last && dayKey(last.created_at) === dayKey(Date.now())) {
-      return Response.json({ ok: true, skipped: true });
-    }
+  // 생성 (force 아니면 하루 1회로 제한 — 판정은 ensureDailySnapshot 과 같은 규칙)
+  if (!body.force) {
+    const r = await ensureDailySnapshot(env, body.reason || 'auto');
+    if (!r.ok) return Response.json({ error: r.error }, { status: 400 });
+    return Response.json(r);
   }
   const res = await snapshotCurrent(env, body.reason || 'auto');
   if (!res) return Response.json({ error: 'no_data' }, { status: 400 });
