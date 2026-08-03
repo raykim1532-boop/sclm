@@ -87,6 +87,16 @@
         - ⚠️ **`nothing_due` 조기 반환보다 앞에서 부른다**(2026-08-03 수정). 예전엔 뒤에 있어서 지연·오늘·임박·일정이 모두 0인 금요일에 주간 리포트가 통째로 빠졌다. 주간 리포트가 답하는 건 "오늘 뭘 하나"가 아니라 "이번 주에 뭘 했나"라, 정작 여유 있어 돌아볼 만한 주에 안 오는 셈이었다. **브리핑 발송 여부와 엮지 말 것.**
         - 중복은 브리핑 가드(`lastSentDay`)가 아니라 **별도 키 `lastWeeklyDay`** 로 막는다. `nothing_due` 는 `lastSentDay` 를 세우지 않아 08:10 재시도가 또 들어오기 때문. ⚠️ `recordAttempt` 는 `daily` 문서를 **통짜로 새로 쓰므로** `lastWeeklyDay` 를 명시적으로 물려줘야 한다 — 빠뜨리면 매 호출마다 가드가 지워진다.
         - 검증: `brief-mail.test.mjs` 의 '한가한 금요일' 3개 절(요일 의존이라 `Date.now` 를 2026-08-07 금요일로 고정한다).
+        - **주간 백업 첨부**(2026-08-03): 주간 메일에 `sclm-백업-<날짜>.json`(복원용) + `sclm-업무목록-<날짜>.csv`(엑셀용)를 붙인다. 백업이 전부 D1 안에만 있으면 계정 사고 때 같이 사라지는데, 이걸로 **회사 메일함이 오프사이트 보관소**가 된다. ⚠️ CSV 의 등록일 필드는 `registeredDate` 다(`createdDate` 아님). ⚠️ 첨부 생성이 실패해도 리포트 자체는 나가야 한다.
+      - **월간 결산**(매월 1일, `computeMonthly` + `buildMonthlyMailBody` + `maybeSendMonthly`). 지난달 완료·기한 준수율·평균 소요일·이번 달로 넘어온 일 + 대·중분류별 완료 분포. 주간과 같은 이유로 `nothing_due` 보다 앞에서 부르고 `lastMonthlyDay` 로 중복을 막는다. ⚠️ 지표 규칙은 앱 `computeWorkStats` 와 같아야 한다. 검증: `monthly-mail.test.mjs`.
+      - **고장 감시**(`collectIssues` + `maybeAlert` + `sendAlertMail`, 2026-08-03). **문제가 있을 때만** 보낸다 — 매일 '이상 없음'을 보내면 안 읽게 되고 진짜 이상도 놓친다. 감시 항목: ① 크론 미발사(`lastRunDay` 가 이틀 이상 뒤처짐) ② 백업 정체(`MAX(created_at)` 가 2일 이상 전) ③ 이번 실행의 백업·카카오·주간·월간 실패.
+        - ⚠️ **'모르는 상태'는 경고하지 않는다.** 기록이 없는 첫 실행, 조회 실패는 이상이 아니다. 틀린 경고가 몇 번 오면 진짜 경고도 안 읽는다.
+        - `lastRunDay` 는 발송 여부와 무관하게 **모든 호출에서** `recordAttempt` 가 남긴다. `attempts` 는 날이 바뀌면 비워지므로 어제 일을 알 수 있는 유일한 근거다. ⚠️ 그래서 `prevDaily` 는 **`recordAttempt` 보다 먼저** 읽어야 한다.
+        - 하루 한 통(`lastAlertDay`). 검증: `health-alert.test.mjs`.
+      - **원클릭 완료**(`mail-action.js` + `_sign.js`, 2026-08-03). 메일의 ✓ 를 누르면 앱을 열지 않고 완료 처리된다. 링크는 HMAC-SHA256 서명(키=`APP_PASSWORD`, 비밀번호 자체는 링크에 안 실린다) + 7일 만료.
+        - 🛑 **GET 은 절대 상태를 바꾸지 않는다.** 아웃룩 Safe Links 등 메일 보안 장치가 링크를 사람 대신 **미리 열어 보기** 때문에, GET 이 처리하면 메일 도착과 동시에 전 항목이 완료된다. GET 은 확인 화면만 그리고 실제 변경은 POST 에서만 한다. **이 구조를 바꾸지 말 것.**
+        - 마감이 지난 건은 `지연완료`(앱에서 손으로 완료할 때와 같은 규칙 — 안 그러면 기한 준수율이 경로에 따라 달라진다). 처리 후 되돌리기 링크를 주고, `logs` 에 '메일에서 완료 처리'를 남긴다.
+        - 링크 생성은 비동기·`env` 필요라 `buildMailBody(s, doneLinks)` 로 **받아서** 쓴다 — 본문 생성을 순수 함수로 유지하기 위함. 검증: `mail-action.test.mjs`.
       - ⚠️ **Cloudflare Email Sending 은 쓸 수 없다.** 본인 소유 도메인이 필요한데(`/email/sending/zones`) 이 계정엔 `sclm.pages.dev` 뿐이라 발신 도메인이 없다. 그래서 Resend 를 쓴다.
       - ⚠️ **Resend 무료 계정은 `onboarding@resend.dev` 에서 "가입한 본인 주소로만" 보낸다.** 즉 Resend 가입을 **받을 주소로** 해야 한다. 다른 주소로 가입하면 403 이 나고 메일이 안 간다(에러 문구가 `mail.error` 에 남는다).
       - 시크릿: `RESEND_API_KEY`, `MAIL_TO`(= 가입 주소), 선택 `MAIL_FROM`. 셋 다 없으면 조용히 건너뛴다(`skipped: not_configured`).

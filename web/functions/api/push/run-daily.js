@@ -5,8 +5,8 @@ import { authed } from '../_auth.js';
 import { sendToAll, computeSummary } from './_send.js';
 import { kakaoConfigured, sendKakaoMessages, buildKakaoMessages } from './_kakao.js';
 import { ensureDailySnapshot } from '../snapshots.js';
-import { sendBriefMail, sendWeeklyMail } from './_mail.js';
-import { computeWeekly } from './_send.js';
+import { sendBriefMail, sendWeeklyMail, sendMonthlyMail, sendAlertMail } from './_mail.js';
+import { computeWeekly, computeMonthly } from './_send.js';
 
 // 'cron' | 'auth' | false — 호출 주체 구분(크론 재시도 중복 방지에 사용)
 function allowed(context) {
@@ -50,6 +50,11 @@ async function recordAttempt(env, source, action) {
     lastSentDay: action === 'sent' ? today : (prev.lastSentDay || ''),
     at: action === 'sent' ? Date.now() : (prev.at || 0),
     lastWeeklyDay: prev.lastWeeklyDay || '',
+    lastMonthlyDay: prev.lastMonthlyDay || '',
+    lastAlertDay: prev.lastAlertDay || '',
+    // 발송 여부와 무관하게 **호출됐다는 사실**을 남긴다. 크론 미발사를 알아채는 유일한 근거다
+    // (attempts 는 날이 바뀌면 비워지므로 어제 일을 알 수 없다).
+    lastRunDay: today,
     attempts: kept
   };
   await env.DB
@@ -58,10 +63,11 @@ async function recordAttempt(env, source, action) {
     .run();
 }
 
-// 주간 리포트 발송일만 기록한다(다른 키는 그대로 둔다).
-async function markWeeklySent(env) {
+// 정기 리포트 발송일만 기록한다(다른 키는 그대로 둔다). key: lastWeeklyDay | lastMonthlyDay
+async function markReportSent(env, key) {
   const prev = await readDaily(env);
-  const data = Object.assign({}, prev, { lastWeeklyDay: todayKST() });
+  const data = Object.assign({}, prev);
+  data[key] = todayKST();
   await env.DB
     .prepare("INSERT INTO documents (id, data, updated_at) VALUES ('daily', ?1, ?2) ON CONFLICT(id) DO UPDATE SET data = ?1, updated_at = ?2")
     .bind(JSON.stringify(data), Date.now())
@@ -83,8 +89,89 @@ async function maybeSendWeekly(env, todayIso) {
   let out;
   try { out = await sendWeeklyMail(env, await computeWeekly(env, todayIso)); }
   catch (e) { return { ok: false, error: String((e && e.message) || e).slice(0, 200) }; }
-  if (out && out.ok) { try { await markWeeklySent(env); } catch (e) {} }
+  if (out && out.ok) { try { await markReportSent(env, 'lastWeeklyDay'); } catch (e) {} }
   return out;
+}
+
+/* 매월 1일 지난달 결산. 주간과 같은 이유로 브리핑 발송 여부와 분리하고,
+   중복은 lastMonthlyDay 로 막는다. 1일이 한가한 날일 수도 있기 때문. */
+async function maybeSendMonthly(env, todayIso) {
+  if (todayKST().slice(8) !== '01') return { skipped: 'not_first_day' };
+  const daily = await readDaily(env);
+  if (daily.lastMonthlyDay === todayKST()) return { skipped: 'already_sent_today' };
+  let out;
+  try { out = await sendMonthlyMail(env, await computeMonthly(env, todayIso)); }
+  catch (e) { return { ok: false, error: String((e && e.message) || e).slice(0, 200) }; }
+  if (out && out.ok) { try { await markReportSent(env, 'lastMonthlyDay'); } catch (e) {} }
+  return out;
+}
+
+const daysBetween = (a, b) => Math.round((new Date(b + 'T00:00:00Z') - new Date(a + 'T00:00:00Z')) / 864e5);
+
+/* 조용히 망가진 것을 찾는다. **문제가 있을 때만** 목록이 채워진다.
+   ⚠️ 확실하지 않으면 넣지 말 것 — 틀린 경고가 몇 번 오면 진짜 경고도 안 읽게 된다.
+   그래서 '모르는 상태'(기록 없음, 조회 실패)는 이상으로 치지 않는다. */
+async function collectIssues(env, prevDaily, results) {
+  const issues = [];
+  const today = todayKST();
+
+  // ① 크론 미발사 — 어제(혹은 그 전) 아예 호출조차 없었다
+  const last = prevDaily.lastRunDay || '';
+  if (last && daysBetween(last, today) > 1) {
+    issues.push({
+      icon: '⏱',
+      title: `아침 알림이 ${daysBetween(last, today) - 1}일 동안 실행되지 않았습니다`,
+      detail: `마지막 실행 ${last}. Cloudflare 크론(sclm-push-cron)이 발사되지 않은 것으로 보입니다. `
+        + 'GitHub Actions 의 daily-alarm 워크플로로 수동 발송할 수 있습니다.',
+    });
+  }
+
+  // ② 백업이 오래됐다 — 조회가 안 되면(기록 없음) 경고하지 않는다
+  try {
+    const row = await env.DB.prepare('SELECT MAX(created_at) AS last FROM snapshots').first();
+    const at = row && row.last;
+    if (at) {
+      const gap = daysBetween(new Date(at + 9 * 3600e3).toISOString().slice(0, 10), today);
+      if (gap >= 2) {
+        issues.push({ icon: '💾', title: `백업이 ${gap}일째 만들어지지 않았습니다`,
+          detail: '설정 화면의 [지금 백업]으로 즉시 하나 남길 수 있습니다.' });
+      }
+    }
+  } catch (e) { /* 조회 실패는 '모름' — 경고하지 않는다 */ }
+
+  // ③ 이번 실행에서 실제로 실패한 것들
+  const r = results || {};
+  if (r.backup && r.backup.ok === false) {
+    issues.push({ icon: '💾', title: '오늘 백업에 실패했습니다', detail: String(r.backup.error || '') });
+  }
+  if (r.kakao && r.kakao.ok === false) {
+    issues.push({ icon: '💬', title: '카카오톡 발송에 실패했습니다',
+      detail: String(r.kakao.error || '') + ' 토큰이 만료됐을 수 있습니다(설정에서 카카오 다시 연결).' });
+  }
+  if (r.weekly && r.weekly.ok === false) {
+    issues.push({ icon: '📮', title: '주간 리포트 발송에 실패했습니다', detail: String(r.weekly.error || '') });
+  }
+  if (r.monthly && r.monthly.ok === false) {
+    issues.push({ icon: '📮', title: '월간 결산 발송에 실패했습니다', detail: String(r.monthly.error || '') });
+  }
+  return issues;
+}
+
+/* 점검 메일은 하루 한 통까지. 08:00·08:10 두 번 발사되므로 가드가 없으면 두 통이 온다. */
+async function maybeAlert(env, prevDaily, results) {
+  let issues;
+  try { issues = await collectIssues(env, prevDaily, results); }
+  catch (e) { return { skipped: 'check_failed' }; }
+  if (!issues.length) return { skipped: 'no_issues', ok: true };
+
+  const daily = await readDaily(env);
+  if (daily.lastAlertDay === todayKST()) return { skipped: 'already_sent_today', issues: issues.length };
+
+  let out;
+  try { out = await sendAlertMail(env, issues, todayKST()); }
+  catch (e) { return { ok: false, error: String((e && e.message) || e).slice(0, 200) }; }
+  if (out && out.ok) { try { await markReportSent(env, 'lastAlertDay'); } catch (e) {} }
+  return Object.assign({ issues: issues.length }, out);
 }
 
 export async function onRequestPost(context) {
@@ -92,6 +179,10 @@ export async function onRequestPost(context) {
   const caller = allowed(context);
   if (!caller) return new Response(JSON.stringify({ error: 'unauthorized' }), { status: 401 });
   const source = caller === 'auth' ? 'manual' : callerSource(context);
+
+  // ⚠️ **recordAttempt 보다 먼저** 읽어 둔다 — 거기서 lastRunDay 를 오늘로 덮어쓰므로,
+  //    그 뒤에 읽으면 "며칠 안 돌았는지"를 영영 알 수 없다.
+  const prevDaily = await readDaily(env);
 
   // 하루 1회 백업 — **아래 조기 반환들보다 먼저** 한다.
   // 알릴 게 없는 날(nothing_due)도, 08:10 재시도(skipped)로 끝나는 날도 백업은 남아야 한다.
@@ -101,8 +192,7 @@ export async function onRequestPost(context) {
   catch (e) { backup = { ok: false, error: String((e && e.message) || e).slice(0, 120) }; }
 
   if (caller === 'cron') {
-    const daily = await readDaily(env);
-    if (daily.lastSentDay === todayKST()) {
+    if (prevDaily.lastSentDay === todayKST()) {
       // 건너뛴 호출도 기록한다 — "크론이 발사는 됐는데 중복이라 넘어간 것"과
       // "아예 발사되지 않은 것"을 구분하기 위한 유일한 증거다.
       try { await recordAttempt(env, source, 'skipped'); } catch (e) {}
@@ -116,10 +206,12 @@ export async function onRequestPost(context) {
   // 알릴 것이 없으면(지연·오늘·임박·일정 모두 0) 발송하지 않음.
   // ⚠️ 일정도 조건에 넣어야 한다 — 할 일이 없어도 오늘 회의가 있으면 알려야 하므로.
   if (s.overdue === 0 && s.dueToday === 0 && s.upcoming === 0 && s.events === 0) {
-    // 브리핑은 건너뛰되 **금요일 주간 리포트는 나간다**(maybeSendWeekly 주석 참고).
+    // 브리핑은 건너뛰되 **정기 리포트는 나간다**(maybeSendWeekly 주석 참고).
     const weekly = await maybeSendWeekly(env, s.today);
+    const monthly = await maybeSendMonthly(env, s.today);
+    const alert = await maybeAlert(env, prevDaily, { backup, weekly, monthly });
     try { await recordAttempt(env, source, 'nothing_due'); } catch (e) {}
-    return Response.json({ ok: true, skipped: 'nothing_due', source, summary: summaryCounts(s), backup, weekly });
+    return Response.json({ ok: true, skipped: 'nothing_due', source, summary: summaryCounts(s), backup, weekly, monthly, alert });
   }
 
   // 1) 웹푸시
@@ -159,10 +251,16 @@ export async function onRequestPost(context) {
   //    주간 리포트까지 두 번 가지는 않는다.
   const weekly = await maybeSendWeekly(env, s.today);
 
+  // 5) 매월 1일이면 지난달 결산도 함께
+  const monthly = await maybeSendMonthly(env, s.today);
+
+  // 6) 조용히 망가진 것이 있으면 점검 메일 (문제가 있을 때만 나간다)
+  const alert = await maybeAlert(env, prevDaily, { backup, kakao, weekly, monthly });
+
   // 오늘 발송 완료 기록(크론 2차 발사가 중복 발송하지 않도록)
   try { await recordAttempt(env, source, 'sent'); } catch (e) {}
 
-  return Response.json({ ok: true, push, kakao, mail, weekly, source, parts: messages.length, summary: summaryCounts(s), backup });
+  return Response.json({ ok: true, push, kakao, mail, weekly, monthly, alert, source, parts: messages.length, summary: summaryCounts(s), backup });
 }
 
 /* 웹푸시 본문 만들기 — 순수 함수(테스트에서 직접 부른다).

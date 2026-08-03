@@ -153,6 +153,21 @@ section('run-daily — 메일 설정이 없어도 그대로 돈다');
   check('메일은 건너뜀으로 표시', b.mail && b.mail.skipped === 'not_configured');
 }
 
+section('원클릭 완료 — ✓ 칸');
+{
+  const links = { o1: 'https://sclm.pages.dev/api/mail-action?a=done&id=o1&s=SIG' };
+  const withDone = buildMailBody(SUM, links);
+  check('링크 준 항목에 ✓ 가 붙는다', withDone.html.includes('>✓</a>'));
+  check('그 항목의 링크가 실린다', withDone.html.includes('a=done&amp;id=o1'));
+  check('링크 없는 항목엔 ✓ 칸이 없다', (withDone.html.match(/>✓<\/a>/g) || []).length === 1);
+  check('안내 문구가 붙는다', withDone.html.includes('완료 처리'));
+
+  const plain = buildMailBody(SUM);
+  check('링크를 안 주면 예전 그대로', !plain.html.includes('✓'));
+  check('안내 문구도 없다', !plain.html.includes('앱을 열지 않고'));
+  check('평문본은 영향 없음', plain.text === withDone.text);
+}
+
 section('딥링크 — 항목을 누르면 그 할 일이 열린다');
 {
   const m = buildMailBody(SUM);
@@ -269,6 +284,62 @@ section('주간 리포트는 금요일에만');
   const isFriday = new Date(Date.now() + 9 * 3600e3).getUTCDay() === 5;
   check('요일에 맞게 판정한다', isFriday ? b.weekly.skipped !== 'not_friday' : b.weekly.skipped === 'not_friday');
   check('아침 브리핑은 그대로 나간다', b.ok === true);
+}
+
+section('주간 백업 첨부');
+{
+  const { buildBackupAttachments, buildTodosCsv } = await import(API + 'push/_mail.js');
+  const state = {
+    projects: [{ id: 'p1', name: '정산' }],
+    todos: [
+      { id: 'a', text: '엔터식스 "정산" 확인', projectId: 'p1', channel: '엔터식스', subChannel: '운영',
+        assignee: '김성철', priority: '높음', status: '대기', dueDate: '2026-08-07', registeredDate: '2026-08-01' },
+      { id: 'b', text: '줄바꿈\n포함', projectId: 'nope', status: '완료', completedDate: '2026-08-03' },
+    ],
+  };
+
+  const csv = buildTodosCsv(state);
+  check('BOM 으로 시작(엑셀 한글 깨짐 방지)', csv.charCodeAt(0) === 0xFEFF);
+  check('머리글 포함', csv.includes('"등록일","업무내용","대분류"'));
+  // ⚠️ 등록일 필드명은 registeredDate 다(createdDate 가 아니다). 틀리면 열이 통째로 빈다.
+  check('등록일이 실제로 채워진다', csv.includes('"2026-08-01"'));
+  check('대분류는 이름으로 바뀐다', csv.includes('"정산"'));
+  check('없는 대분류는 빈 칸', csv.includes('"","","완료"'));
+  check('큰따옴표는 두 번으로 escape', csv.includes('""정산""'));
+  // 값 안의 줄바꿈은 따옴표 안에 갇히므로 행 수가 늘지 않는다(머리글 + 2행)
+  check('값 안의 줄바꿈이 행을 쪼개지 않는다', csv.split('\r\n').length === 3);
+  check('줄바꿈은 값 안에 그대로 남는다', csv.includes('"줄바꿈\n포함"'));
+  check('상태 기본값', buildTodosCsv({ todos: [{ id: 'c', done: true }] }).includes('"완료"'));
+
+  const at = buildBackupAttachments(state, '2026-08-07');
+  check('첨부 2개', at.length === 2);
+  check('JSON 파일명에 날짜', at[0].filename === 'sclm-백업-2026-08-07.json');
+  check('CSV 파일명에 날짜', at[1].filename === 'sclm-업무목록-2026-08-07.csv');
+  const back = JSON.parse(Buffer.from(at[0].content, 'base64').toString('utf8'));
+  check('JSON 은 원본 그대로 복원된다', back.todos.length === 2 && back.todos[0].text === state.todos[0].text);
+  check('한글이 깨지지 않는다', Buffer.from(at[1].content, 'base64').toString('utf8').includes('엔터식스'));
+  check('빈 상태도 안전', buildBackupAttachments({}, '2026-08-07').length === 2);
+}
+
+section('주간 리포트에 백업이 붙는다');
+{
+  const { mockDB } = await import('./_helpers.mjs');
+  const docs = { main: JSON.stringify({ todos: [T({ id: 'z' })], projects: [] }) };
+  const calls = mockFetch([{ match: 'api.resend.com', method: 'POST', reply: { id: 'wk' } }]);
+  const env = { RESEND_API_KEY: 'K', MAIL_TO: 'me@example.com', DB: mockDB(docs) };
+  const r = await sendWeeklyMail(env, { today: '2026-08-07', week: { start: '2026-08-03', end: '2026-08-09' }, done: 0, next: 0, late: 0 });
+  const sent = JSON.parse(calls[0].opts.body);
+  check('발송 성공', r.ok === true);
+  check('첨부가 실린다', Array.isArray(sent.attachments) && sent.attachments.length === 2);
+  check('본문에도 안내', sent.html.includes('이번 주 백업'));
+
+  // DB 를 못 읽어도 리포트 자체는 나가야 한다
+  const calls2 = mockFetch([{ match: 'api.resend.com', method: 'POST', reply: { id: 'wk2' } }]);
+  const bad = { RESEND_API_KEY: 'K', MAIL_TO: 'me@example.com', DB: { prepare() { throw new Error('down'); } } };
+  const r2 = await sendWeeklyMail(bad, { today: '2026-08-07', week: { start: 'a', end: 'b' }, done: 0, next: 0, late: 0 });
+  check('백업이 실패해도 발송된다', r2.ok === true);
+  check('첨부 없이 나간다', !JSON.parse(calls2[0].opts.body).attachments);
+  check('안내 문구도 빠진다', !JSON.parse(calls2[0].opts.body).html.includes('이번 주 백업'));
 }
 
 section('주간 메일 발송 — 설정 없으면 건너뛴다');

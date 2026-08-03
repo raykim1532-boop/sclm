@@ -71,6 +71,68 @@ export async function computeWeekly(env, todayIso) {
     done: done.length, next: next.length, late: stillLate.length };
 }
 
+/* 어떤 달의 1일~말일. offset -1 이면 지난달. key 는 'YYYY-MM'. */
+export function monthRangeKST(baseIso, offset) {
+  const y = +String(baseIso).slice(0, 4);
+  const m = +String(baseIso).slice(5, 7);
+  const s = new Date(Date.UTC(y, m - 1 + (offset || 0), 1));
+  const e = new Date(Date.UTC(s.getUTCFullYear(), s.getUTCMonth() + 1, 0));
+  const start = s.toISOString().slice(0, 10);
+  return { start, end: e.toISOString().slice(0, 10), key: start.slice(0, 7) };
+}
+
+/* 지난달 결산 — 매월 1일 아침에 보낸다.
+   주간이 "이번 주에 뭘 했나"라면 월간은 "지난달을 어떻게 보냈나"다:
+   실적(완료·기한 준수) + 넘어온 짐(아직 미완료) + 어디에 몰렸나(분류별).
+   ⚠️ 지표 규칙은 앱의 `computeWorkStats` 와 같아야 한다 — 화면과 메일이 다른 숫자를
+      말하면 둘 다 못 믿게 된다. 특히 등록일 필드는 `registeredDate` 다. */
+export async function computeMonthly(env, todayIso) {
+  const row = await env.DB.prepare("SELECT data FROM documents WHERE id = 'main'").first();
+  let state = {};
+  try { state = JSON.parse(row.data); } catch (e) {}
+  const todos = Array.isArray(state.todos) ? state.todos : [];
+  const projects = Array.isArray(state.projects) ? state.projects : [];
+  const today = todayIso || todayStrKST();
+  const mo = monthRangeKST(today, -1);
+  const inMonth = (d) => isIso(d) && d >= mo.start && d <= mo.end;
+  const days = (from, to) => Math.round((new Date(to + 'T00:00:00Z') - new Date(from + 'T00:00:00Z')) / 864e5);
+
+  const done = todos.filter((t) => isDone(t) && inMonth(t.completedDate))
+    .sort((a, b) => (a.completedDate < b.completedDate ? -1 : 1));
+  // 지난달 말까지가 마감인데 아직 안 끝난 것 = 이번 달로 넘어온 짐
+  const carried = todos.filter((t) => !isDone(t) && isIso(t.dueDate) && t.dueDate <= mo.end)
+    .sort((a, b) => (a.dueDate < b.dueDate ? -1 : 1));
+
+  const judged = done.filter((t) => isIso(t.dueDate));
+  const onTime = judged.filter((t) => t.completedDate <= t.dueDate).length;
+  // 소요일: 등록일·완료일이 모두 있고 순서가 뒤집히지 않은 건만(유입 데이터에 역전 사례가 있다)
+  const lead = done.filter((t) => isIso(t.registeredDate) && t.completedDate >= t.registeredDate)
+    .map((t) => days(t.registeredDate, t.completedDate));
+
+  // 분류별 — 그 달에 완료한 건이 어디에 몰렸나
+  const by = (pick) => {
+    const map = new Map();
+    done.forEach((t) => {
+      const name = (pick(t) || '').trim() || '(미지정)';
+      map.set(name, (map.get(name) || 0) + 1);
+    });
+    return [...map.entries()].map(([name, count]) => ({ name, count }))
+      .sort((a, b) => b.count - a.count || (a.name < b.name ? -1 : 1));
+  };
+  const pname = (id) => (projects.find((p) => p && p.id === id) || {}).name || '';
+
+  return {
+    today, month: mo,
+    done: done.length, doneList: done,
+    carried: carried.length, carriedList: carried,
+    onTimeRate: judged.length ? Math.round(onTime / judged.length * 100) : null,
+    onTimeBase: judged.length,
+    avgLead: lead.length ? +(lead.reduce((a, b) => a + b, 0) / lead.length).toFixed(1) : null,
+    byProject: by((t) => pname(t.projectId)).slice(0, 8),
+    byChannel: by((t) => t.channel).slice(0, 8),
+  };
+}
+
 /* 같은 분류에서 **반복해서** 밀리는 것을 찾는다 — 한 건씩 보면 안 보이는 경향이다.
    앱의 `computeStuckTaxo` 와 같은 규칙을 쓴다:
      · 표본 3건 이상 + 지연 2건 이상만 (1~2건짜리는 하나만 늦어도 '전부 지연'이 돼 소음이 된다)

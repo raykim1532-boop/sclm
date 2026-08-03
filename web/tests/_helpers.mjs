@@ -38,9 +38,10 @@ export function mockDB(docs, versions = {}) {
   };
 }
 
-// 요청 모의(헤더만 사용하는 엔드포인트용)
-export function mockRequest(headers = {}, bodyObj) {
+// 요청 모의. url 은 쿼리스트링을 읽는 엔드포인트(mail-action 등)에서만 쓴다.
+export function mockRequest(headers = {}, bodyObj, url) {
   return {
+    url: url || 'https://sclm.pages.dev/api/',
     headers: { get: (k) => headers[k] || '' },
     async text() { return JSON.stringify(bodyObj ?? {}); },
     async json() { return bodyObj ?? {}; },
