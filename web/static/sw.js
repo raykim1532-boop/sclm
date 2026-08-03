@@ -37,13 +37,26 @@ self.addEventListener('activate', (event) => {
 /* ---------- 캐시 핸들러 ---------- */
 
 // 문서: 네트워크 우선(최신 배포 반영), 실패하면 캐시된 앱 셸
+//
+// ⚠️ **앱 셸이 아닌 문서를 '/' 로 캐시하지 말 것.** /api/mail-action 처럼 HTML 을 돌려주는
+//    엔드포인트도 링크로 열면 내비게이션이라, 예전엔 그 확인 화면이 앱 셸 자리를 덮어썼다.
+//    그러면 오프라인에서 앱을 열었을 때 앱 대신 그 페이지가 뜬다(2026-08-03 발견).
+//    같은 이유로 오프라인 폴백도 앱 셸이 아닌 주소에는 주지 않는다 — 눌러 봐야
+//    엉뚱한 화면이고, 서버에 닿아야만 되는 동작이라 캐시로 흉내낼 수도 없다.
 async function handleNavigate(req) {
   const cache = await caches.open(SHELL_CACHE);
+  let isShell = true;
+  try { isShell = !new URL(req.url).pathname.startsWith('/api/'); } catch (e) {}
   try {
     const res = await fetch(req);
-    if (res && res.ok) cache.put('/', res.clone());
+    if (isShell && res && res.ok) cache.put('/', res.clone());
     return res;
   } catch (e) {
+    if (!isShell) {
+      return new Response('오프라인입니다. 네트워크에 연결된 뒤 다시 눌러 주세요.', {
+        status: 503, headers: { 'Content-Type': 'text/plain; charset=utf-8' }
+      });
+    }
     return (await cache.match('/')) || new Response('오프라인입니다.', {
       status: 503, headers: { 'Content-Type': 'text/plain; charset=utf-8' }
     });

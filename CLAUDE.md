@@ -69,6 +69,10 @@
       - `baseSnapshot`은 **불러올 때와 저장 성공할 때** 갱신한다. 이 갱신을 빠뜨리면 병합 기준이 틀어져 남의 작업을 되살리거나 지운다. 검증: `merge-states.test.mjs`(규칙 40개) + `merge-flow.test.mjs`(409→병합→재저장 전 구간).
     - **창을 다시 볼 때 자동 새로고침**(`setupAutoRefresh`): `visibilitychange`/`focus`에서 서버 버전을 확인해 바뀌었으면 조용히 불러온다. 편집 중(모달 열림)에는 건드리지 않고 20초 간격을 둔다. 충돌을 **애초에 줄이는** 쪽이라 병합보다 이게 먼저 일한다.
     - ⚠️ **저장 충돌 감지**: PUT은 통짜 덮어쓰기라 마지막에 저장한 쪽이 이긴다. 그래서 클라이언트가 마지막으로 읽은 버전(`baseVersion` = 그때의 `updated_at`)을 함께 보내고, 서버 버전이 다르면 **409 + 서버 데이터**를 돌려준다. 덮어쓰려면 `force:true`를 명시해야 하며, 앱은 `setupConflictHandler`가 사용자에게 '서버 것 불러오기 / 내 것으로 덮어쓰기'를 묻는다. **이 검사를 우회하거나 자동 force 하지 말 것** — 2026-07-29 오래된 탭이 덮어써서 할 일에 지정한 소분류가 통째로 사라진 사고가 있었다(시간여행으로도 대부분 복구 못 함). 검증: `data-conflict.test.mjs`.
+      - 🛑 **`baseVersion` 없이 저장하지 않는다**(2026-08-03). 예전엔 `baseVersion` 이 0이면 그 필드를 아예 빼고 보냈고, 그러면 서버가 비교할 기준이 없어 **충돌 감지가 통째로 꺼진 통짜 덮어쓰기**가 됐다. 실제로 메일 원클릭으로 완료 처리한 것이 열려 있던 앱에 의해 조용히 사라졌다.
+      - `baseVersion` 이 0으로 남는 조건: **서비스워커 오프라인 캐시로 데이터를 받으면**(`X-SCLM-Offline: 1` → `lastLoadOnline=false`) 버전이 안 세워진다. 네트워크가 한 번만 끊겨도 앱을 다시 열 때까지 계속 무방비였다.
+      - 지금은 저장 직전에 `probeServer()` 로 서버 버전을 확인하고, 안전하게 합칠 기준점(`baseSnapshot`)이 없으면 **조용히 덮어쓰는 대신 사용자에게 묻는다**. 서버가 비어 있으면(최초 업로드) 그냥 올린다.
+      - ⚠️ **앱 밖에서 서버가 바뀌는 경로가 계속 늘어난다** — 메일 원클릭(`mail-action`), AI 비서, 다른 노트북, 크론의 캘린더 동기화. 저장 경로를 손댈 때마다 "앱이 모르는 사이 서버가 바뀌었으면?"을 먼저 물을 것. 검증: `sync-outofband.test.mjs`.
     - 백업: 최근 20건 보관(prune), 자동 백업은 하루 1회(`force`로 강제). 복원 시 **현재 상태를 `pre-restore`로 먼저 백업**하므로 복원도 되돌릴 수 있다.
       - ⚠️ **하루 1회 백업은 서버(`run-daily`)가 한다**(2026-08-03). 예전엔 앱이 열릴 때만(`setupBackup`) 불러서, 며칠 앱을 안 열면 백업이 안 생겼다 — 실제로 3일 비었다. 그런데 데이터는 앱을 안 열어도 매일 바뀐다(크론이 캘린더를 동기화한다).
       - 백업 호출은 `run-daily` 의 **모든 조기 반환보다 먼저** 둔다. `nothing_due` 인 날도, 08:10 재시도가 `already_sent_today` 로 끝나는 날도 백업은 남아야 한다. 중복은 `ensureDailySnapshot` 의 KST 날짜 판정이 막는다.
@@ -110,7 +114,7 @@
 - `web/wrangler.toml` — D1 바인딩(`DB` = scheduler-db) + R2 바인딩(`FILES` = sclm-files). `web/schema.sql`, `web/seed.sql`.
 - `web/static/` — **배포용 정적 자산(추적됨)**: `manifest.webmanifest`, `icon-192/512/180.png`, `sw.js`. `build.js`가 `static/* → public/`으로 복사한다. `web/public/`은 gitignore이므로 **배포에 필요한 파일은 반드시 static/에 두고 커밋**할 것.
 - **PWA**: manifest + apple-touch-icon + standalone 메타로 홈 화면 설치 지원(아이폰은 설치해야 푸시 가능).
-- **오프라인**(`web/static/sw.js`): 문서=네트워크 우선→캐시 셸, 정적자산=캐시 우선+백그라운드 갱신, `GET /api/data`=네트워크 우선+캐싱(오프라인이면 마지막 응답에 `X-SCLM-Offline: 1` 붙여 반환), `GET /api/health`=오프라인이면 **데이터 캐시가 있을 때만** `{cloud:true,offline:true}` 합성(없으면 그대로 실패시켜 로컬 모드로). 비-GET·나머지 `/api/*`는 개입하지 않음. 앱 쪽: `setupServiceWorker`/`setupOfflineBar`/`reconcileOffline`. 오프라인 저장 실패분은 `myscheduler:offline:pending`에 보관했다가 온라인 복귀 시 **사용자 확인 후** 업로드/폐기(자동 덮어쓰기 금지 — 다른 기기 작업이 날아감). `verify()`는 `true|false|'offline'` 3값이며 캐시 응답(`X-SCLM-Offline`)으로는 비밀번호를 통과시키지 않는다. 캐시 스키마 바꾸면 `sw.js`의 `VERSION` 올릴 것.
+- **오프라인**(`web/static/sw.js`): 문서=네트워크 우선→캐시 셸, 정적자산=캐시 우선+백그라운드 갱신, `GET /api/data`=네트워크 우선+캐싱(오프라인이면 마지막 응답에 `X-SCLM-Offline: 1` 붙여 반환), `GET /api/health`=오프라인이면 **데이터 캐시가 있을 때만** `{cloud:true,offline:true}` 합성(없으면 그대로 실패시켜 로컬 모드로). 비-GET·나머지 `/api/*`는 개입하지 않음. ⚠️ **앱 셸(`/`) 캐시는 `/api/` 가 아닌 문서만 갱신한다**(2026-08-03) — `/api/mail-action` 처럼 HTML 을 돌려주는 엔드포인트도 링크로 열면 내비게이션이라, 그 확인 화면이 앱 셸을 덮어써 오프라인에서 앱 대신 그 페이지가 떴다. 같은 이유로 `/api/` 문서에는 오프라인 폴백으로 앱 셸을 주지 않는다(검증: `sw-navigate.test.mjs`). 앱 쪽: `setupServiceWorker`/`setupOfflineBar`/`reconcileOffline`. 오프라인 저장 실패분은 `myscheduler:offline:pending`에 보관했다가 온라인 복귀 시 **사용자 확인 후** 업로드/폐기(자동 덮어쓰기 금지 — 다른 기기 작업이 날아감). `verify()`는 `true|false|'offline'` 3값이며 캐시 응답(`X-SCLM-Offline`)으로는 비밀번호를 통과시키지 않는다. 캐시 스키마 바꾸면 `sw.js`의 `VERSION` 올릴 것.
 - 데이터 스키마(D1 documents id='main' JSON): `{ settings, projects, events, todos, channels, channelProjects, subChannels, tasks }`. 실제 업무는 `todos`. `tasks`는 미사용(칸반이 todos 기반).
 - **분류 체계 = 대분류 · 중분류 · 소분류 (2026-07-29, 서로 독립된 3축)**. ⚠️ **내부 필드명은 옛 이름 그대로다** — 화면 용어만 바꾸고 데이터는 이전하지 않았다(Password 관리자=vault와 같은 방식).
   | 화면 | 뜻 | 필드 | 목록 |

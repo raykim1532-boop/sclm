@@ -235,6 +235,23 @@
   }
   function pendingClear() { try { localStorage.removeItem(PENDING_KEY); } catch (e) {} }
 
+  /* 서버의 현재 버전만 확인한다(저장하기 전에 baseVersion 을 확보하기 위한 것).
+     서비스워커 캐시 응답은 '서버에서 왔다'고 보지 않는다 — 그걸 기준으로 삼으면
+     오프라인 사본을 최신인 양 믿게 된다. */
+  async function probeServer() {
+    try {
+      const r = await fetch('/api/data', { headers: authHeaders() });
+      if (!r.ok || r.headers.get('X-SCLM-Offline') === '1') return { online: false };
+      const j = await r.json();
+      return {
+        online: true,
+        hasData: !!(j && j.data),
+        version: j && typeof j.version === 'number' ? j.version : 0,
+        data: j && j.data ? ensureShape(j.data) : null
+      };
+    } catch (e) { return { online: false }; }
+  }
+
   const cloudApi = {
     loadData: async () => {
       lastLoadOnline = false;
@@ -279,7 +296,36 @@
         body: JSON.stringify(payload)
       });
       try {
-        let r = await put(Object.assign({}, data, baseVersion ? { baseVersion } : {}));
+        // ⚠️ **baseVersion 없이 저장하지 않는다.** 안 실어 보내면 서버가 비교할 기준이 없어
+        //    충돌 감지가 통째로 꺼지고, 그 저장은 3자 병합을 건너뛴 통짜 덮어쓰기가 된다.
+        //    2026-08-03 메일 원클릭으로 완료 처리한 것이 이렇게 조용히 사라졌다.
+        //    baseVersion 은 서비스워커 캐시로 데이터를 받으면(lastLoadOnline=false) 0으로 남고,
+        //    네트워크가 한 번만 끊겨도 앱을 다시 열 때까지 계속 무방비가 된다.
+        //    검증: sync-outofband.test.mjs
+        let forceThis = false;
+        if (!baseVersion) {
+          const p = await probeServer();
+          if (p.online && p.hasData) {
+            if (baseSnapshot) {
+              // 기준점이 있으니 409 → 3자 병합으로 안전하게 처리된다.
+              // (지금은 baseVersion 과 baseSnapshot 이 늘 같이 세워져 이 갈래로 오지 않지만,
+              //  둘이 어긋나게 되는 날에도 조용히 덮어쓰지 않도록 남겨 둔다.)
+              baseVersion = p.version;
+            } else {
+              // 기준점이 없으면 무엇이 내 변경인지 가릴 수 없다 → 조용히 덮어쓰지 말고 묻는다
+              const choice = onConflict ? await onConflict({ data: p.data, serverVersion: p.version }) : 'cancel';
+              if (choice !== 'overwrite') {
+                baseVersion = p.version;    // 서버 것을 따른다(앱이 다시 불러온다)
+                pendingClear();
+                return false;
+              }
+              forceThis = true;
+            }
+          }
+        }
+
+        let r = await put(Object.assign({}, data,
+          forceThis ? { force: true } : (baseVersion ? { baseVersion } : {})));
         if (r.status === 401) { logout(); location.reload(); return false; }
 
         // 409 = 내가 읽은 뒤 다른 곳에서 먼저 저장했다.
