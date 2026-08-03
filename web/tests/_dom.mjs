@@ -61,6 +61,8 @@ const EXPORTS = [
   'dueTemplatesFor', 'todoFromTemplate', 'fillMonthTokens', 'skipToLastRun', 'monthKey',
   // 마감일 빠르게 옮기기
   'nextMonday', 'moveDueDate', 'openDueMenu', 'closeDueMenu', 'addDays', 'mmddDot',
+  // 일정에서 할 일 만들기
+  'todoPresetFromEvent', 'makeTodoFromEvent', 'openReadOnlyEventModal',
   'isGoogleImported', 'projectColor',
 ];
 

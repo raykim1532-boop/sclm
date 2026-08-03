@@ -2388,6 +2388,43 @@ function subOptionsHtml() {
 
 /* ---------- 일정 모달 ---------- */
 /* 남의 캘린더에서 읽기 전용으로 가져온 일정 — 앱에서 고치면 다음 동기화에 덮이므로 보기만 한다 */
+/* ---------- 일정에서 할 일 만들기 ----------
+   일정 240건, 할 일 61건인데 둘이 전혀 안 이어져 있었다. 회의에서 나온 할 일을
+   그 자리에서 만들 길이 없어 매번 To-do 로 건너가 처음부터 입력해야 했다.
+   ⚠️ 대부분의 일정은 구글에서 가져온 **읽기 전용**이다. 그래서 읽기 전용 모달에도 넣는다. */
+
+/* 일정 → 할 일 초안 (순수 함수). 제목은 비워 둔다 —
+   회의 제목이 곧 할 일인 경우는 드물고(대개 후속 작업이다) 지우고 다시 쓰게 하면 번거롭다. */
+function todoPresetFromEvent(ev, todayIso) {
+  const start = String((ev && ev.start) || '').slice(0, 10);
+  return {
+    text: '',
+    registeredDate: todayIso,
+    dueDate: isIsoDate(start) ? start : todayIso,
+    projectId: (ev && ev.projectId) || null,
+    fromEvent: (ev && ev.id) || '',
+    fromEventTitle: String((ev && ev.title) || '').slice(0, 80),
+  };
+}
+
+/* 일정 모달에서 [이 일정으로 할 일 만들기] — 일정 모달을 닫고 할 일 모달을 연다 */
+function makeTodoFromEvent(ev) {
+  closeModal();
+  const preset = todoPresetFromEvent(ev, todayStr());
+  // projectId 가 없으면 할 일 모달의 기본값(첫 대분류)을 쓰게 둔다
+  if (!preset.projectId) delete preset.projectId;
+  setTimeout(() => {
+    openTodoModal(null, preset);
+    const el = document.getElementById('f-text');
+    if (el) el.focus();
+  }, 0);
+}
+
+/* 일정 모달 안에 넣을 버튼 마크업 (두 모달이 함께 쓴다) */
+function eventToTodoBtnHtml() {
+  return '<button type="button" class="btn ev-to-todo" id="evToTodoBtn">＋ 이 일정으로 할 일 만들기</button>';
+}
+
 function openReadOnlyEventModal(ev) {
   const when = ev.allDay !== false
     ? (ev.start + (ev.end && ev.end !== ev.start ? ' ~ ' + ev.end : '') + ' (종일)')
@@ -2400,7 +2437,12 @@ function openReadOnlyEventModal(ev) {
       <div class="field"><label>일시</label><div class="ro-view">${escapeHtml(when)}</div></div>
       ${ev.roCalName ? `<div class="field"><label>캘린더</label><div class="ro-view">${escapeHtml(ev.roCalName)}</div></div>` : ''}
       ${ev.notes ? `<div class="field"><label>메모</label><div class="ro-view">${escapeHtml(ev.notes)}</div></div>` : ''}
-      <p class="hint" style="margin:0">가져오기만 하는 일정이라 여기서는 고칠 수 없어요. 내용을 바꾸려면 <b>구글 캘린더</b>에서 수정하세요 — 다음 동기화 때 반영됩니다.</p>`,
+      <p class="hint" style="margin:0">가져오기만 하는 일정이라 여기서는 고칠 수 없어요. 내용을 바꾸려면 <b>구글 캘린더</b>에서 수정하세요 — 다음 동기화 때 반영됩니다.</p>
+      ${eventToTodoBtnHtml()}`,
+    onOpen: () => {
+      const b = document.getElementById('evToTodoBtn');
+      if (b) b.onclick = () => makeTodoFromEvent(ev);
+    },
     onSave: () => true
   });
 }
@@ -2441,8 +2483,12 @@ function openEventModal(ev, dateStr) {
       </div>` : (data.recurGroup ? '<div class="field"><span class="hint">🔁 반복 일정 중 하나입니다. 삭제 시 전체/개별 선택 가능.</span></div>' : '')}
       <div class="field"><label>색상</label><div class="color-picker-row" id="f-color-row"></div></div>
       <div class="field"><label>메모</label><textarea id="f-notes" placeholder="메모(선택)">${escapeHtml(data.notes || '')}</textarea></div>
+      ${isNew ? '' : eventToTodoBtnHtml()}
     `,
     onOpen: () => {
+      // 저장 전인 새 일정은 연결할 대상이 없으므로 버튼을 안 그린다(위 isNew 분기)
+      const evBtn = document.getElementById('evToTodoBtn');
+      if (evBtn) evBtn.onclick = () => makeTodoFromEvent(data);
       buildColorRow('f-color-row', data.color || projectColor(data.projectId));
       const allDayCb = document.getElementById('f-allday');
       const timeRow = document.getElementById('f-time-row');
@@ -3243,6 +3289,7 @@ function openTodoModal(todo, presets) {
       </div>
       <div class="field"><label>완료일(선택)</label><input type="date" id="f-completed" value="${data.completedDate || ''}" /></div>
       ${todoDueHistory(data).length ? `<div class="due-hist">📌 마감일 변경 ${todoDueHistory(data).length}회\n        ${todoDueHistory(data).map((h) => `<span>${escapeHtml(mmddDot(h.from) || '없음')} → ${escapeHtml(mmddDot(h.to) || '없음')}${h.at ? ' (' + escapeHtml(mmddDot(h.at)) + ')' : ''}</span>`).join('')}\n      </div>` : ''}
+      ${data.fromEventTitle ? `<div class="from-event">📆 <span><b>${escapeHtml(data.fromEventTitle)}</b> 일정에서 만든 할 일이에요</span></div>` : ''}
       <div class="field">
         <label>업무 로그<span class="hint-inline">${isNew ? '한 줄 적으면 날짜가 붙어 쌓여요' : '적으면 바로 저장돼요'}</span></label>
         <div id="f-logs" class="log-list">${logRowsHtml(todoLogs(data))}</div>
@@ -3310,7 +3357,9 @@ function openTodoModal(todo, presets) {
         return true;
       }
       if (isNew) {
-        state.todos.push({ id: uid(), no: nextNo, registeredDate, projectId, channel, subChannel, priority, text, assignee, dueDate, status, needsCheck, completedDate, progress, remarks, links, link, files, done, logs });
+        // 일정에서 만든 경우 출처를 남긴다(할 일 모달 상단에 다시 보여 준다)
+        const origin = data.fromEvent ? { fromEvent: data.fromEvent, fromEventTitle: data.fromEventTitle || '' } : {};
+        state.todos.push(Object.assign({ id: uid(), no: nextNo, registeredDate, projectId, channel, subChannel, priority, text, assignee, dueDate, status, needsCheck, completedDate, progress, remarks, links, link, files, done, logs }, origin));
       } else {
         // 마감일을 바꿨으면 이력을 남긴다 — Object.assign 으로 덮기 전에 옛 값을 봐야 한다
         pushDueHistory(todo, dueDate, todayStr());
