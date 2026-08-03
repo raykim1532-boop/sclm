@@ -38,6 +38,8 @@ async function readDaily(env) {
 
 // 호출 이력을 남긴다. action: 'sent' | 'skipped' | 'nothing_due'
 // 발송(sent)일 때만 lastSentDay 를 갱신한다(중복 방지 가드의 기준).
+// ⚠️ lastWeeklyDay 는 여기서 건드리지 않고 **그대로 물려준다** — 통짜로 새 객체를 쓰므로
+//    빠뜨리면 주간 리포트 중복 가드가 매 호출마다 지워진다.
 async function recordAttempt(env, source, action) {
   const prev = await readDaily(env);
   const today = todayKST();
@@ -47,12 +49,42 @@ async function recordAttempt(env, source, action) {
   const data = {
     lastSentDay: action === 'sent' ? today : (prev.lastSentDay || ''),
     at: action === 'sent' ? Date.now() : (prev.at || 0),
+    lastWeeklyDay: prev.lastWeeklyDay || '',
     attempts: kept
   };
   await env.DB
     .prepare("INSERT INTO documents (id, data, updated_at) VALUES ('daily', ?1, ?2) ON CONFLICT(id) DO UPDATE SET data = ?1, updated_at = ?2")
     .bind(JSON.stringify(data), Date.now())
     .run();
+}
+
+// 주간 리포트 발송일만 기록한다(다른 키는 그대로 둔다).
+async function markWeeklySent(env) {
+  const prev = await readDaily(env);
+  const data = Object.assign({}, prev, { lastWeeklyDay: todayKST() });
+  await env.DB
+    .prepare("INSERT INTO documents (id, data, updated_at) VALUES ('daily', ?1, ?2) ON CONFLICT(id) DO UPDATE SET data = ?1, updated_at = ?2")
+    .bind(JSON.stringify(data), Date.now())
+    .run();
+}
+
+const isFridayKST = () => new Date(Date.now() + 9 * 3600e3).getUTCDay() === 5;
+
+/* 금요일 주간 리포트 — **아침 브리핑과 독립적으로** 판정한다.
+   ⚠️ 알릴 게 없는 날(nothing_due)에도 보내야 한다. 주간 리포트가 답하는 건 "오늘 뭘 하나"가
+      아니라 "이번 주에 뭘 했나"라서, 한가한 금요일에 빠지면 정작 여유가 있어 돌아볼 만한
+      주에 안 오게 된다. 그래서 nothing_due 조기 반환보다 앞에서 이 함수를 부른다.
+   그 경로는 lastSentDay 를 세우지 않아 08:10 재시도가 또 들어온다. 중복은 브리핑 가드가
+   아니라 **별도 키(lastWeeklyDay)** 로 막는다. */
+async function maybeSendWeekly(env, todayIso) {
+  if (!isFridayKST()) return { skipped: 'not_friday' };
+  const daily = await readDaily(env);
+  if (daily.lastWeeklyDay === todayKST()) return { skipped: 'already_sent_today' };
+  let out;
+  try { out = await sendWeeklyMail(env, await computeWeekly(env, todayIso)); }
+  catch (e) { return { ok: false, error: String((e && e.message) || e).slice(0, 200) }; }
+  if (out && out.ok) { try { await markWeeklySent(env); } catch (e) {} }
+  return out;
 }
 
 export async function onRequestPost(context) {
@@ -84,8 +116,10 @@ export async function onRequestPost(context) {
   // 알릴 것이 없으면(지연·오늘·임박·일정 모두 0) 발송하지 않음.
   // ⚠️ 일정도 조건에 넣어야 한다 — 할 일이 없어도 오늘 회의가 있으면 알려야 하므로.
   if (s.overdue === 0 && s.dueToday === 0 && s.upcoming === 0 && s.events === 0) {
+    // 브리핑은 건너뛰되 **금요일 주간 리포트는 나간다**(maybeSendWeekly 주석 참고).
+    const weekly = await maybeSendWeekly(env, s.today);
     try { await recordAttempt(env, source, 'nothing_due'); } catch (e) {}
-    return Response.json({ ok: true, skipped: 'nothing_due', source, summary: summaryCounts(s), backup });
+    return Response.json({ ok: true, skipped: 'nothing_due', source, summary: summaryCounts(s), backup, weekly });
   }
 
   // 1) 웹푸시
@@ -121,12 +155,9 @@ export async function onRequestPost(context) {
   catch (e) { mail = { ok: false, error: String((e && e.message) || e).slice(0, 200) }; }
 
   // 4) 금요일이면 주간 리포트도 함께 (메일이 설정된 경우에만).
-  //    하루 1회 가드 안쪽이라 같은 날 두 번 가지 않는다.
-  let weekly = { skipped: 'not_friday' };
-  if (new Date(Date.now() + 9 * 3600e3).getUTCDay() === 5) {
-    try { weekly = await sendWeeklyMail(env, await computeWeekly(env, s.today)); }
-      catch (e) { weekly = { ok: false, error: String((e && e.message) || e).slice(0, 200) }; }
-  }
+  //    중복은 lastWeeklyDay 가 막는다 — 수동(Bearer) 호출로 브리핑을 다시 보내도
+  //    주간 리포트까지 두 번 가지는 않는다.
+  const weekly = await maybeSendWeekly(env, s.today);
 
   // 오늘 발송 완료 기록(크론 2차 발사가 중복 발송하지 않도록)
   try { await recordAttempt(env, source, 'sent'); } catch (e) {}

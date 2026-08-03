@@ -278,3 +278,82 @@ section('주간 메일 발송 — 설정 없으면 건너뛴다');
   const r = await sendWeeklyMail({}, { today: '2026-08-07', week: { start: 'a', end: 'b' }, done: 0, next: 0, late: 0 });
   check('건너뛴다', r.skipped === 'not_configured' && called === 0);
 }
+
+/* ---- 한가한 금요일 ----
+   2026-08-03 발견: nothing_due 조기 반환이 주간 리포트보다 위에 있어서, 지연·오늘 마감·임박·
+   일정이 모두 0인 금요일에는 주간 리포트가 통째로 빠졌다. 주간 리포트가 답하는 건 "오늘 뭘 하나"가
+   아니라 "이번 주에 뭘 했나"라, 정작 여유 있어 돌아볼 만한 주에 안 오는 셈이었다.
+   ⚠️ 요일에 의존하는 테스트라 Date.now 를 고정한다(2026-08-07 = 금요일). */
+const FRI_NOW = Date.UTC(2026, 7, 7, 3, 0, 0);   // KST 2026-08-07(금) 12:00
+async function onFriday(fn) {
+  const real = Date.now;
+  Date.now = () => FRI_NOW;
+  try { return await fn(); } finally { Date.now = real; }
+}
+const MAIL_ENV = { APP_PASSWORD: 'pw', CRON_SECRET: 'CRONSEC', RESEND_API_KEY: 'K', MAIL_TO: 'me@example.com' };
+const resendCalls = (calls) => calls.filter((c) => c.url.includes('api.resend.com'));
+
+section('한가한 금요일에도 주간 리포트는 나간다');
+{
+  const { mockDB } = await import('./_helpers.mjs');
+  await onFriday(async () => {
+    const docs = { main: JSON.stringify({ todos: [], events: [], projects: [] }) };
+    const calls = mockFetch([{ match: 'api.resend.com', method: 'POST', reply: { id: 'wk1' } }]);
+    const env = Object.assign({ DB: mockDB(docs) }, MAIL_ENV);
+    const ctx = () => ({ env, request: mockRequest({ 'X-Cron-Secret': 'CRONSEC' }) });
+
+    const b = await (await onRequestPost(ctx())).json();
+    check('브리핑 자체는 건너뛴다', b.skipped === 'nothing_due');
+    check('그래도 주간 리포트는 나갔다', b.weekly && b.weekly.ok === true);
+    check('메일 1통', resendCalls(calls).length === 1);
+    check('보낸 건 주간 리포트', JSON.parse(resendCalls(calls)[0].opts.body).subject.includes('주간 리포트'));
+
+    // 08:10 재시도 — nothing_due 는 lastSentDay 를 세우지 않으므로 다시 들어온다
+    const b2 = await (await onRequestPost(ctx())).json();
+    check('재시도도 브리핑은 nothing_due', b2.skipped === 'nothing_due');
+    check('주간 리포트는 두 번 안 간다', b2.weekly.skipped === 'already_sent_today');
+    check('메일은 여전히 1통', resendCalls(calls).length === 1);
+  });
+}
+
+section('주간 리포트는 금요일 하루 한 통 (수동 재발송에도)');
+{
+  const { mockDB } = await import('./_helpers.mjs');
+  await onFriday(async () => {
+    const docs = { main: JSON.stringify({ todos: [T({ id: 'x', dueDate: '2026-08-07' })], events: [], projects: [] }) };
+    const calls = mockFetch([{ match: 'api.resend.com', method: 'POST', reply: { id: 'wk2' } }]);
+    const env = Object.assign({ DB: mockDB(docs) }, MAIL_ENV);
+    const ctx = (h) => ({ env, request: mockRequest(h) });
+
+    const b = await (await onRequestPost(ctx({ 'X-Cron-Secret': 'CRONSEC' }))).json();
+    check('브리핑 발송', b.ok === true && !b.skipped);
+    check('주간 리포트도 함께', b.weekly.ok === true);
+    check('브리핑 + 주간 = 2통', resendCalls(calls).length === 2);
+    check('발송일 기록', JSON.parse(docs.daily).lastWeeklyDay === '2026-08-07');
+
+    // 수동(Bearer)은 브리핑을 다시 보내지만 주간 리포트까지 두 번 가면 안 된다
+    const b2 = await (await onRequestPost(ctx({ Authorization: 'Bearer pw' }))).json();
+    check('수동 호출은 브리핑 재발송', b2.ok === true && b2.mail.ok === true);
+    check('주간 리포트는 중복 안 됨', b2.weekly.skipped === 'already_sent_today');
+    check('메일은 3통(브리핑 2 + 주간 1)', resendCalls(calls).length === 3);
+
+    // ⚠️ recordAttempt 가 daily 문서를 통짜로 새로 쓰므로 가드 키가 지워지기 쉽다
+    check('발송 이력을 남겨도 가드 키는 유지', JSON.parse(docs.daily).lastWeeklyDay === '2026-08-07');
+    check('브리핑 발송일도 그대로', JSON.parse(docs.daily).lastSentDay === '2026-08-07');
+  });
+}
+
+section('금요일이 아니면 주간 리포트는 안 간다');
+{
+  const { mockDB } = await import('./_helpers.mjs');
+  const real = Date.now;
+  Date.now = () => Date.UTC(2026, 7, 6, 3, 0, 0);   // KST 목요일
+  try {
+    const docs = { main: JSON.stringify({ todos: [T({ id: 'x', dueDate: '2026-08-06' })], events: [], projects: [] }) };
+    const calls = mockFetch([{ match: 'api.resend.com', method: 'POST', reply: { id: 'th' } }]);
+    const env = Object.assign({ DB: mockDB(docs) }, MAIL_ENV);
+    const b = await (await onRequestPost({ env, request: mockRequest({ 'X-Cron-Secret': 'CRONSEC' }) })).json();
+    check('not_friday', b.weekly.skipped === 'not_friday');
+    check('브리핑 1통만', resendCalls(calls).length === 1);
+  } finally { Date.now = real; }
+}

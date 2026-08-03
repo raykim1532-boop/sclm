@@ -83,7 +83,10 @@
     - **이메일 발송**(`_mail.js`, 2026-08-03). 푸시·카카오에 이어 세 번째 채널. 길이 제한이 없으므로 **전체 목록을 담는다** — 푸시처럼 3건으로 접지 않는 게 메일로 받는 이유다.
       - **딥링크**: 메일의 각 항목이 `?todo=<id>` / `?event=<id>` 로 걸린다. 받는 쪽은 앱의 `openFromUrl()`(init 끝에서 호출) — 해당 화면으로 옮기고 편집창을 연 뒤 **주소에서 쿼리를 지운다**(안 지우면 새로고침마다 다시 열린다). 카카오·푸시에서도 같은 주소를 쓸 수 있다.
       - **밀리는 분류 경고**: `computeStuckChannels`(중분류 축, 표본 3건+지연 2건, '기타' 제외)를 요약에 실어 메일 상단에 한 줄 띄운다. ⚠️ 규칙은 앱의 `computeStuckTaxo` 와 **같아야 한다** — 화면과 메일이 다른 말을 하면 안 된다.
-      - **금요일 주간 리포트**: `computeWeekly` + `buildWeeklyMailBody` + `sendWeeklyMail`. KST 금요일에만 아침 브리핑과 함께 한 통 더 간다(하루 1회 가드 안쪽이라 중복되지 않는다). 구간은 앱 주간 리포트와 같은 월~일.
+      - **금요일 주간 리포트**: `computeWeekly` + `buildWeeklyMailBody` + `sendWeeklyMail`, 판정·중복방지는 `maybeSendWeekly`. KST 금요일에만 아침 브리핑과 함께 한 통 더 간다. 구간은 앱 주간 리포트와 같은 월~일.
+        - ⚠️ **`nothing_due` 조기 반환보다 앞에서 부른다**(2026-08-03 수정). 예전엔 뒤에 있어서 지연·오늘·임박·일정이 모두 0인 금요일에 주간 리포트가 통째로 빠졌다. 주간 리포트가 답하는 건 "오늘 뭘 하나"가 아니라 "이번 주에 뭘 했나"라, 정작 여유 있어 돌아볼 만한 주에 안 오는 셈이었다. **브리핑 발송 여부와 엮지 말 것.**
+        - 중복은 브리핑 가드(`lastSentDay`)가 아니라 **별도 키 `lastWeeklyDay`** 로 막는다. `nothing_due` 는 `lastSentDay` 를 세우지 않아 08:10 재시도가 또 들어오기 때문. ⚠️ `recordAttempt` 는 `daily` 문서를 **통짜로 새로 쓰므로** `lastWeeklyDay` 를 명시적으로 물려줘야 한다 — 빠뜨리면 매 호출마다 가드가 지워진다.
+        - 검증: `brief-mail.test.mjs` 의 '한가한 금요일' 3개 절(요일 의존이라 `Date.now` 를 2026-08-07 금요일로 고정한다).
       - ⚠️ **Cloudflare Email Sending 은 쓸 수 없다.** 본인 소유 도메인이 필요한데(`/email/sending/zones`) 이 계정엔 `sclm.pages.dev` 뿐이라 발신 도메인이 없다. 그래서 Resend 를 쓴다.
       - ⚠️ **Resend 무료 계정은 `onboarding@resend.dev` 에서 "가입한 본인 주소로만" 보낸다.** 즉 Resend 가입을 **받을 주소로** 해야 한다. 다른 주소로 가입하면 403 이 나고 메일이 안 간다(에러 문구가 `mail.error` 에 남는다).
       - 시크릿: `RESEND_API_KEY`, `MAIL_TO`(= 가입 주소), 선택 `MAIL_FROM`. 셋 다 없으면 조용히 건너뛴다(`skipped: not_configured`).
