@@ -253,6 +253,23 @@ html, body {
 .vault-copy:hover { border-color: var(--accent); color: var(--accent); }
 .vault-copy.vi-open { border-color: var(--accent); color: var(--accent); }
 
+/* ---------- 월간 정기업무 ---------- */
+.recur-list { display: flex; flex-direction: column; gap: 6px; margin-bottom: 10px; }
+.recur-list:empty { display: none; }
+.recur-row {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px;
+  background: var(--surface); cursor: pointer; font-size: 13px;
+}
+.recur-row:hover { border-color: var(--accent); }
+.recur-row.off { opacity: .5; }
+.recur-main { flex: 1; min-width: 0; }
+.recur-title { font-weight: 600; }
+.recur-sub { font-size: 11.5px; color: var(--text-muted); margin-top: 3px; }
+.recur-when { flex: 0 0 auto; font-size: 11.5px; color: var(--text-muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.recur-badge { font-size: 10.5px; padding: 1px 7px; border-radius: 999px; background: var(--surface-2); color: var(--text-muted); margin-left: 6px; }
+.recur-badge.done { background: color-mix(in srgb, var(--success) 18%, transparent); color: var(--success); }
+
 /* ---------- 업무 로그 · 마감일 변경 배지 ---------- */
 .hint-inline { font-weight: 400; font-size: 11px; color: var(--text-muted); margin-left: 8px; }
 .log-list { display: flex; flex-direction: column; gap: 4px; margin-bottom: 8px; }

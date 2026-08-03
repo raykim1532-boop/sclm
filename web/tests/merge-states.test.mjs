@@ -141,3 +141,19 @@ section('실전 시나리오 — 데스크탑과 노트북');
   check('노트북이 추가한 소분류도 있다', r.data.subMaster.includes('패션플러스'));
   check('총 4건', r.data.todos.length === 4);
 }
+
+section('정기업무 템플릿도 id 로 병합된다');
+{
+  // 새 최상위 키를 RECORD_KEYS 에 안 넣으면 통짜 비교가 돼 한쪽이 통째로 사라진다.
+  const R = (id, o) => Object.assign({ id, text: '{전월} ' + id, createDay: 1, dueDay: 10, active: true }, o);
+  const base = S([], { recurTemplates: [R('a')] });
+  const mine = S([], { recurTemplates: [R('a'), R('mine')] });
+  const theirs = S([], { recurTemplates: [R('a'), R('theirs')] });
+  const r = mergeStates(base, mine, theirs);
+  check('양쪽이 각각 추가한 템플릿이 다 남는다', r.data.recurTemplates.length === 3);
+  check('내 것', r.data.recurTemplates.some((t) => t.id === 'mine'));
+  check('상대 것', r.data.recurTemplates.some((t) => t.id === 'theirs'));
+
+  const edited = mergeStates(base, S([], { recurTemplates: [R('a', { lastRunMonth: '2026-08' })] }), S([], { recurTemplates: [R('a')] }));
+  check('한쪽만 고치면 그쪽', edited.data.recurTemplates[0].lastRunMonth === '2026-08');
+}

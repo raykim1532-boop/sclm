@@ -183,6 +183,7 @@ async function init() {
   setupProjects();
   setupSettings();
   setupSync();
+  setupRecur();
   setupModal();
   setupScrollTop();
   setupOfflineBar();
@@ -195,6 +196,10 @@ async function init() {
     // 화면을 먼저 그린 뒤에 미반영 변경분을 확인한다
     if (CloudSync.wasOnline && CloudSync.wasOnline()) reconcileOffline();
   }
+
+  // 이번 달치 정기업무 생성 — 화면을 다 그린 뒤에 한다(만들어지면 목록이 다시 그려진다).
+  // 실패해도 앱 구동을 막지 않는다.
+  try { await runMonthlyTemplates(); } catch (e) { console.error('정기업무 생성 실패', e); }
 }
 
 /* ---------- AI 일정 비서 (클라우드 전용) ---------- */
@@ -1983,6 +1988,216 @@ function pushDueHistory(todo, nextDue, todayIso) {
   if (!Array.isArray(todo.dueHistory)) todo.dueHistory = [];
   todo.dueHistory.push({ from: prev, to: next, at: todayIso });
   return true;
+}
+
+/* ---------- 월간 정기업무 ----------
+   정산·지출결의서처럼 매달 같은 일을 손으로 다시 등록하고 있었다(2026-08-03 아침에만 4건).
+   틀을 한 번 등록해 두면 매달 자동으로 만들어 준다.
+
+     state.recurTemplates = [{ id, text, projectId, channel, subChannel, priority,
+                               assignee, needsCheck, createDay, dueDay, active, lastRunMonth }]
+
+   제목에 월을 넣을 수 있게 자리표시자를 둔다 — 실제 제목이 "26.07 법인카드 사용내역 품의"
+   (8월에 만들지만 7월분)처럼 전월을 가리키는 경우가 많다.
+     {전월}  → 26.07     {당월}  → 26.08
+     {전월M} → 7월       {당월M} → 8월
+   ⚠️ 생성은 앱을 열 때 돈다(runMonthlyTemplates). 하루쯤 늦어도 문제되지 않는 성격이고,
+      서버에서 만들면 사용자가 모르는 사이 할 일이 생겨 오히려 헷갈린다. */
+
+function recurTemplates(st) {
+  const s = st || state;
+  if (!Array.isArray(s.recurTemplates)) s.recurTemplates = [];
+  return s.recurTemplates;
+}
+
+// '2026-08' 형태의 월 키
+function monthKey(iso) { return String(iso || '').slice(0, 7); }
+
+/* 월 키에 offset 개월을 더한다. addMonth('2026-08', -1) → '2026-07' */
+function addMonth(key, offset) {
+  const y = parseInt(key.slice(0, 4), 10);
+  const m = parseInt(key.slice(5, 7), 10) - 1 + (offset || 0);
+  const d = new Date(Date.UTC(y, m, 1));
+  return d.toISOString().slice(0, 7);
+}
+
+/* 제목의 {전월}·{당월}·{전월M}·{당월M} 을 실제 값으로 바꾼다 (순수 함수) */
+function fillMonthTokens(text, todayIso) {
+  const cur = monthKey(todayIso);
+  const prev = addMonth(cur, -1);
+  const yymm = (k) => k.slice(2, 4) + '.' + k.slice(5, 7);
+  const mOnly = (k) => String(parseInt(k.slice(5, 7), 10)) + '월';
+  return String(text || '')
+    .split('{전월M}').join(mOnly(prev))
+    .split('{당월M}').join(mOnly(cur))
+    .split('{전월}').join(yymm(prev))
+    .split('{당월}').join(yymm(cur));
+}
+
+/* 그 달의 며칠짜리 날짜를 만든다. 말일을 넘으면 말일로 맞춘다(31일 템플릿 + 2월). */
+function dayInMonth(monthK, day) {
+  const y = parseInt(monthK.slice(0, 4), 10);
+  const m = parseInt(monthK.slice(5, 7), 10);
+  const last = new Date(Date.UTC(y, m, 0)).getUTCDate();
+  const d = Math.min(Math.max(1, parseInt(day, 10) || 1), last);
+  return monthK + '-' + String(d).padStart(2, '0');
+}
+
+/* 이번 달에 만들어야 할 템플릿을 골라 할 일 초안을 돌려준다 — 순수 함수(테스트에서 검증).
+   조건: active + 이번 달에 아직 안 만듦 + 오늘이 생성일 이후.
+   dueDay 가 createDay 보다 앞이면 다음 달 마감으로 본다(예: 25일 생성 → 다음달 5일 마감). */
+function dueTemplatesFor(templates, todayIso) {
+  const cur = monthKey(todayIso);
+  const today = parseInt(todayIso.slice(8, 10), 10);
+  return (Array.isArray(templates) ? templates : []).filter((t) => {
+    if (!t || t.active === false) return false;
+    if (!String(t.text || '').trim()) return false;
+    if (t.lastRunMonth === cur) return false;
+    return today >= (parseInt(t.createDay, 10) || 1);
+  });
+}
+
+/* 템플릿 하나 → 할 일 한 건 (순수 함수) */
+function todoFromTemplate(t, todayIso, no) {
+  const cur = monthKey(todayIso);
+  const createDay = parseInt(t.createDay, 10) || 1;
+  const dueDay = parseInt(t.dueDay, 10) || createDay;
+  const dueMonth = dueDay < createDay ? addMonth(cur, 1) : cur;
+  return {
+    id: uid(), no: no,
+    registeredDate: todayIso,
+    projectId: t.projectId || null,
+    channel: t.channel || '', subChannel: t.subChannel || '',
+    priority: t.priority || '', text: fillMonthTokens(t.text, todayIso),
+    assignee: t.assignee || '',
+    dueDate: dayInMonth(dueMonth, dueDay),
+    status: '대기', needsCheck: t.needsCheck || '',
+    completedDate: '', progress: '', remarks: '', links: [], link: '', files: [],
+    done: false, logs: [], fromTemplate: t.id,
+  };
+}
+
+/* 앱을 열 때 한 번 — 이번 달치 정기업무를 만든다. 만든 건수를 돌려준다. */
+async function runMonthlyTemplates() {
+  const tpls = recurTemplates();
+  if (!tpls.length) return 0;
+  const today = todayStr();
+  const due = dueTemplatesFor(tpls, today);
+  if (!due.length) return 0;
+  let no = Math.max(0, ...state.todos.map((t) => t.no || 0));
+  const cur = monthKey(today);
+  due.forEach((t) => {
+    state.todos.push(todoFromTemplate(t, today, ++no));
+    t.lastRunMonth = cur;
+  });
+  await persist();
+  renderAll();
+  toast(`정기 업무 ${due.length}건을 만들었어요`);
+  return due.length;
+}
+
+/* 설정 화면의 정기업무 목록 */
+function renderRecurList() {
+  const box = document.getElementById('recurList');
+  if (!box) return;
+  const tpls = recurTemplates();
+  const cur = monthKey(todayStr());
+  box.innerHTML = '';
+  if (!tpls.length) {
+    box.innerHTML = '<div class="dash-empty">아직 등록한 정기업무가 없어요.</div>';
+    return;
+  }
+  tpls.forEach((t) => {
+    const proj = byId(state.projects, t.projectId);
+    const made = t.lastRunMonth === cur;
+    const row = document.createElement('div');
+    row.className = 'recur-row' + (t.active === false ? ' off' : '');
+    row.innerHTML =
+      '<div class="recur-main">'
+      + '<div class="recur-title">' + escapeHtml(fillMonthTokens(t.text, todayStr()))
+      + (t.active === false ? '<span class="recur-badge">꺼짐</span>'
+         : made ? '<span class="recur-badge done">이번 달 생성됨</span>' : '') + '</div>'
+      + '<div class="recur-sub">' + [proj ? proj.name : '', t.channel, t.subChannel, t.assignee].filter(Boolean).map(escapeHtml).join(' · ') + '</div>'
+      + '</div>'
+      + '<div class="recur-when">매월 ' + (parseInt(t.createDay, 10) || 1) + '일 생성<br>마감 ' + (parseInt(t.dueDay, 10) || parseInt(t.createDay, 10) || 1) + '일</div>';
+    row.onclick = () => openRecurModal(t);
+    box.appendChild(row);
+  });
+}
+
+/* 정기업무 추가·수정 */
+function openRecurModal(tpl) {
+  const isNew = !tpl;
+  const d = tpl || { id: null, text: '', projectId: (state.projects[0] || {}).id, channel: '', subChannel: '', priority: '', assignee: '', needsCheck: '', createDay: 1, dueDay: 10, active: true };
+  const dayOpts = (sel) => { let o = ''; for (let i = 1; i <= 28; i++) o += '<option value="' + i + '"' + (i === (parseInt(sel, 10) || 1) ? ' selected' : '') + '>' + i + '일</option>'; return o; };
+  showModal({
+    title: isNew ? '정기업무 추가' : '정기업무 수정',
+    deletable: !isNew,
+    bodyHtml: `
+      <div class="field"><label>업무내용<span class="hint-inline">{전월} {당월} {전월M} {당월M} 사용 가능</span></label>
+        <input type="text" id="rc-text" value="${escapeHtml(d.text)}" placeholder="예: {전월} 법인카드 사용내역 품의" /></div>
+      <div class="field-row">
+        <div class="field"><label>대분류</label><select id="rc-project" class="select">${projectOptionsHtml(d.projectId)}</select></div>
+        <div class="field"><label>담당자</label><input type="text" id="rc-assignee" value="${escapeHtml(d.assignee || '')}" /></div>
+      </div>
+      <div class="field-row">
+        <div class="field"><label>중분류</label><input type="text" id="rc-channel" list="rc-mid-list" value="${escapeHtml(d.channel || '')}" />
+          <datalist id="rc-mid-list">${midList().map((v) => `<option value="${escapeHtml(v)}"></option>`).join('')}</datalist></div>
+        <div class="field"><label>소분류</label><input type="text" id="rc-subchannel" list="rc-sub-list" value="${escapeHtml(d.subChannel || '')}" />
+          <datalist id="rc-sub-list">${subList().map((v) => `<option value="${escapeHtml(v)}"></option>`).join('')}</datalist></div>
+      </div>
+      <div class="field-row">
+        <div class="field"><label>매월 며칠에 만들까요</label><select id="rc-createday" class="select">${dayOpts(d.createDay)}</select></div>
+        <div class="field"><label>마감일</label><select id="rc-dueday" class="select">${dayOpts(d.dueDay)}</select></div>
+      </div>
+      <div class="field-row">
+        <div class="field"><label>우선순위</label><select id="rc-priority" class="select">
+          <option value="">-</option>${['긴급', '중요', '보통'].map((v) => `<option value="${v}" ${d.priority === v ? 'selected' : ''}>${v}</option>`).join('')}</select></div>
+        <div class="field"><label>사용</label><select id="rc-active" class="select">
+          <option value="1" ${d.active !== false ? 'selected' : ''}>켜짐</option>
+          <option value="0" ${d.active === false ? 'selected' : ''}>꺼짐</option></select></div>
+      </div>
+      <p class="hint" style="margin:0">마감일이 생성일보다 앞이면 <b>다음 달</b> 마감으로 봅니다(예: 25일 생성 → 다음달 5일 마감).</p>`,
+    onSave: () => {
+      const text = document.getElementById('rc-text').value.trim();
+      if (!text) { toast('업무내용을 입력해주세요'); return false; }
+      const channel = document.getElementById('rc-channel').value.trim();
+      const subChannel = document.getElementById('rc-subchannel').value.trim();
+      if (channel) addMid(channel);
+      if (subChannel) addSub(subChannel);
+      const next = {
+        id: d.id || ('rt_' + uid()),
+        text, channel, subChannel,
+        projectId: document.getElementById('rc-project').value,
+        assignee: document.getElementById('rc-assignee').value.trim(),
+        priority: document.getElementById('rc-priority').value,
+        createDay: parseInt(document.getElementById('rc-createday').value, 10) || 1,
+        dueDay: parseInt(document.getElementById('rc-dueday').value, 10) || 1,
+        active: document.getElementById('rc-active').value === '1',
+        needsCheck: d.needsCheck || '',
+        lastRunMonth: d.lastRunMonth || '',
+      };
+      const tpls = recurTemplates();
+      if (isNew) tpls.push(next);
+      else Object.assign(tpl, next);
+      persist(); renderRecurList();
+      toast(isNew ? '정기업무를 추가했어요' : '저장했어요');
+      return true;
+    },
+    onDelete: () => {
+      const tpls = recurTemplates();
+      const i = tpls.indexOf(tpl);
+      if (i > -1) tpls.splice(i, 1);
+      persist(); renderRecurList();
+      toast('삭제했어요');
+    },
+  });
+}
+
+function setupRecur() {
+  const add = document.getElementById('recurAddBtn');
+  if (add) add.onclick = () => openRecurModal(null);
+  renderRecurList();
 }
 
 /* ---------- 프로젝트 select 옵션 생성 ---------- */

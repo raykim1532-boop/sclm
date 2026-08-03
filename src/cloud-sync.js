@@ -57,7 +57,9 @@
      ⚠️ 금고(vault)는 통짜 암호문이라 합칠 수 없다. 한쪽만 바뀌었으면 그쪽, 양쪽 다 바뀌었으면
         충돌로 올려 사용자에게 묻는다(조용히 하나를 버리면 계정이 사라진다). */
 
-  const RECORD_KEYS = ['todos', 'events', 'projects'];   // id 로 짝지어 비교하는 배열
+  // id 로 짝지어 비교하는 배열. **id 가 있는 배열을 state 에 새로 추가하면 여기에도 넣을 것** —
+  // 안 넣으면 통짜로 비교돼 두 기기에서 각각 추가한 항목 중 하나가 사라진다.
+  const RECORD_KEYS = ['todos', 'events', 'projects', 'recurTemplates'];
   const LIST_KEYS = ['channels', 'subMaster'];             // 단순 문자열 목록
 
   const eq = (a, b) => JSON.stringify(a === undefined ? null : a) === JSON.stringify(b === undefined ? null : b);

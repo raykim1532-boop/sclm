@@ -56,6 +56,9 @@ const EXPORTS = [
   'bulkAssign', 'refreshBulkSelects', 'todoSortValue', 'renderAll', 'weekRange',
   // 캘린더 배선
   'setupCalendar', 'buildCalendarEvents', 'refreshCalendarEvents', 'openEventModal',
+  // 월간 정기업무
+  'renderRecurList', 'openRecurModal', 'setupRecur', 'runMonthlyTemplates', 'recurTemplates',
+  'dueTemplatesFor', 'todoFromTemplate', 'fillMonthTokens',
   'isGoogleImported', 'projectColor',
 ];
 
