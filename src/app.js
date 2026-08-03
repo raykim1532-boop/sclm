@@ -2077,6 +2077,15 @@ function todoFromTemplate(t, todayIso, no) {
   };
 }
 
+/* "이번 달은 건너뛰기" 체크 → 저장할 lastRunMonth 값 (순수 함수).
+   켜면 이번 달을 이미 만든 것으로 표시해 생성을 막는다.
+   끄면 이번 달 표시만 지운다 — 지난달 기록은 건드리지 않는다. */
+function skipToLastRun(skip, prevLastRun, curMonth) {
+  const prev = prevLastRun || '';
+  if (skip) return curMonth;
+  return prev === curMonth ? '' : prev;
+}
+
 /* 앱을 열 때 한 번 — 이번 달치 정기업무를 만든다. 만든 건수를 돌려준다. */
 async function runMonthlyTemplates() {
   const tpls = recurTemplates();
@@ -2130,6 +2139,11 @@ function openRecurModal(tpl) {
   const isNew = !tpl;
   const d = tpl || { id: null, text: '', projectId: (state.projects[0] || {}).id, channel: '', subChannel: '', priority: '', assignee: '', needsCheck: '', createDay: 1, dueDay: 10, active: true };
   const dayOpts = (sel) => { let o = ''; for (let i = 1; i <= 28; i++) o += '<option value="' + i + '"' + (i === (parseInt(sel, 10) || 1) ? ' selected' : '') + '>' + i + '일</option>'; return o; };
+  const curMonth = monthKey(todayStr());
+  const madeThisMonth = d.lastRunMonth === curMonth;
+  // 새로 등록할 땐 기본으로 켜 둔다 — 달 중간에 등록하는 건 대개 "이번 달 건 이미 했다"는 뜻이고,
+  // 안 그러면 등록하자마자 중복이 하나 생긴다. 끄면 바로 만들어진다.
+  const skipDefault = isNew ? true : madeThisMonth;
   showModal({
     title: isNew ? '정기업무 추가' : '정기업무 수정',
     deletable: !isNew,
@@ -2157,6 +2171,10 @@ function openRecurModal(tpl) {
           <option value="1" ${d.active !== false ? 'selected' : ''}>켜짐</option>
           <option value="0" ${d.active === false ? 'selected' : ''}>꺼짐</option></select></div>
       </div>
+      <div class="field">
+        <label class="rc-check"><input type="checkbox" id="rc-skip" ${skipDefault ? 'checked' : ''} />
+          <span>이번 달은 건너뛰기<span class="hint-inline">${isNew ? '이미 이번 달 것을 만드셨다면 켜 두세요' : (madeThisMonth ? '이번 달은 이미 만들어졌어요' : '')}</span></span></label>
+      </div>
       <p class="hint" style="margin:0">마감일이 생성일보다 앞이면 <b>다음 달</b> 마감으로 봅니다(예: 25일 생성 → 다음달 5일 마감).</p>`,
     onSave: () => {
       const text = document.getElementById('rc-text').value.trim();
@@ -2175,13 +2193,15 @@ function openRecurModal(tpl) {
         dueDay: parseInt(document.getElementById('rc-dueday').value, 10) || 1,
         active: document.getElementById('rc-active').value === '1',
         needsCheck: d.needsCheck || '',
-        lastRunMonth: d.lastRunMonth || '',
+        lastRunMonth: skipToLastRun(document.getElementById('rc-skip').checked, d.lastRunMonth, curMonth),
       };
       const tpls = recurTemplates();
       if (isNew) tpls.push(next);
       else Object.assign(tpl, next);
       persist(); renderRecurList();
       toast(isNew ? '정기업무를 추가했어요' : '저장했어요');
+      // 건너뛰기를 끈 채 저장했다면 이번 달치를 바로 만든다(다음에 앱을 열 때까지 기다리지 않도록)
+      setTimeout(() => { runMonthlyTemplates().catch(() => {}); }, 0);
       return true;
     },
     onDelete: () => {

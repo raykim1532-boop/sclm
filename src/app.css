@@ -270,6 +270,9 @@ html, body {
 .recur-badge { font-size: 10.5px; padding: 1px 7px; border-radius: 999px; background: var(--surface-2); color: var(--text-muted); margin-left: 6px; }
 .recur-badge.done { background: color-mix(in srgb, var(--success) 18%, transparent); color: var(--success); }
 
+.rc-check { display: flex; align-items: flex-start; gap: 8px; cursor: pointer; font-size: 13px; }
+.rc-check input { margin-top: 2px; flex: 0 0 auto; }
+
 /* ---------- 업무 로그 · 마감일 변경 배지 ---------- */
 .hint-inline { font-weight: 400; font-size: 11px; color: var(--text-muted); margin-left: 8px; }
 .log-list { display: flex; flex-direction: column; gap: 4px; margin-bottom: 8px; }

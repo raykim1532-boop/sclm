@@ -58,7 +58,7 @@ const EXPORTS = [
   'setupCalendar', 'buildCalendarEvents', 'refreshCalendarEvents', 'openEventModal',
   // 월간 정기업무
   'renderRecurList', 'openRecurModal', 'setupRecur', 'runMonthlyTemplates', 'recurTemplates',
-  'dueTemplatesFor', 'todoFromTemplate', 'fillMonthTokens',
+  'dueTemplatesFor', 'todoFromTemplate', 'fillMonthTokens', 'skipToLastRun', 'monthKey',
   'isGoogleImported', 'projectColor',
 ];
 
@@ -85,10 +85,28 @@ function patchSelectValue(document) {
   });
 }
 
+/* linkedom 의 <input> 에는 `checked` 프로퍼티가 아예 없다 — `checked` 속성이 붙어 있어도
+   `el.checked` 는 undefined 다. 그래서 앱이 `${x ? 'checked' : ''}` 로 그려 놓고 나중에
+   `el.checked` 로 읽는 코드가 테스트에서만 항상 false 로 보인다.
+   브라우저처럼 "명시적으로 설정한 값 > 속성" 순으로 읽히게 맞춰 준다. */
+function patchInputChecked(document) {
+  const proto = Object.getPrototypeOf(document.createElement('input'));
+  if (Object.getOwnPropertyDescriptor(proto, 'checked')) return;
+  Object.defineProperty(proto, 'checked', {
+    configurable: true,
+    get() { return this._checked !== undefined ? this._checked : this.hasAttribute('checked'); },
+    set(v) {
+      Object.defineProperty(this, '_checked', { value: !!v, writable: true, configurable: true });
+      if (v) this.setAttribute('checked', ''); else this.removeAttribute('checked');
+    },
+  });
+}
+
 export function bootApp(opts = {}) {
   let html = readFileSync(SHELL, 'utf8').replace(/<script[\s\S]*?<\/script>/g, '');
   const { document, window } = parseHTML(html);
   patchSelectValue(document);
+  patchInputChecked(document);
 
   const store = Object.assign({}, opts.localStorage);
   const localStorage = {

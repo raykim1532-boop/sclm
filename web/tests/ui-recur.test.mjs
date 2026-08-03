@@ -131,3 +131,66 @@ section('템플릿이 없으면 아무 일도 안 한다');
   check('0건', n === 0);
   check('저장도 안 한다', env.saves.length === 0);
 }
+
+section('이번 달은 건너뛰기 — 값 계산');
+{
+  const env = bootApp();
+  const f = env.app.skipToLastRun;
+  check('켜면 이번 달로 표시', f(true, '', '2026-08') === '2026-08');
+  check('켜면 지난 기록도 이번 달로', f(true, '2026-07', '2026-08') === '2026-08');
+  check('끄면 이번 달 표시를 지운다', f(false, '2026-08', '2026-08') === '');
+  check('끄더라도 지난달 기록은 그대로', f(false, '2026-07', '2026-08') === '2026-07');
+  check('원래 없었으면 그대로 없음', f(false, '', '2026-08') === '');
+}
+
+section('새로 등록할 땐 기본으로 켜져 있다');
+{
+  const env = boot([]);
+  env.app.setupRecur();
+  click($(env.document, '#recurAddBtn'));
+  await tick();
+  check('체크박스가 있다', !!$(env.document, '#rc-skip'));
+  check('기본으로 켜져 있다', $(env.document, '#rc-skip').checked === true);
+
+  $(env.document, '#rc-text').value = '{전월} 법인카드 사용내역 품의';
+  $(env.document, '#rc-createday').value = '1';
+  click($(env.document, '#modalSaveBtn'));
+  await tick(40);
+
+  const tpls = env.app.getState().recurTemplates;
+  check('등록됐다', tpls.length === 1);
+  check('이번 달 표시가 붙는다', tpls[0].lastRunMonth === CUR_MONTH);
+  check('할 일은 안 만들어진다', env.app.getState().todos.length === 0);
+}
+
+section('건너뛰기를 끄고 저장하면 바로 만들어진다');
+{
+  const env = boot([]);
+  env.app.setupRecur();
+  click($(env.document, '#recurAddBtn'));
+  await tick();
+  $(env.document, '#rc-text').value = '{전월} 동진특송 물류비';
+  $(env.document, '#rc-createday').value = '1';
+  $(env.document, '#rc-skip').checked = false;
+  click($(env.document, '#modalSaveBtn'));
+  await tick(60);
+
+  const st = env.app.getState();
+  check('할 일이 바로 생겼다', st.todos.length === 1, st.todos.length + '건');
+  check('제목이 채워졌다', st.todos[0].text.indexOf('동진특송') > -1 && st.todos[0].text.indexOf('{전월}') === -1);
+  check('그 뒤엔 이번 달 표시가 붙는다', st.recurTemplates[0].lastRunMonth === CUR_MONTH);
+}
+
+section('이미 만든 템플릿을 열면 체크가 켜져 있고, 끄면 다시 만들어진다');
+{
+  const env = boot([TPL({ createDay: 1, lastRunMonth: CUR_MONTH })]);
+  env.app.setupRecur();
+  click($$(env.document, '#recurList .recur-row')[0]);
+  await tick();
+  check('체크가 켜져 있다', $(env.document, '#rc-skip').checked === true);
+
+  $(env.document, '#rc-skip').checked = false;
+  click($(env.document, '#modalSaveBtn'));
+  await tick(60);
+  check('끄고 저장하니 만들어진다', env.app.getState().todos.length === 1);
+}
