@@ -12,6 +12,18 @@ const T = (o) => Object.assign({
   needsCheck: '', completedDate: '', progress: '', remarks: '', links: [], files: []
 }, o);
 
+/* ⚠️ 리포트는 "이번 주(월~일)"와 "이번 달" 경계를 쓴다. day(-1) 같은 상대 날짜를 그냥 쓰면
+   오늘이 월요일이거나 매달 1~2일일 때 지난주·지난달로 넘어가 테스트가 달력에 따라 깨진다.
+   그래서 경계 안에 확실히 들어오는 날짜를 계산해서 쓴다. */
+const THIS_WEEK_START = (() => {
+  const d = new Date(TODAY + 'T00:00:00Z');
+  const dow = (d.getUTCDay() + 6) % 7;              // 월=0
+  d.setUTCDate(d.getUTCDate() - dow);
+  return d.toISOString().slice(0, 10);
+})();
+// 이번 주이면서 이번 달이기도 한 날 — 완료일 fixture 로 안전하다
+const IN_THIS_WEEK_AND_MONTH = THIS_WEEK_START.slice(0, 7) === TODAY.slice(0, 7) ? THIS_WEEK_START : TODAY;
+
 function boot(todos) {
   const env = bootApp();
   env.app.setState({
@@ -60,7 +72,7 @@ section('주간 리포트');
 {
   seq = 0;
   const env = boot([
-    T({ status: '완료', completedDate: day(-1), text: '이번 주 완료 건' }),
+    T({ status: '완료', completedDate: IN_THIS_WEEK_AND_MONTH, text: '이번 주 완료 건' }),
     T({ status: '대기', dueDate: NEXT_WEEK, text: '다음 주 예정 건' }),
     T({ status: '대기', dueDate: day(-4), text: '지연된 건' }),
   ]);
@@ -80,8 +92,8 @@ section('월간 리포트 — 3축 요약');
 {
   seq = 0;
   const env = boot([
-    T({ status: '완료', completedDate: day(-1), projectId: 'p1', channel: '마리오', subChannel: '패션플러스' }),
-    T({ status: '완료', completedDate: day(-2), projectId: 'p2', channel: '사방넷', subChannel: '' }),
+    T({ status: '완료', completedDate: TODAY, projectId: 'p1', channel: '마리오', subChannel: '패션플러스' }),
+    T({ status: '완료', completedDate: IN_THIS_WEEK_AND_MONTH, projectId: 'p2', channel: '사방넷', subChannel: '' }),
     T({ status: '대기', dueDate: day(1) }),
   ]);
   env.app.openMonthlyReport();
