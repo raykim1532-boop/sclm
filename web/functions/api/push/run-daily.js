@@ -5,6 +5,7 @@ import { authed } from '../_auth.js';
 import { sendToAll, computeSummary } from './_send.js';
 import { kakaoConfigured, sendKakaoMessages, buildKakaoMessages } from './_kakao.js';
 import { ensureDailySnapshot } from '../snapshots.js';
+import { sendBriefMail } from './_mail.js';
 
 // 'cron' | 'auth' | false — 호출 주체 구분(크론 재시도 중복 방지에 사용)
 function allowed(context) {
@@ -112,10 +113,16 @@ export async function onRequestPost(context) {
     }
   }
 
+  // 3) 이메일 (설정돼 있을 때만). 푸시·카카오와 독립이라 실패해도 나머지는 그대로 간다.
+  //    길이 제한이 없으므로 전체 목록을 담는다 — 메일로 받는 이유가 그것이다.
+  let mail = { skipped: 'not_configured' };
+  try { mail = await sendBriefMail(env, s); }
+  catch (e) { mail = { ok: false, error: String((e && e.message) || e).slice(0, 200) }; }
+
   // 오늘 발송 완료 기록(크론 2차 발사가 중복 발송하지 않도록)
   try { await recordAttempt(env, source, 'sent'); } catch (e) {}
 
-  return Response.json({ ok: true, push, kakao, source, parts: messages.length, summary: summaryCounts(s), backup });
+  return Response.json({ ok: true, push, kakao, mail, source, parts: messages.length, summary: summaryCounts(s), backup });
 }
 
 /* 웹푸시 본문 만들기 — 순수 함수(테스트에서 직접 부른다).
