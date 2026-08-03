@@ -63,6 +63,24 @@ const notice = (title, msg) => page(title,
   `<h1>${esc(title)}</h1><p class="txt">${esc(msg)}</p>
    <p class="links"><a href="${APP_URL}">SCLM 열기 →</a></p>`);
 
+/* 발자국 기록 — D1 'mailaction' 문서에 최근 10건.
+   왜 필요한가: 2026-08-03 "완료로 표시했어요 화면은 떴는데 D1 에는 기록이 없다"는
+   모순을 며칠 붙잡았는데, 이 경로에 관측 수단이 하나도 없어 매번 추측만 했다.
+   `daily` 문서의 attempts 와 같은 취지 — **증거를 남겨 두면 다음엔 안 헤맨다.**
+   기록 자체가 실패해도 본 동작을 막지 않는다. */
+async function trace(env, phase, extra) {
+  try {
+    const row = await env.DB.prepare("SELECT data FROM documents WHERE id = 'mailaction'").first();
+    let prev = {}; try { prev = JSON.parse(row.data); } catch (e) {}
+    const steps = (Array.isArray(prev.steps) ? prev.steps : []).slice(-9);
+    steps.push(Object.assign({ at: Date.now(), phase }, extra || {}));
+    await env.DB
+      .prepare("INSERT INTO documents (id, data, updated_at) VALUES ('mailaction', ?1, ?2) ON CONFLICT(id) DO UPDATE SET data = ?1, updated_at = ?2")
+      .bind(JSON.stringify({ steps }), Date.now())
+      .run();
+  } catch (e) {}
+}
+
 async function loadTodos(env) {
   const row = await env.DB.prepare("SELECT data FROM documents WHERE id = 'main'").first();
   let s = {}; try { s = JSON.parse(row.data); } catch (e) {}
@@ -94,12 +112,13 @@ async function check(context) {
 
 /* GET — 확인 화면만. 상태는 절대 바꾸지 않는다(파일 첫머리 주의사항 참고). */
 export async function onRequestGet(context) {
+  await trace(context.env, 'GET', { url: String(context.request.url).slice(0, 160) });
   const c = await check(context);
-  if (c.bad) return c.bad;
+  if (c.bad) { await trace(context.env, 'GET-거부'); return c.bad; }
 
   const s = await loadTodos(context.env);
   const t = s.todos.find((x) => x && x.id === c.id);
-  if (!t) return notice('그 업무를 찾지 못했어요', '이미 지워졌거나 정리된 것 같습니다.');
+  if (!t) { await trace(context.env, 'GET-대상없음', { id: c.id }); return notice('그 업무를 찾지 못했어요', '이미 지워졌거나 정리된 것 같습니다.'); }
 
   const cur = t.status || (t.done ? '완료' : '대기');
   const name = String(t.text || '').replace(/^\s*\[[^\]]*\]\s*/, '').trim();
@@ -123,12 +142,16 @@ export async function onRequestGet(context) {
 /* POST — 여기서만 실제로 바꾼다. */
 export async function onRequestPost(context) {
   const { env } = context;
+  await trace(env, 'POST', { url: String(context.request.url).slice(0, 160) });
   const c = await check(context);
-  if (c.bad) return c.bad;
+  if (c.bad) { await trace(env, 'POST-거부'); return c.bad; }
 
   const s = await loadTodos(env);
   const t = s.todos.find((x) => x && x.id === c.id);
-  if (!t) return notice('그 업무를 찾지 못했어요', '이미 지워졌거나 정리된 것 같습니다.');
+  if (!t) {
+    await trace(env, 'POST-대상없음', { id: c.id, todoCount: s.todos.length });
+    return notice('그 업무를 찾지 못했어요', '이미 지워졌거나 정리된 것 같습니다.');
+  }
 
   const before = t.status || (t.done ? '완료' : '대기');
   const name = String(t.text || '').replace(/^\s*\[[^\]]*\]\s*/, '').trim();
@@ -152,6 +175,15 @@ export async function onRequestPost(context) {
 
   await env.DB.prepare("INSERT INTO documents (id, data, updated_at) VALUES ('main', ?1, ?2) ON CONFLICT(id) DO UPDATE SET data = ?1, updated_at = ?2")
     .bind(JSON.stringify(s), Date.now()).run();
+
+  // 쓰기 **직후** 다시 읽어 확인한다. 여기서 안 보이면 쓰기 자체가 안 먹은 것이고,
+  // 보이는데 나중에 없어지면 다른 데서 덮어쓰는 것이다 — 둘을 갈라 준다.
+  let verify = 'unknown';
+  try {
+    const back = await env.DB.prepare("SELECT (data LIKE '%메일에서%') AS hit, updated_at FROM documents WHERE id = 'main'").first();
+    verify = back ? String(back.hit) + '@' + String(back.updated_at) : 'norow';
+  } catch (e) { verify = 'err:' + String((e && e.message) || e).slice(0, 60); }
+  await trace(env, 'POST-저장완료', { id: c.id, action: c.a, before, after: t.status, verify });
 
   if (c.a === 'undo') {
     return page('되돌렸어요', `
