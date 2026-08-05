@@ -34,6 +34,7 @@
       - 옮길 때 `pushDueHistory` 를 거치므로 ⟳ 배지와 이력이 자동으로 쌓인다. **⚠️ 지연된 건을 "오늘"로 옮기는 것도 뒤로 미는 것**이라 밀림으로 센다(`dueMoveCount` 는 `to > from` 만).
       - ⚠️ **📅 를 숨기지 말 것**(2026-08-05). 처음엔 opacity 0 으로 두고 행 hover 때만 보이게 했는데, 그러면 없는 것과 구분이 안 돼 **9일 동안 한 번도 안 쓰였다**. 평소 .35 · hover .75 로 존재를 알린다. `ui-due-move.test.mjs` 의 '버튼이 평소에도 보인다' 절이 CSS 원문에서 opacity 를 읽어 막는다.
       - 📅 버튼은 행 클릭(편집 열기)과 겹치면 안 되므로 `stopPropagation` 한다. 검증: `ui-due-move.test.mjs`.
+      - 대시보드 **지연된 업무** 카드에도 같은 📅 를 단다(2026-08-05, `dashItemHtml` 의 `overdue` 일 때만). 지연을 확인하는 순간이 옮길 판단을 하는 순간인데 업무 표로 건너가야만 옮길 수 있으면 그냥 지나친다. 카드 클릭(편집 열기)과 겹치므로 `renderDashboard` 의 `[data-todo]` 핸들러에서 `.due-move` 를 먼저 가로챈다. 옮기면 `renderAll` 이 돌아 카드에서 자동으로 빠진다.
     - **월간 정기업무** (2026-08-03). `state.recurTemplates = [{ id, text, projectId, channel, subChannel, priority, assignee, createDay, dueDay, active, lastRunMonth }]`. 정산·지출결의서처럼 매달 손으로 다시 등록하던 걸(8/3 아침에만 4건) 자동화한 것.
       - 제목 자리표시자: `{전월}`→26.07 · `{당월}`→26.08 · `{전월M}`→7월 · `{당월M}`→8월. 실제 제목이 "26.07 법인카드 사용내역 품의"처럼 **전월을 가리키는 경우가 많아** 필요했다.
       - 생성은 **앱을 열 때**(`runMonthlyTemplates`, init 끝에서 호출). 백업과 달리 서버로 안 옮긴 이유 — 하루쯤 늦어도 손해가 없고, 서버가 몰래 할 일을 만들면 오히려 헷갈린다. 중복은 `lastRunMonth`(월 키)가 막는다.

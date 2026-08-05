@@ -171,4 +171,89 @@ section('버튼이 평소에도 보인다');
   check('기본 opacity 가 0 이 아니다', base > 0, '기본 ' + base);
   check('평소에도 보일 만큼은 된다', base >= 0.25, '기본 ' + base);
   check('행에 올리면 더 또렷해진다', hover > base, 'hover ' + hover + ' > 기본 ' + base);
+  check('대시보드 카드에도 hover 규칙이 있다', /\.dash-item:hover \.due-move \{ opacity:/.test(css));
+}
+
+// 대시보드 "지연된 업무" 카드에서도 바로 옮길 수 있어야 한다.
+// 지연된 걸 보는 순간이 옮길 판단을 하는 순간인데, 업무 표로 건너가야만 옮길 수 있으면 그냥 지나친다.
+function bootDash(todos) {
+  const env = bootApp();
+  env.app.setState({
+    projects: [{ id: 'p1', name: '영업', color: '#1a73e8' }],
+    todos, events: [], channels: ['마리오'], subMaster: [], settings: {},
+  });
+  env.app.renderDashboard();
+  return env;
+}
+const dashCard = (doc, title) =>
+  $$(doc, '#dashboardGrid .dash-card').find((c) => $(c, 'h3').textContent.includes(title));
+
+section('지연 카드에 마감일 버튼이 있다');
+{
+  seq = 0;
+  const env = bootDash([T({ dueDate: day(-3) }), T({ dueDate: day(-1) })]);
+  const late = dashCard(env.document, '지연된 업무');
+  check('지연 카드가 있다', !!late);
+  check('지연 2건', $$(late, '.dash-item').length === 2);
+  check('건마다 📅 가 붙는다', $$(late, '.due-move').length === 2);
+  check('마감일도 같이 보인다', late.textContent.includes(day(-3)));
+}
+
+section('지연이 아닌 카드에는 안 붙는다');
+{
+  seq = 0;
+  const env = bootDash([T({ dueDate: TODAY }), T({ dueDate: day(3) })]);
+  const todayCard = dashCard(env.document, '오늘');
+  const weekCard = dashCard(env.document, '이번 주');
+  check('오늘 카드엔 없다', $$(todayCard, '.due-move').length === 0);
+  check('이번 주 카드에도 없다', $$(weekCard, '.due-move').length === 0);
+  check('오늘 카드에 항목은 있다', $$(todayCard, '.dash-item').length === 1);
+}
+
+section('지연 카드의 📅 는 편집을 열지 않는다');
+{
+  seq = 0;
+  const env = bootDash([T({ dueDate: day(-3) })]);
+  const late = dashCard(env.document, '지연된 업무');
+  click($(late, '.due-move'));
+  await tick();
+  check('편집 모달은 안 열린다', $(env.document, '#modalOverlay').classList.contains('hidden'));
+  check('메뉴가 열린다', !!$(env.document, '.due-menu'));
+  env.app.closeDueMenu();
+
+  // 카드의 다른 곳을 누르면 종전대로 편집이 열린다
+  click($(late, '.di-title'));
+  await tick();
+  check('카드 클릭은 그대로 편집', !$(env.document, '#modalOverlay').classList.contains('hidden'));
+  env.app.closeModal();
+}
+
+section('지연 카드에서 옮기면 카드에서 빠진다');
+{
+  seq = 0;
+  const todo = T({ dueDate: day(-3) });
+  const env = bootDash([todo]);
+  const late = dashCard(env.document, '지연된 업무');
+  click($(late, '.due-move'));
+  await tick();
+
+  const btns = $$(env.document, '.due-menu button');
+  click(btns.find((b) => b.textContent.startsWith('내일')));
+  await tick(40);
+
+  check('마감일이 내일로', todo.dueDate === day(1));
+  check('이력이 남는다', env.app.todoDueHistory(todo).length === 1);
+  const after = dashCard(env.document, '지연된 업무');
+  check('지연 카드가 비었다', $$(after, '.dash-item').length === 0);
+  check('이번 주 카드로 옮겨갔다', $$(dashCard(env.document, '이번 주'), '.dash-item').length === 1);
+}
+
+section('지연 카드에도 밀림 배지가 보인다');
+{
+  seq = 0;
+  const todo = T({ dueDate: day(-3), dueHistory: [{ from: day(-10), to: day(-3), on: day(-8) }] });
+  const env = bootDash([todo]);
+  const late = dashCard(env.document, '지연된 업무');
+  check('⟳ 배지가 그려진다', !!$(late, '.due-moved'));
+  check('횟수가 맞다', $(late, '.due-moved').textContent.includes('1'));
 }

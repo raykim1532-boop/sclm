@@ -1264,11 +1264,16 @@ function dashItemHtml(t, showDue, overdue) {
   const priMark = pri === '긴급' ? '🔴 ' : pri === '중요' ? '🟠 ' : '';
   const check = t.needsCheck === 'Y' ? '⚠ ' : '';
   const channel = t.channel ? `<span class="di-channel">${escapeHtml(t.channel)}</span>` : '';
+  // 지연 카드에서는 바로 마감일을 옮길 수 있게 한다. 지연된 건을 보는 순간이 옮길 판단을
+  // 하는 순간인데, 여기서는 업무 표로 건너가야만 옮길 수 있어 그냥 지나치게 된다.
+  const move = overdue
+    ? `<button class="due-move" data-act="duemove" title="마감일 옮기기" aria-label="마감일 옮기기">📅</button>`
+    : '';
   return `<div class="dash-item ${overdue ? 'overdue' : ''}" data-todo="${t.id}">
     <span class="di-title">${priMark}${check}${escapeHtml(t.text)}</span>
     ${proj ? tagHtml(proj.name, proj.color) : ''}
     ${channel}
-    <span class="di-due">${showDue ? escapeHtml(t.dueDate || '') : ''}</span>
+    <span class="di-due">${showDue ? escapeHtml(t.dueDate || '') + dueBadgeHtml(t) : ''}${move}</span>
   </div>`;
 }
 
@@ -1377,9 +1382,13 @@ function renderDashboard() {
     dashCardHtml('⚠', '점검 필요', needsCheck, '점검이 필요한 업무가 없어요.', true, false);
 
   grid.querySelectorAll('[data-todo]').forEach((el) => {
-    el.addEventListener('click', () => {
+    el.addEventListener('click', (e) => {
       const t = byId(state.todos, el.getAttribute('data-todo'));
-      if (t) openTodoModal(t);
+      if (!t) return;
+      // 📅 는 카드 클릭(편집 열기)과 겹치므로 먼저 가로챈다. 표에서와 같은 규칙.
+      const mv = e.target.closest('.due-move');
+      if (mv) { e.stopPropagation(); openDueMenu(mv, t); return; }
+      openTodoModal(t);
     });
   });
   grid.querySelectorAll('[data-event]').forEach((el) => {

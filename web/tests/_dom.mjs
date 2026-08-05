@@ -48,7 +48,7 @@ function makeFullCalendarStub(calendars) {
 /* app.js 안에서 이름으로 꺼내 쓸 것들. 여기 없는 함수는 테스트에서 못 부른다(추가하면 된다). */
 const EXPORTS = [
   'openTodoModal', 'closeModal', 'showModal',
-  'renderTodos', 'renderDashAnalytics', 'renderVaultList',
+  'renderTodos', 'renderDashboard', 'renderDashAnalytics', 'renderVaultList',
   'logRowHtml', 'logRowsHtml', 'todoLogs', 'todoLogLatest', 'todoProgressCell',
   'dueBadgeHtml', 'dueMoveCount', 'pushDueHistory', 'todoDueHistory',
   'computeTaxoTop', 'taxoRowHtml', 'escapeHtml', 'todayStr', 'toast',
