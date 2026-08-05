@@ -1136,6 +1136,11 @@ html[data-theme="dark"] .todo-table tbody tr.row-today .col-due { color: #f6bf26
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 14px;
 }
+/* 보류 칸 — 지연에서 뺀 것들을 받아 주는 자리라 맨 아래에 가로로 눕힌다.
+   숫자를 챙기라고 재촉하는 칸이 아니라 "이런 걸 미뤄뒀다"를 상기시키는 칸이다. */
+.dash-card-held { grid-column: 1 / -1; }
+.dash-card-held .dash-item { opacity: .72; }
+.dash-card-held .dash-item:hover { opacity: 1; }
 .dash-card {
   background: var(--surface);
   border: 1px solid var(--border);

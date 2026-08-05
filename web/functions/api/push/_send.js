@@ -17,6 +17,11 @@ function isDone(t) {
   const s = t.status || (t.done ? '완료' : '대기');
   return s === '완료' || s === '지연완료';
 }
+/* 보류 = "지금은 안 한다"고 결정한 것. 마감일이 지나도 지연으로 세지 않는다.
+   ⚠️ 앱(src/app.js 의 todoIsHeld/todoIsLive)과 같은 규칙이어야 한다 —
+      화면 숫자와 아침 브리핑 숫자가 어긋나면 둘 다 못 믿게 된다. */
+function isHeld(t) { return (t.status || '') === '보류'; }
+function isLive(t) { return !isDone(t) && !isHeld(t); }
 
 /* 오늘에 걸친 일정을 뽑는다(종일 → 시간순).
    여러 날짜에 걸친 일정도 오늘이 그 사이면 포함한다(start <= 오늘 <= end).
@@ -62,9 +67,9 @@ export async function computeWeekly(env, todayIso) {
 
   const done = todos.filter((t) => isDone(t) && t.completedDate && t.completedDate >= tw.start && t.completedDate <= tw.end)
     .sort((a, b) => (a.completedDate < b.completedDate ? -1 : 1));
-  const next = todos.filter((t) => !isDone(t) && isIso(t.dueDate) && t.dueDate >= nw.start && t.dueDate <= nw.end)
+  const next = todos.filter((t) => isLive(t) && isIso(t.dueDate) && t.dueDate >= nw.start && t.dueDate <= nw.end)
     .sort((a, b) => (a.dueDate < b.dueDate ? -1 : 1));
-  const stillLate = todos.filter((t) => !isDone(t) && isIso(t.dueDate) && t.dueDate < today)
+  const stillLate = todos.filter((t) => isLive(t) && isIso(t.dueDate) && t.dueDate < today)
     .sort((a, b) => (a.dueDate < b.dueDate ? -1 : 1));
 
   return { today, week: tw, nextWeek: nw, doneList: done, nextList: next, lateList: stillLate,
@@ -100,7 +105,7 @@ export async function computeMonthly(env, todayIso) {
   const done = todos.filter((t) => isDone(t) && inMonth(t.completedDate))
     .sort((a, b) => (a.completedDate < b.completedDate ? -1 : 1));
   // 지난달 말까지가 마감인데 아직 안 끝난 것 = 이번 달로 넘어온 짐
-  const carried = todos.filter((t) => !isDone(t) && isIso(t.dueDate) && t.dueDate <= mo.end)
+  const carried = todos.filter((t) => isLive(t) && isIso(t.dueDate) && t.dueDate <= mo.end)
     .sort((a, b) => (a.dueDate < b.dueDate ? -1 : 1));
 
   const judged = done.filter((t) => isIso(t.dueDate));
@@ -151,7 +156,7 @@ export function computeStuckChannels(todos, today, minItems, limit) {
     let e = map.get(name);
     if (!e) { e = { name: name, total: 0, overdue: 0, lateSum: 0 }; map.set(name, e); }
     e.total++;
-    if (isDone(t)) return;
+    if (isDone(t) || isHeld(t)) return;
     if (t.dueDate && t.dueDate < today) { e.overdue++; e.lateSum += days(t.dueDate, today); }
   });
   const out = [];
@@ -172,7 +177,7 @@ export async function computeSummary(env) {
   const today = todayStrKST();
   const eventList = pickTodayEvents(state.events, today);
   const soonLimit = addDaysIso(today, SOON_DAYS);
-  const open = todos.filter((t) => !isDone(t) && isIso(t.dueDate));
+  const open = todos.filter((t) => isLive(t) && isIso(t.dueDate));
   // 지연은 **오래 밀린 순**(마감일 오름차순). 정렬을 안 하면 입력 순서대로 나가
   // 메일·푸시·카카오에서 3일 → 4일 → 3일 처럼 뒤섞여 보인다.
   const overdue = open.filter((t) => t.dueDate < today)

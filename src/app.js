@@ -53,6 +53,13 @@ const TODO_STATUS_COLORS = {
 };
 function todoStatus(t) { return t.status || (t.done ? '완료' : '대기'); }
 function todoIsDone(t) { const s = todoStatus(t); return s === '완료' || s === '지연완료'; }
+/* 보류 = "지금은 안 한다"고 **결정한** 것. 마감일이 지나도 지연으로 세지 않는다.
+   결정을 내렸는데도 매일 아침 지연으로 잔소리를 들으면 지연 숫자 자체가 신호를 잃는다.
+   ⚠️ 대신 사라지지도 않게 대시보드에 "보류" 칸을 따로 두었다(renderDashboard).
+      지연에서 빼는 곳과 보류 칸에 넣는 곳은 반드시 같이 움직여야 한다. */
+function todoIsHeld(t) { return todoStatus(t) === '보류'; }
+/* 지연·오늘·이번 주처럼 "지금 챙겨야 할 것" 계산의 모집단 */
+function todoIsLive(t) { return !todoIsDone(t) && !todoIsHeld(t); }
 /* 우선순위 정규화: 긴급/중요/보통 중 하나로 (동의어 흡수), 그 외/공란은 '' */
 function normalizePriority(v) {
   const s = String(v || '').trim();
@@ -1277,11 +1284,11 @@ function dashItemHtml(t, showDue, overdue) {
   </div>`;
 }
 
-function dashCardHtml(icon, title, items, emptyMsg, showDue, overdue) {
+function dashCardHtml(icon, title, items, emptyMsg, showDue, overdue, cls) {
   const body = items.length
     ? items.map((t) => dashItemHtml(t, showDue, overdue)).join('')
     : `<div class="dash-empty">${emptyMsg}</div>`;
-  return `<div class="dash-card">
+  return `<div class="dash-card ${cls || ''}">
     <h3>${icon} ${title}<span class="count">${items.length}</span></h3>
     <div class="dash-list">${body}</div>
   </div>`;
@@ -1325,7 +1332,7 @@ function renderDashboard() {
   const today = todayStr();
   const weekEnd = addDays(today, 7);
 
-  const openTodos = state.todos.filter((t) => !todoIsDone(t));
+  const openTodos = state.todos.filter(todoIsLive);
   const withDue = openTodos.filter((t) => isIsoDate(t.dueDate));
   const byDue = (a, b) => a.dueDate.localeCompare(b.dueDate);
   const tomorrow = addDays(today, 1);
@@ -1375,11 +1382,17 @@ function renderDashboard() {
     <div class="dash-list">${todayBody}</div>
   </div>`;
 
+  // 보류 칸 — 지연에서 뺀 것들이 조용히 사라지지 않게 받아 주는 자리.
+  // 오래 묵을수록 위로 올려 "언제까지 보류할 건지" 다시 보게 한다.
+  const held = state.todos.filter(todoIsHeld)
+    .sort((a, b) => (a.dueDate || '9999').localeCompare(b.dueDate || '9999'));
+
   grid.innerHTML =
     dashCardHtml('🔴', '지연된 업무', overdue, '지연된 업무가 없어요. 👍', true, true) +
     todayCard +
     dashCardHtml('🗓', '이번 주 (7일 이내)', week, '이번 주 마감 예정 업무가 없어요.', true, false) +
-    dashCardHtml('⚠', '점검 필요', needsCheck, '점검이 필요한 업무가 없어요.', true, false);
+    dashCardHtml('⚠', '점검 필요', needsCheck, '점검이 필요한 업무가 없어요.', true, false) +
+    dashCardHtml('⏸', '보류', held, '보류 중인 업무가 없어요.', true, false, 'dash-card-held');
 
   grid.querySelectorAll('[data-todo]').forEach((el) => {
     el.addEventListener('click', (e) => {
@@ -1406,6 +1419,7 @@ function renderDashboard() {
    반환: 평균 완료 소요일 / 기한 준수율 / 이번 달 완료(전월 대비) / 현재 지연과 평균 지연일 */
 function computeWorkStats(todos, today) {
   const isDone = (t) => { const s = t.status || (t.done ? '완료' : '대기'); return s === '완료' || s === '지연완료'; };
+  const isHeld = (t) => (t.status || '') === '보류';   // 보류는 지연으로 세지 않는다(todoIsHeld 와 같은 규칙)
   const days = (from, to) => Math.round((new Date(to + 'T00:00:00') - new Date(from + 'T00:00:00')) / 864e5);
   const thisMonth = today.slice(0, 7);
   const prevMonth = (() => {
@@ -1427,7 +1441,7 @@ function computeWorkStats(todos, today) {
   const doneThisMonth = done.filter((t) => (t.completedDate || '').slice(0, 7) === thisMonth).length;
   const donePrevMonth = done.filter((t) => (t.completedDate || '').slice(0, 7) === prevMonth).length;
 
-  const overdue = todos.filter((t) => !isDone(t) && t.dueDate && t.dueDate < today);
+  const overdue = todos.filter((t) => !isDone(t) && !isHeld(t) && t.dueDate && t.dueDate < today);
   const avgLate = overdue.length
     ? overdue.reduce((a, t) => a + days(t.dueDate, today), 0) / overdue.length
     : null;
@@ -1543,7 +1557,7 @@ function openStuckTaxoModal(axisLabel, name) {
   const today = todayStr();
   const daysLate = (d) => Math.round((new Date(today) - new Date(d)) / 864e5);
   const items = (state.todos || [])
-    .filter((t) => ((axis.pick(t) || '') + '').trim() === name && !todoIsDone(t) && t.dueDate && t.dueDate < today)
+    .filter((t) => ((axis.pick(t) || '') + '').trim() === name && todoIsLive(t) && t.dueDate && t.dueDate < today)
     .sort((a, b) => a.dueDate.localeCompare(b.dueDate));
   const esc = escapeHtml;
   const md = (d) => (d ? d.slice(5).replace('-', '/') : '');
@@ -1644,6 +1658,7 @@ function taxoRowHtml(r, color, maxTotal) {
 function computeStuckTaxo(todos, axes, today, minItems, limit) {
   const SKIP = ['기타'];
   const isDone = (t) => { const s = t.status || (t.done ? '완료' : '대기'); return s === '완료' || s === '지연완료'; };
+  const isHeld = (t) => (t.status || '') === '보류';   // 보류는 지연으로 세지 않는다
   const days = (from, to) => Math.round((new Date(to + 'T00:00:00Z') - new Date(from + 'T00:00:00Z')) / 864e5);
   const min = minItems || 3;
   const list = Array.isArray(todos) ? todos : [];
@@ -1659,7 +1674,7 @@ function computeStuckTaxo(todos, axes, today, minItems, limit) {
       e.total++;
       if (isDone(t)) { e.done++; return; }
       e.open++;
-      if (t.dueDate && t.dueDate < today) { e.overdue++; e.lateSum += days(t.dueDate, today); }
+      if (!isHeld(t) && t.dueDate && t.dueDate < today) { e.overdue++; e.lateSum += days(t.dueDate, today); }
     });
     map.forEach((e) => {
       if (e.total < min || e.overdue < 2) return;
@@ -2712,9 +2727,9 @@ function openWeeklyReport() {
 
   const doneThis = state.todos.filter((t) => todoIsDone(t) && t.completedDate && t.completedDate >= tw.start && t.completedDate <= tw.end)
     .sort((a, b) => (a.completedDate).localeCompare(b.completedDate));
-  const dueNext = state.todos.filter((t) => !todoIsDone(t) && t.dueDate && t.dueDate >= nw.start && t.dueDate <= nw.end)
+  const dueNext = state.todos.filter((t) => todoIsLive(t) && t.dueDate && t.dueDate >= nw.start && t.dueDate <= nw.end)
     .sort((a, b) => a.dueDate.localeCompare(b.dueDate));
-  const overdue = state.todos.filter((t) => !todoIsDone(t) && t.dueDate && t.dueDate < today)
+  const overdue = state.todos.filter((t) => todoIsLive(t) && t.dueDate && t.dueDate < today)
     .sort((a, b) => a.dueDate.localeCompare(b.dueDate));
 
   // 평문(복사/다운로드용)
@@ -2789,9 +2804,9 @@ function openMonthlyReport() {
 
   const doneThis = state.todos.filter((t) => todoIsDone(t) && t.completedDate && t.completedDate >= tm.start && t.completedDate <= tm.end)
     .sort((a, b) => a.completedDate.localeCompare(b.completedDate));
-  const openThis = state.todos.filter((t) => !todoIsDone(t) && t.dueDate && t.dueDate >= tm.start && t.dueDate <= tm.end)
+  const openThis = state.todos.filter((t) => todoIsLive(t) && t.dueDate && t.dueDate >= tm.start && t.dueDate <= tm.end)
     .sort((a, b) => a.dueDate.localeCompare(b.dueDate));
-  const dueNext = state.todos.filter((t) => !todoIsDone(t) && t.dueDate && t.dueDate >= nm.start && t.dueDate <= nm.end)
+  const dueNext = state.todos.filter((t) => todoIsLive(t) && t.dueDate && t.dueDate >= nm.start && t.dueDate <= nm.end)
     .sort((a, b) => a.dueDate.localeCompare(b.dueDate));
 
   // 분류별 요약: 대·중·소 세 축을 같은 방식으로 낸다(대시보드 분류 Top과 같은 계산).
@@ -3064,7 +3079,7 @@ function renderTodos() {
     const statusColor = TODO_STATUS_COLORS[status] || '#9b9a97';
     const tr = document.createElement('tr');
     let cls = todoIsDone(t) ? 'done' : '';
-    if (!todoIsDone(t) && t.dueDate) {
+    if (todoIsLive(t) && t.dueDate) {
       if (t.dueDate < today) cls += ' row-overdue';
       else if (t.dueDate === today) cls += ' row-today';
     }
@@ -4020,7 +4035,7 @@ function channelStat(c) {
   const items = state.todos.filter((t) => ((t.channel || '').trim()) === c);
   const st = (s) => items.filter((t) => todoStatus(t) === s).length;
   const today = todayStr();
-  const overdue = items.filter((t) => !todoIsDone(t) && t.dueDate && t.dueDate < today).length;
+  const overdue = items.filter((t) => todoIsLive(t) && t.dueDate && t.dueDate < today).length;
   return { total: items.length, wait: st('대기'), active: st('진행중'), done: items.filter((t) => todoIsDone(t)).length, overdue };
 }
 
@@ -4050,7 +4065,7 @@ function catStat(pick, value) {
   return {
     total: items.length,
     open: items.filter((t) => !todoIsDone(t)).length,
-    overdue: items.filter((t) => !todoIsDone(t) && t.dueDate && t.dueDate < today).length
+    overdue: items.filter((t) => todoIsLive(t) && t.dueDate && t.dueDate < today).length
   };
 }
 
@@ -4080,7 +4095,7 @@ function renderCatProjects(byName) {
   box.innerHTML = list.map((p) => {
     const items = state.todos.filter((t) => t.projectId === p.id);
     const today = todayStr();
-    const st = { total: items.length, overdue: items.filter((t) => !todoIsDone(t) && t.dueDate && t.dueDate < today).length };
+    const st = { total: items.length, overdue: items.filter((t) => todoIsLive(t) && t.dueDate && t.dueDate < today).length };
     const acts = '<button class="icon-btn" data-act="view" title="이 대분류 할 일 보기">🔍</button>'
       + '<button class="icon-btn" data-act="edit" title="이름·색상 변경">✏️</button>';
     return catRowHtml(p.id, p.name, p.color || '#9b9a97', st, acts);
