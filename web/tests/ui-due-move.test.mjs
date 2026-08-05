@@ -2,6 +2,7 @@
 // 배경: 마감일을 바꾸려면 행을 열고→날짜 고르고→저장해야 해서 아무도 안 옮겼다
 //       (2026-08-03 기준 61건 중 0건). 지연 건수가 실제보다 부풀고 마감일이 신호를 잃었다.
 import { check, section } from './_helpers.mjs';
+import { readFileSync } from 'node:fs';
 import { bootApp, $, $$, click, tick } from './_dom.mjs';
 
 const TODAY = new Date(Date.now() + 9 * 3600e3).toISOString().slice(0, 10);
@@ -156,4 +157,18 @@ section('마감일이 없던 건에 처음 넣는 건 이력에 안 남는다');
   check('마감일은 들어간다', todo.dueDate === TODAY);
   check('이력은 안 남는다', env.app.todoDueHistory(todo).length === 0);
   check('배지도 없다', env.app.dueBadgeHtml(todo) === '');
+}
+
+section('버튼이 평소에도 보인다');
+{
+  // 회귀 방지: opacity 0 으로 두면 없는 것과 구분이 안 돼 아무도 안 쓴다(실제로 9일간 0회).
+  // linkedom 은 스타일 계산을 안 하므로 CSS 원문을 본다.
+  const css = readFileSync(new URL('../../src/app.css', import.meta.url), 'utf8');
+  const block = (css.match(/\.due-move \{[^}]*\}/) || [''])[0];
+  const base = parseFloat((block.match(/opacity:\s*([\d.]+)/) || [0, 0])[1]);
+  const hover = parseFloat((css.match(/tbody tr:hover \.due-move \{ opacity:\s*([\d.]+)/) || [0, 0])[1]);
+
+  check('기본 opacity 가 0 이 아니다', base > 0, '기본 ' + base);
+  check('평소에도 보일 만큼은 된다', base >= 0.25, '기본 ' + base);
+  check('행에 올리면 더 또렷해진다', hover > base, 'hover ' + hover + ' > 기본 ' + base);
 }

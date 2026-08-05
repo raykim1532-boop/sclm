@@ -285,12 +285,14 @@ html, body {
 .from-event b { color: var(--text); font-weight: 600; }
 
 /* ---------- 마감일 빠르게 옮기기 ---------- */
-/* 평소엔 숨겨 두고 행에 마우스를 올렸을 때만 보인다 — 표가 복잡해지지 않게 */
+/* ⚠️ opacity 를 0 으로 두지 말 것. 처음엔 "표가 복잡해지지 않게" 숨겨 두고 hover 때만
+   보이게 했는데, 그러면 **없는 것과 구분이 안 된다** — 9일 동안 한 번도 안 쓰였다.
+   평소에도 흐릿하게 띄워 존재를 알리고, 가까이 갈수록 또렷해지게 한다. */
 .due-move {
   border: 0; background: transparent; cursor: pointer; padding: 0 2px; margin-left: 4px;
-  font-size: 11px; line-height: 1; opacity: 0; transition: opacity .12s;
+  font-size: 11px; line-height: 1; opacity: .35; transition: opacity .12s;
 }
-.todo-table tbody tr:hover .due-move { opacity: .55; }
+.todo-table tbody tr:hover .due-move { opacity: .75; }
 .due-move:hover { opacity: 1 !important; }
 .due-move:focus-visible { opacity: 1; outline: 2px solid var(--accent); border-radius: 4px; }
 .due-menu {
