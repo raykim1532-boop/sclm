@@ -11,6 +11,7 @@ Ray-Work-Flow-백업.json
 web/node_modules/
 web/public/
 web/.wrangler/
+.wrangler/
 web/.dev.vars
 .dev.vars
 
