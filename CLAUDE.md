@@ -57,7 +57,7 @@
 - ⚠️ 조각 파일은 **CRLF**다(원본 HTML을 그대로 쪼갠 것). 줄바꿈을 통째로 바꾸면 diff가 폭발하니 건드리지 말 것.
 - 배포 절차: `cd web && npm run deploy` = `node build.js && wrangler pages deploy public --project-name sclm --branch=main`. **`--branch=main` 필수**(production 브랜치). package.json에 반영돼 있음.
 
-## 배포물이 2개다 (중요)
+## 배포물이 3개다 (중요)
 1. **Pages `sclm`** — 앱 + Functions(`web/functions/api/**`). 배포: `cd web && npm run deploy`.
 2. **별도 Worker `sclm-push-cron`** (`web/push-cron/`) — 매일 08:00·08:10 KST에 **두 엔드포인트를 각각** `X-Cron-Secret`으로 호출. 배포: `cd web/push-cron && npx wrangler deploy`.
    - **정기 발송은 이 워커가 단독으로 한다**(08:00 본발사 + 08:10 재시도). GitHub Actions(`.github/workflows/daily-alarm.yml`)는 **정기 스케줄을 해제**하고 `workflow_dispatch` 수동 예비용으로만 남겼다 — 아침에 알림이 안 오면 Actions 탭에서 [Run workflow].
@@ -71,6 +71,15 @@
    - ⚠️ **호출 순서가 중요하다: 캘린더 동기화 → 브리핑.** 브리핑이 `state.events`에서 오늘 일정을 읽으므로 캘린더를 먼저 맞춰야 한다. 반대로 두면 **어제 동기화분**을 보고 나간다(2026-07-30 이전이 그 상태였다). 동기화 실패가 브리핑을 막지 않도록 `try/catch`로 끊어 두었으니 이 보호를 없애지 말 것. GitHub Actions 워크플로(`daily-alarm.yml`)도 같은 순서다.
    - ⚠️ 요청을 나눈 이유: Cloudflare **서브리퀘스트 한도(요청당 50)**를 각각 따로 쓰기 위해. 한 요청에 합치지 말 것.
    - 클라이언트의 15분 주기 폴링은 **제거**됨(앱 열 때 1회 + 수동 버튼만). 정기 갱신은 이 크론이 담당하므로, 탭을 안 켜도 캘린더가 최신 유지된다.
+3. **별도 Worker `sclm-email-inbox`** (`web/email-inbox/`, 2026-08-05) — **메일을 전달하면 할 일이 된다.** Cloudflare Email Routing 이 지정 주소로 온 메일을 이 워커에 넘기고, 워커는 `postal-mime` 으로 봉투만 뜯어 Pages 의 `/api/mail-inbox` 로 넘긴다. 배포: `cd web/email-inbox && npm install && npx wrangler deploy` + `npx wrangler secret put CRON_SECRET`(Pages와 동일 값).
+   - 🛑 **도메인이 있어야 동작한다.** Email Routing 은 Cloudflare 에 등록된 자기 도메인(zone)이 필요하고, `sclm.pages.dev` 로는 안 된다. 도메인이 없으면 이 워커는 배포조차 못 한다.
+   - ⚠️ **MIME 파싱은 워커, 업무 규칙은 Pages.** 워커는 도메인 없이는 띄울 수 없어 테스트가 안 되므로, 제목·본문·첨부를 어떻게 할 일로 바꿀지는 전부 `functions/api/mail-inbox.js` 에 둔다(검증: `mail-inbox.test.mjs`). 규칙을 워커로 옮기지 말 것.
+   - **인증은 두 겹**이다. ① `X-Cron-Secret` — 주소를 알아도 엔드포인트를 직접 못 부른다. ② **발신자 확인**(`MAIL_ALLOW_FROM`, 없으면 `MAIL_TO`) — 메일 주소는 세상 누구나 보낼 수 있으므로 반드시 필요하다. ⚠️ 둘 다 설정이 없으면 **아무도 통과시키지 않는다**(열린 채로 두는 것보다 안 되는 편이 낫다).
+   - 수신 주소는 **추측하기 어렵게** 지을 것(예: `todo-9f3k2@내도메인`). 주소 자체가 1차 방어선이다.
+   - 제목 지시어: `#중분류` · `!우선순위` · `~마감일`(`8/10`·`2026-08-10`). ⚠️ **지시어가 없어도 제대로 동작해야 한다** — 매번 제목을 고쳐야 하면 안 쓰게 된다.
+   - ⚠️ **대분류와 마감일은 서버가 채우지 않는다.** 메일만 보고 맞히면 분류가 어긋나고 거짓 마감일이 생긴다. 대신 등록 즉시 **확인 메일**(`sendInboxReceipt`)로 "비어 있는 칸"을 짚고 딥링크를 준다 — 전달했는데 됐는지 모르면 결국 앱에 다시 적게 되므로 이 회신을 빼지 말 것.
+   - 첨부는 R2 에 담고 키 형식은 `/api/files` 와 **똑같이** 맞춘다(앱의 다운로드·삭제가 `validKey` 로 검사한다). 인라인 이미지(서명 로고)는 첨부로 치지 않는다.
+   - 서버에 못 닿거나 설정이 없으면 메일을 삼키지 말고 `FALLBACK_TO` 로 넘긴다 — 조용히 사라지는 게 최악이다.
 
 ## 주요 구조
 - `web/functions/api/` — Pages Functions(파일 기반 라우팅). 앱 비밀번호(Bearer) 인증.

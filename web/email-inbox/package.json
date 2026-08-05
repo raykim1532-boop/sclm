@@ -1,0 +1,15 @@
+{
+  "name": "sclm-email-inbox",
+  "version": "1.0.0",
+  "private": true,
+  "description": "전달한 메일을 SCLM 할 일로 만드는 Cloudflare Email Worker",
+  "scripts": {
+    "deploy": "wrangler deploy"
+  },
+  "dependencies": {
+    "postal-mime": "^2.4.4"
+  },
+  "devDependencies": {
+    "wrangler": "^4.114.0"
+  }
+}

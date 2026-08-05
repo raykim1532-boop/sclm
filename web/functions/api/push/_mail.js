@@ -284,6 +284,73 @@ export async function sendMonthlyMail(env, monthly) {
    (실제로 GitHub Actions 가 9시간씩 지각하던 것도 이틀 뒤에야 알았다).
    ⚠️ **문제가 있을 때만** 보낸다. 매일 "이상 없음"을 보내면 읽지 않게 되고,
       그러면 진짜 이상이 왔을 때도 안 읽는다. */
+/* ---- 메일 전달 등록 확인 ----
+   전달했는데 등록됐는지 모르면 결국 앱을 열어 다시 확인하게 되고, 그러면 손품을
+   줄이려던 목적이 사라진다. 그래서 등록되는 즉시 한 통 돌려준다.
+   ⚠️ **비어 있는 칸을 짚어 준다** — 메일만 보고 대분류·마감일을 맞히면 오히려
+      정리가 어긋나므로 서버는 비워 두고, 대신 여기서 채우라고 알린다. */
+export function buildInboxReceiptBody(todo, files) {
+  const t = todo || {};
+  const row = (k, v) => `<tr>
+      <td style="padding:5px 8px;color:#9b9a97;white-space:nowrap;width:76px">${esc(k)}</td>
+      <td style="padding:5px 8px">${v}</td></tr>`;
+  const dim = (s) => `<span style="color:#c0bfbc">${esc(s)}</span>`;
+
+  const missing = [];
+  if (!t.projectId) missing.push('대분류');
+  if (!t.dueDate) missing.push('마감일');
+
+  const fileList = (files || []).length
+    ? `<div style="margin:14px 0 0;font-size:13px">📎 첨부 ${files.length}개 — ${files.map((f) => esc(f.name)).join(', ')}</div>`
+    : '';
+
+  const html = `<div style="font-family:-apple-system,'Malgun Gothic','Segoe UI',sans-serif;max-width:600px;color:#37352f">
+    <div style="font-size:12px;color:#9b9a97">${esc(t.registeredDate || '')}</div>
+    <h2 style="margin:4px 0 12px;font-size:17px">✅ 할 일로 등록했어요</h2>
+    <table style="width:100%;border-collapse:collapse;font-size:13px;border:1px solid #eee;border-radius:8px">
+      ${row('업무내용', `<b>${esc(t.text || '')}</b>`)}
+      ${row('중분류', t.channel ? esc(t.channel) : dim('(비어 있음)'))}
+      ${row('우선순위', t.priority ? esc(t.priority) : dim('(비어 있음)'))}
+      ${row('마감일', t.dueDate ? esc(t.dueDate) : dim('(비어 있음)'))}
+    </table>
+    ${fileList}
+    ${missing.length ? `<div style="margin:16px 0 0;padding:10px 12px;border-radius:8px;background:#fff4e5;border:1px solid #ffd8a8;font-size:13px">
+      <b>${esc(missing.join(' · '))}</b>은(는) 비어 있습니다. 메일만 보고 정하면 분류가 어긋나서 남겨 뒀어요.
+    </div>` : ''}
+    <p style="margin:20px 0 0">
+      <a href="${APP_URL}/?todo=${encodeURIComponent(t.id || '')}"
+         style="display:inline-block;padding:9px 16px;border-radius:6px;background:#1a73e8;color:#fff;text-decoration:none;font-size:13px;font-weight:700">지금 열어서 채우기</a>
+    </p>
+    <p style="margin:18px 0 0;font-size:12px;color:#9b9a97">
+      제목에 <b>#거래처</b> · <b>!중요</b> · <b>~8/10</b> 을 섞어 보내면 그대로 채워집니다.
+    </p>
+  </div>`;
+
+  const text = `할 일로 등록했어요\n\n${t.text || ''}\n`
+    + `중분류: ${t.channel || '(비어 있음)'}\n우선순위: ${t.priority || '(비어 있음)'}\n마감일: ${t.dueDate || '(비어 있음)'}\n`
+    + ((files || []).length ? `첨부: ${files.map((f) => f.name).join(', ')}\n` : '')
+    + `\n${APP_URL}/?todo=${encodeURIComponent(t.id || '')}`;
+
+  return { subject: `[SCLM] 등록됨 · ${(t.text || '').slice(0, 40)}`, html, text };
+}
+
+export async function sendInboxReceipt(env, todo, files) {
+  if (!mailConfigured(env)) return { skipped: 'not_configured' };
+  const { subject, html, text } = buildInboxReceiptBody(todo, files);
+  try {
+    const r = await fetch(SEND_URL, {
+      method: 'POST',
+      headers: { Authorization: 'Bearer ' + env.RESEND_API_KEY, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ from: env.MAIL_FROM || DEFAULT_FROM, to: [env.MAIL_TO], subject, html, text }),
+    });
+    const body = await r.json().catch(() => ({}));
+    if (!r.ok) return { ok: false, status: r.status, error: String(body.message || body.error || '').slice(0, 200) };
+    return { ok: true, id: body.id || '' };
+  } catch (e) {
+    return { ok: false, error: String((e && e.message) || e).slice(0, 200) };
+  }
+}
+
 export function buildAlertMailBody(issues, todayIso) {
   const rows = (issues || []).map((x) => `
     <tr>

@@ -1,0 +1,24 @@
+# SCLM 메일 수신 워커 — 전달한 메일을 할 일로 만든다.
+#
+# 사전 준비 (도메인이 있어야 한다):
+#   1) 도메인을 Cloudflare 에 등록(네임서버 변경)
+#   2) 대시보드 → Email → Email Routing 활성화 (MX·SPF 레코드 자동 추가)
+#   3) 이 워커 배포:  cd web/email-inbox && npm install && npx wrangler deploy
+#   4) 시크릿 등록:   npx wrangler secret put CRON_SECRET   (Pages 쪽과 **같은 값**)
+#   5) Email Routing → Routes → Custom address 를 만들고 Action=Send to a Worker
+#      → 이 워커 선택
+#
+# ⚠️ 주소는 **추측하기 어렵게** 지을 것 (예: todo-9f3k2@내도메인). 메일 주소는
+#    세상 누구나 보낼 수 있고, 발신자 확인(Pages 의 MAIL_ALLOW_FROM)이 뚫리면
+#    남이 내 할 일 목록에 글을 넣게 된다. 주소 자체가 1차 방어선이다.
+name = "sclm-email-inbox"
+main = "src/index.js"
+compatibility_date = "2024-09-23"
+compatibility_flags = ["nodejs_compat"]
+workers_dev = false
+
+[vars]
+TARGET_URL = "https://sclm.pages.dev/api/mail-inbox"
+# 서버에 못 닿았을 때 메일을 잃지 않도록 넘길 주소(본인 메일함).
+# Email Routing 에서 **검증된 주소**여야 forward 가 동작한다.
+FALLBACK_TO = ""
