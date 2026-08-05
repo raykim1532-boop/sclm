@@ -8,13 +8,13 @@ import { API, check, section, mockDB, mockRequest, mockFetch } from './_helpers.
 
 const {
   onRequestPost, cleanSubject, parseDirectives, normPriority, normDate,
-  bodyToLog, addressOf, senderAllowed, buildTodo, storeAttachments,
+  bodyToLog, addressOf, senderAllowed, buildTodo, storeAttachments, takeDirectiveLine,
 } = await import(API + 'mail-inbox.js');
 const { buildInboxReceiptBody } = await import(API + 'push/_mail.js');
 
 const TODAY = new Date(Date.now() + 9 * 3600e3).toISOString().slice(0, 10);
 const ME = 'raykim@example.com';
-const ENV = { CRON_SECRET: 'CRONSEC', MAIL_TO: ME };
+const ENV = { MAIL_INBOX_SECRET: 'INBOXSEC', MAIL_TO: ME };
 
 /* R2 모의 — put 한 것을 그대로 들고 있는다 */
 function mockR2() {
@@ -27,7 +27,7 @@ function post(docs, mail, extraEnv, headers) {
   const env = Object.assign({ DB: mockDB(docs) }, ENV, extraEnv || {});
   return onRequestPost({
     env,
-    request: Object.assign(mockRequest(headers || { 'X-Cron-Secret': 'CRONSEC' }), {
+    request: Object.assign(mockRequest(headers || { 'X-Inbox-Secret': 'INBOXSEC' }), {
       async json() { return mail; },
     }),
   });
@@ -113,6 +113,45 @@ section('본문 — 전달 원문은 잘라낸다');
 
   const long = bodyToLog('가'.repeat(500));
   check('너무 길면 자른다', long.length === 300 && long.endsWith('…'));
+}
+
+section('본문 첫 줄 지시어');
+{
+  const a = takeDirectiveLine('#쿠팡 !중요 ~8/10\n실제 본문입니다.');
+  check('지시어 줄을 떼어낸다', a.line === '#쿠팡 !중요 ~8/10');
+  check('나머지 본문은 남는다', a.rest.trim() === '실제 본문입니다.');
+
+  const blank = takeDirectiveLine('\n\n  #쿠팡\n본문');
+  check('앞의 빈 줄은 건너뛴다', blank.line === '#쿠팡');
+  check('그 줄만 빠진다', blank.rest.indexOf('#쿠팡') === -1 && blank.rest.indexOf('본문') > -1);
+
+  // ⚠️ 아무 줄이나 훑으면 본문의 # · ! 를 지시어로 오인한다
+  const mixed = takeDirectiveLine('#쿠팡 정산 자료 부탁드립니다\n둘째 줄');
+  check('지시어 아닌 말이 섞이면 손대지 않는다', mixed.line === '');
+  check('본문도 그대로', mixed.rest.indexOf('#쿠팡 정산') > -1);
+
+  check('평범한 본문은 그대로', takeDirectiveLine('안녕하세요\n확인 부탁드립니다').line === '');
+  check('느낌표로 끝나는 문장에 안 걸린다', takeDirectiveLine('급합니다!\n본문').line === '');
+  check('빈 본문 안전', takeDirectiveLine('').line === '' && takeDirectiveLine(null).line === '');
+  check('지시어만 있고 본문이 없어도 안전', takeDirectiveLine('#쿠팡').rest.trim() === '');
+}
+
+section('지시어는 제목·본문 어디에 적어도 된다');
+{
+  const state = { todos: [], channels: [], projects: [] };
+
+  const fromBody = buildTodo({ subject: 'FW: 계약서 검토' }, state, '2026-08-05', '#엔터식스 !긴급 ~8/20');
+  check('본문 줄에서 중분류', fromBody.channel === '엔터식스');
+  check('본문 줄에서 우선순위', fromBody.priority === '긴급');
+  check('본문 줄에서 마감일', fromBody.dueDate === '2026-08-20');
+  check('업무내용은 제목 그대로', fromBody.text === '계약서 검토');
+
+  // 제목까지 고쳐 적었다면 그쪽이 더 분명한 의도다
+  const both = buildTodo({ subject: '검토 #쿠팡' }, state, '2026-08-05', '#엔터식스 ~8/20');
+  check('겹치면 제목이 이긴다', both.channel === '쿠팡');
+  check('제목에 없는 것은 본문에서 채운다', both.dueDate === '2026-08-20');
+
+  check('둘 다 없으면 빈 값', buildTodo({ subject: '그냥 제목' }, state, '2026-08-05', '').channel === '');
 }
 
 section('발신자 확인');
@@ -210,7 +249,7 @@ section('엔드포인트 — 등록');
 section('엔드포인트 — 거절');
 {
   const docs = { main: JSON.stringify({ todos: [], channels: [], projects: [] }) };
-  check('시크릿이 틀리면 401', (await post(docs, { from: ME }, {}, { 'X-Cron-Secret': 'WRONG' })).status === 401);
+  check('시크릿이 틀리면 401', (await post(docs, { from: ME }, {}, { 'X-Inbox-Secret': 'WRONG' })).status === 401);
   check('시크릿이 없으면 401', (await post(docs, { from: ME }, {}, {})).status === 401);
   check('그때는 아무것도 안 만든다', todos(docs).length === 0);
 

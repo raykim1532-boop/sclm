@@ -71,10 +71,10 @@
    - ⚠️ **호출 순서가 중요하다: 캘린더 동기화 → 브리핑.** 브리핑이 `state.events`에서 오늘 일정을 읽으므로 캘린더를 먼저 맞춰야 한다. 반대로 두면 **어제 동기화분**을 보고 나간다(2026-07-30 이전이 그 상태였다). 동기화 실패가 브리핑을 막지 않도록 `try/catch`로 끊어 두었으니 이 보호를 없애지 말 것. GitHub Actions 워크플로(`daily-alarm.yml`)도 같은 순서다.
    - ⚠️ 요청을 나눈 이유: Cloudflare **서브리퀘스트 한도(요청당 50)**를 각각 따로 쓰기 위해. 한 요청에 합치지 말 것.
    - 클라이언트의 15분 주기 폴링은 **제거**됨(앱 열 때 1회 + 수동 버튼만). 정기 갱신은 이 크론이 담당하므로, 탭을 안 켜도 캘린더가 최신 유지된다.
-3. **별도 Worker `sclm-email-inbox`** (`web/email-inbox/`, 2026-08-05) — **메일을 전달하면 할 일이 된다.** Cloudflare Email Routing 이 지정 주소로 온 메일을 이 워커에 넘기고, 워커는 `postal-mime` 으로 봉투만 뜯어 Pages 의 `/api/mail-inbox` 로 넘긴다. 배포: `cd web/email-inbox && npm install && npx wrangler deploy` + `npx wrangler secret put CRON_SECRET`(Pages와 동일 값).
+3. **별도 Worker `sclm-email-inbox`** (`web/email-inbox/`, 2026-08-05) — **메일을 전달하면 할 일이 된다.** Cloudflare Email Routing 이 지정 주소로 온 메일을 이 워커에 넘기고, 워커는 `postal-mime` 으로 봉투만 뜯어 Pages 의 `/api/mail-inbox` 로 넘긴다. 배포: `cd web/email-inbox && npm install && npx wrangler deploy` + `npx wrangler secret put MAIL_INBOX_SECRET`.
    - 🛑 **도메인이 있어야 동작한다.** Email Routing 은 Cloudflare 에 등록된 자기 도메인(zone)이 필요하고, `sclm.pages.dev` 로는 안 된다. 도메인이 없으면 이 워커는 배포조차 못 한다.
    - ⚠️ **MIME 파싱은 워커, 업무 규칙은 Pages.** 워커는 도메인 없이는 띄울 수 없어 테스트가 안 되므로, 제목·본문·첨부를 어떻게 할 일로 바꿀지는 전부 `functions/api/mail-inbox.js` 에 둔다(검증: `mail-inbox.test.mjs`). 규칙을 워커로 옮기지 말 것.
-   - **인증은 두 겹**이다. ① `X-Cron-Secret` — 주소를 알아도 엔드포인트를 직접 못 부른다. ② **발신자 확인**(`MAIL_ALLOW_FROM`, 없으면 `MAIL_TO`) — 메일 주소는 세상 누구나 보낼 수 있으므로 반드시 필요하다. ⚠️ 둘 다 설정이 없으면 **아무도 통과시키지 않는다**(열린 채로 두는 것보다 안 되는 편이 낫다).
+   - **인증은 두 겹**이다. ① `X-Inbox-Secret`(= `MAIL_INBOX_SECRET`) — 주소를 알아도 엔드포인트를 직접 못 부른다. ⚠️ **크론과 시크릿을 나눠 쓴다** — 같이 쓰면 값을 바꿀 때 Pages·push-cron·email-inbox·GitHub Actions 네 곳을 동시에 맞춰야 하고, 하나만 빠져도 아침 알림이 멈춘다. 성격도 다르다(크론은 우리가 부르는 것, 이쪽은 바깥에서 들어오는 것). ② **발신자 확인**(`MAIL_ALLOW_FROM`, 없으면 `MAIL_TO`) — 메일 주소는 세상 누구나 보낼 수 있으므로 반드시 필요하다. ⚠️ 둘 다 설정이 없으면 **아무도 통과시키지 않는다**(열린 채로 두는 것보다 안 되는 편이 낫다).
    - 수신 주소는 **추측하기 어렵게** 지을 것(예: `todo-9f3k2@내도메인`). 주소 자체가 1차 방어선이다.
    - 제목 지시어: `#중분류` · `!우선순위` · `~마감일`(`8/10`·`2026-08-10`). ⚠️ **지시어가 없어도 제대로 동작해야 한다** — 매번 제목을 고쳐야 하면 안 쓰게 된다.
    - ⚠️ **대분류와 마감일은 서버가 채우지 않는다.** 메일만 보고 맞히면 분류가 어긋나고 거짓 마감일이 생긴다. 대신 등록 즉시 **확인 메일**(`sendInboxReceipt`)로 "비어 있는 칸"을 짚고 딥링크를 준다 — 전달했는데 됐는지 모르면 결국 앱에 다시 적게 되므로 이 회신을 빼지 말 것.
@@ -123,7 +123,7 @@
         - 마감이 지난 건은 `지연완료`(앱에서 손으로 완료할 때와 같은 규칙 — 안 그러면 기한 준수율이 경로에 따라 달라진다). 처리 후 되돌리기 링크를 주고, `logs` 에 '메일에서 완료 처리'를 남긴다.
         - 링크 생성은 비동기·`env` 필요라 `buildMailBody(s, doneLinks)` 로 **받아서** 쓴다 — 본문 생성을 순수 함수로 유지하기 위함. 검증: `mail-action.test.mjs`.
       - ⚠️ **Cloudflare Email Sending 은 쓸 수 없다.** 본인 소유 도메인이 필요한데(`/email/sending/zones`) 이 계정엔 `sclm.pages.dev` 뿐이라 발신 도메인이 없다. 그래서 Resend 를 쓴다.
-      - ⚠️ **Resend 무료 계정은 `onboarding@resend.dev` 에서 "가입한 본인 주소로만" 보낸다.** 즉 Resend 가입을 **받을 주소로** 해야 한다. 다른 주소로 가입하면 403 이 나고 메일이 안 간다(에러 문구가 `mail.error` 에 남는다).
+      - **발신 도메인은 `sclmapp.com`**(2026-08-05 Resend 검증 완료, DKIM+SPF). `DEFAULT_FROM = SCLM <sclm@sclmapp.com>`. 그전엔 공용 `onboarding@resend.dev` 였고 회사 Exchange 가 정크로 돌릴 위험이 있었다. ⚠️ `sclmapp.com` 의 `resend._domainkey` TXT 와 `send` MX/TXT 를 지우면 발송이 403 으로 막힌다. ⚠️ Email Routing 이 쓰는 **루트 MX·SPF 와는 별개**다(Resend 는 `send` 하위만 쓴다) — 루트를 건드리면 메일 전달 등록이 멈춘다.
       - 시크릿: `RESEND_API_KEY`, `MAIL_TO`(= 가입 주소), 선택 `MAIL_FROM`. 셋 다 없으면 조용히 건너뛴다(`skipped: not_configured`).
       - 메일 실패가 푸시·카카오를 막지 않도록 `try/catch` 로 끊고 결과를 응답의 `mail` 키에 실는다. 검증: `brief-mail.test.mjs`.
     - 아침 브리핑 = **지연 · 오늘 마감 · 임박(3일) · 오늘 일정** 네 구분. 계산은 `_send.js`의 `computeSummary`(순수 함수 `pickTodayEvents` 사용), 푸시 본문은 `run-daily.js`의 `buildPushBody`, 카카오 본문은 `_kakao.js`의 `summaryLines`. **셋 다 따로 만들므로 구분을 추가하면 세 곳을 같이 고칠 것.**
@@ -159,7 +159,7 @@
   - 분류 필드를 추가·변경하면 따라가야 하는 곳: 할 일 모달(`openTodoModal`) · 표 헤더(`shell.html`)와 셀 · 정렬키(`todoSortValue`) · 필터(`filterTodos`/`renderTodos`) · 검색 · CSV(`exportTodosCsv`) · 칸반 카드 · 시트 머리글 매핑(`SHEET_HEADER_MAP`) · `assistant.js`(도구 파라미터·`filterTodos`·`systemPrompt`).
 
 ## 시크릿 (저장소에 없음 — Cloudflare에만)
-Pages `sclm`: `APP_PASSWORD`, `VAPID_PRIVATE_KEY`, `CRON_SECRET`, `RESEND_API_KEY`·`MAIL_TO`(아침 브리핑 메일, 선택), `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `KAKAO_REST_API_KEY`, `KAKAO_REFRESH_TOKEN`(선택 `KAKAO_CLIENT_SECRET`), `GEMINI_API_KEY`(AI 비서, aistudio.google.com 무료 키).
+Pages `sclm`: `APP_PASSWORD`, `MAIL_INBOX_SECRET`(메일 전달 등록 — email-inbox 워커와 동일 값, 크론과는 별개), `VAPID_PRIVATE_KEY`, `CRON_SECRET`, `RESEND_API_KEY`·`MAIL_TO`(아침 브리핑 메일, 선택), `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `KAKAO_REST_API_KEY`, `KAKAO_REFRESH_TOKEN`(선택 `KAKAO_CLIENT_SECRET`), `GEMINI_API_KEY`(AI 비서, aistudio.google.com 무료 키).
 Worker `sclm-push-cron`: `CRON_SECRET`(Pages와 동일 값).
 - 카카오 '나에게 보내기' 매일 알림: `run-daily`가 웹푸시와 함께 카카오 메모를 발송한다(`push/_kakao.js`). `KAKAO_REFRESH_TOKEN`으로 access token을 매 호출 재발급. 설정 안 돼 있으면 카카오만 건너뜀(푸시는 정상). 토큰 발급 절차는 `web/PUSH-SETUP.md` 참고. 검증: `POST /api/push/kakao-test`(Bearer=APP_PASSWORD).
 - 시크릿 등록: `npx wrangler pages secret put <NAME> --project-name sclm` (워커는 `npx wrangler secret put <NAME>`).

@@ -1,16 +1,19 @@
 // 아침 브리핑을 이메일로 보내는 모듈.
 //
-// 왜 Resend 인가 — Cloudflare Email Sending 은 **본인 소유 도메인**이 필요한데
-// 이 프로젝트는 sclm.pages.dev 뿐이라 발신 도메인이 없다. Resend 무료 계정은
-// 도메인 없이 `onboarding@resend.dev` 로 보낼 수 있고, 대신 **가입한 본인 주소로만**
-// 발송된다. 본인만 받는 브리핑이라 그 제약이 오히려 딱 맞는다.
-// ⚠️ 그래서 Resend 가입은 **받을 주소(회사 아웃룩)로** 해야 한다. 다른 주소로 가입하면
-//    422/403 이 나고 메일이 안 간다.
+// 왜 Resend 인가 — Cloudflare Email Sending 은 본인 소유 도메인이 필요한데 처음엔
+// sclm.pages.dev 뿐이라 발신 도메인이 없었다. Resend 는 도메인 없이도 시작할 수 있다.
+//
+// 2026-08-05 `sclmapp.com` 을 등록하고 Resend 에 발신 도메인으로 검증했다(DKIM+SPF).
+// 그래서 이제 **본인 도메인에서 서명된 메일**이 나간다:
+//   · 공용 `onboarding@resend.dev` 를 쓰던 때의 정크 분류 위험이 사라졌다
+//   · "가입한 본인 주소로만 발송" 제약도 풀렸다(원하면 다른 수신자에게도 보낼 수 있다)
+// ⚠️ 도메인 검증이 풀리면(DNS 레코드 삭제 등) 발송이 403 으로 막힌다. `sclmapp.com` 의
+//    `resend._domainkey` TXT 와 `send` MX/TXT 를 지우지 말 것.
 //
 // 필요한 시크릿(Pages sclm):
 //   RESEND_API_KEY  — Resend 대시보드에서 발급
-//   MAIL_TO         — 받을 주소(= Resend 가입 주소)
-//   MAIL_FROM       — (선택) 기본값 'SCLM <onboarding@resend.dev>'
+//   MAIL_TO         — 받을 주소
+//   MAIL_FROM       — (선택) 아래 DEFAULT_FROM 을 덮어쓴다
 
 import { dueMoveCount, originalDue } from './_send.js';
 
@@ -20,7 +23,7 @@ const APP_URL = 'https://sclm.pages.dev';
 /* 메일에서 누르면 그 항목이 바로 열리는 주소. 앱의 openFromUrl() 이 받는다. */
 const todoLink = (t) => APP_URL + '/?todo=' + encodeURIComponent((t && t.id) || '');
 const eventLink = (e) => APP_URL + '/?event=' + encodeURIComponent((e && e.id) || '');
-const DEFAULT_FROM = 'SCLM <onboarding@resend.dev>';
+const DEFAULT_FROM = 'SCLM <sclm@sclmapp.com>';
 
 export function mailConfigured(env) {
   return !!(env && env.RESEND_API_KEY && env.MAIL_TO);
@@ -322,7 +325,8 @@ export function buildInboxReceiptBody(todo, files) {
          style="display:inline-block;padding:9px 16px;border-radius:6px;background:#1a73e8;color:#fff;text-decoration:none;font-size:13px;font-weight:700">지금 열어서 채우기</a>
     </p>
     <p style="margin:18px 0 0;font-size:12px;color:#9b9a97">
-      제목에 <b>#거래처</b> · <b>!중요</b> · <b>~8/10</b> 을 섞어 보내면 그대로 채워집니다.
+      <b>#거래처</b> · <b>!중요</b> · <b>~8/10</b> 을 적어 보내면 그대로 채워집니다.<br>
+      제목 뒤에 붙여도 되고, <b>전달할 때 본문 맨 윗줄</b>에 그 셋만 한 줄로 적어도 됩니다.
     </p>
   </div>`;
 

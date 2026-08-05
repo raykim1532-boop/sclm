@@ -11,10 +11,15 @@
 // ⚠️ **MIME 파싱은 워커에, 업무 규칙은 여기에.** 워커는 도메인이 없으면 띄울 수도 없어서
 //    테스트가 안 된다. 규칙을 여기 두면 하네스에서 전부 검증할 수 있다.
 //
-// 인증은 `X-Cron-Secret`(push-cron 워커와 같은 방식) + **발신자 확인**.
+// 인증은 `X-Inbox-Secret`(= `MAIL_INBOX_SECRET`) + **발신자 확인**.
 // 메일 주소는 세상 누구나 보낼 수 있으므로 둘 다 필요하다:
 //   · 주소를 알아도 시크릿이 없으면 이 엔드포인트를 직접 못 부른다
 //   · 워커를 거쳐 와도 허용된 발신자가 아니면 거절한다
+//
+// ⚠️ **크론과 시크릿을 나눠 쓴다.** 처음엔 `CRON_SECRET` 을 같이 썼는데, 그러면
+//    값을 바꿀 때 Pages·push-cron 워커·email-inbox 워커·GitHub Actions 네 곳을
+//    동시에 맞춰야 하고 하나라도 빠지면 아침 알림이 멈춘다. 성격도 다르다 —
+//    크론은 우리가 부르는 것이고 이쪽은 **바깥에서 메일이 들어오는** 경로다.
 import { safeEqual } from './_auth.js';
 
 const MAX_FILES = 5;
@@ -96,6 +101,28 @@ function isValidIso(iso) {
 }
 
 /* ---------- 본문 ---------- */
+
+/* 본문 첫 줄에서도 지시어를 읽는다.
+   왜 — 아웃룩 전달 창에서 **제목 칸을 고치는 건 번거롭다**(휴대폰에서는 더). 커서는
+   어차피 본문 맨 위에 있으므로 거기 한 줄 적는 편이 훨씬 자연스럽다.
+   ⚠️ 아무 줄이나 훑으면 본문에 섞인 `#`·`!` 를 지시어로 오인한다(해시태그·강조).
+      **첫 비어있지 않은 줄이 지시어 토큰으로만 이루어졌을 때만** 인정하고,
+      인정한 줄은 로그에서 빼서 업무 로그가 지저분해지지 않게 한다. */
+export function takeDirectiveLine(text) {
+  const raw = String(text || '');
+  const lines = raw.replace(/\r\n/g, '\n').split('\n');
+  let i = 0;
+  while (i < lines.length && !lines[i].trim()) i++;
+  if (i >= lines.length) return { line: '', rest: raw };
+
+  const first = lines[i].trim();
+  const toks = first.split(/\s+/).filter(Boolean);
+  const isDirective = (t) => /^[#!~][^\s#!~]+$/.test(t);
+  if (!toks.length || !toks.every(isDirective)) return { line: '', rest: raw };
+
+  lines.splice(i, 1);
+  return { line: first, rest: lines.join('\n') };
+}
 
 /* 본문에서 로그로 남길 한 덩어리를 뽑는다.
    전달 메일은 아래에 원문 헤더와 인용문이 통째로 딸려 오므로, **거기서 자른다** —
@@ -186,10 +213,18 @@ export async function storeAttachments(env, list) {
   return out;
 }
 
-/* 메일 한 통 → 할 일 하나 (순수 함수). */
-export function buildTodo(mail, state, todayIso) {
+/* 메일 한 통 → 할 일 하나 (순수 함수).
+   extraLine 은 본문 첫 줄에서 떼어낸 지시어 줄(takeDirectiveLine).
+   ⚠️ **제목이 우선**이다 — 제목까지 고쳐 적었다면 그쪽이 더 분명한 의도다. */
+export function buildTodo(mail, state, todayIso, extraLine) {
   const today = todayIso || todayKST();
   const d = parseDirectives(cleanSubject(mail.subject), today);
+  if (extraLine) {
+    const e = parseDirectives(extraLine, today);
+    if (!d.channel) d.channel = e.channel;
+    if (!d.priority) d.priority = e.priority;
+    if (!d.dueDate) d.dueDate = e.dueDate;
+  }
   const nos = state.todos.map((t) => +t.no || 0);
   const text = d.text || '(제목 없는 메일)';
 
@@ -221,8 +256,8 @@ export function buildTodo(mail, state, todayIso) {
 export async function onRequestPost(context) {
   const { env, request } = context;
 
-  const secret = env.CRON_SECRET;
-  const got = request.headers.get('X-Cron-Secret') || '';
+  const secret = env.MAIL_INBOX_SECRET;
+  const got = request.headers.get('X-Inbox-Secret') || '';
   if (!secret || !got || !safeEqual(got, secret)) {
     return Response.json({ error: 'unauthorized' }, { status: 401 });
   }
@@ -239,9 +274,11 @@ export async function onRequestPost(context) {
 
   const state = await loadState(env);
   const today = todayKST();
-  const todo = buildTodo(mail, state, today);
+  // 본문 첫 줄이 지시어 줄이면 떼어낸다 — 그래야 로그에 그 줄이 안 남는다
+  const dir = takeDirectiveLine(mail.text);
+  const todo = buildTodo(mail, state, today, dir.line);
 
-  const log = bodyToLog(mail.text);
+  const log = bodyToLog(dir.rest);
   if (log) todo.logs.push({ at: today, text: log });
 
   let files = [];

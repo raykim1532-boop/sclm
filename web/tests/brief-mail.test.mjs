@@ -101,7 +101,10 @@ section('발송 — 요청 형태');
   check('엔드포인트', captured.url === 'https://api.resend.com/emails');
   check('Bearer 인증', captured.headers.Authorization === 'Bearer re_test');
   check('받는 주소는 배열', Array.isArray(captured.body.to) && captured.body.to[0] === 'me@company.com');
-  check('기본 발신 주소', captured.body.from.includes('onboarding@resend.dev'));
+  // ⚠️ 본인 도메인(2026-08-05 Resend 검증 완료)에서 나가야 한다. 공용 onboarding@resend.dev
+  //    로 되돌아가면 회사 Exchange 가 정크로 돌릴 위험이 다시 생긴다.
+  check('기본 발신 주소는 본인 도메인', captured.body.from.includes('sclm@sclmapp.com'));
+  check('공용 도메인으로 되돌아가지 않았다', !captured.body.from.includes('resend.dev'));
   check('html·text 둘 다 보낸다', !!captured.body.html && !!captured.body.text);
 
   await sendBriefMail({ RESEND_API_KEY: 'k', MAIL_TO: 'me@company.com', MAIL_FROM: 'SCLM <a@b.com>' }, SUM);

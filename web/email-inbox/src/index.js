@@ -10,7 +10,7 @@
 //
 // 배포:
 //   cd web/email-inbox && npm install && npx wrangler deploy
-//   npx wrangler secret put CRON_SECRET      (Pages 쪽과 같은 값)
+//   npx wrangler secret put MAIL_INBOX_SECRET      (Pages 쪽과 같은 값 · 크론과는 별개)
 // 그다음 대시보드에서 Email Routing 규칙을 이 워커로 연결한다.
 import PostalMime from 'postal-mime';
 
@@ -36,19 +36,32 @@ function contentToBuffer(content) {
   return null;
 }
 
+/* 처리하지 못했을 때 — **메일을 조용히 삼키지 않는다**.
+   예비 주소가 있으면 그리로 넘기고, 없으면 반송한다. 반송되면 보낸 사람(=본인)이
+   즉시 알게 되므로 아무 일도 안 일어난 것보다 훨씬 낫다.
+   ⚠️ 빈 주소로 forward 를 부르면 "destination address is invalid" 로 터진다
+      (2026-08-05 실제로 이것 때문에 원인이 가려졌다). 주소가 있을 때만 부를 것. */
+async function bail(message, env, reason) {
+  console.log('SCLM 등록 실패:', reason);
+  const to = (env.FALLBACK_TO || '').trim();
+  if (to) {
+    try { return await message.forward(to); } catch (e) { console.log('forward 실패:', String(e)); }
+  }
+  return message.setReject('SCLM 등록 실패 — ' + reason);
+}
+
 export default {
   async email(message, env, ctx) {
     const target = env.TARGET_URL;
-    if (!target || !env.CRON_SECRET) {
-      // 설정이 안 됐으면 메일을 삼키지 말고 그대로 보관함으로 넘긴다
-      return message.forward(env.FALLBACK_TO || env.MAIL_TO || '');
+    if (!target || !env.MAIL_INBOX_SECRET) {
+      return bail(message, env, '워커 설정 없음(TARGET_URL/MAIL_INBOX_SECRET)');
     }
 
     let parsed;
     try {
       parsed = await PostalMime.parse(message.raw);
     } catch (e) {
-      return message.setReject('메일을 읽지 못했습니다');
+      return bail(message, env, '메일을 읽지 못함: ' + String((e && e.message) || e).slice(0, 120));
     }
 
     const attachments = [];
@@ -72,19 +85,28 @@ export default {
       attachments,
     };
 
+    console.log('SCLM 전송 시작', JSON.stringify({
+      from: payload.from, subject: payload.subject.slice(0, 80),
+      textLen: payload.text.length, files: attachments.length,
+    }));
+
     let res;
     try {
       res = await fetch(target, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-Cron-Secret': env.CRON_SECRET },
+        headers: { 'Content-Type': 'application/json', 'X-Inbox-Secret': env.MAIL_INBOX_SECRET },
         body: JSON.stringify(payload),
       });
     } catch (e) {
-      // 서버에 못 닿았으면 메일을 잃지 않도록 보관함으로 넘긴다
-      return message.forward(env.FALLBACK_TO || env.MAIL_TO || '');
+      return bail(message, env, '서버에 못 닿음: ' + String((e && e.message) || e).slice(0, 120));
     }
 
-    if (!res.ok) return message.forward(env.FALLBACK_TO || env.MAIL_TO || '');
+    // ⚠️ 응답을 반드시 남긴다 — 상태 코드 하나면 "시크릿 불일치(401)"와
+    //    "서버 오류(500)"가 바로 갈린다. 이걸 안 찍어서 원인 규명이 한 바퀴 늦어졌다.
+    const body = await res.text().catch(() => '');
+    console.log('SCLM 응답', res.status, body.slice(0, 300));
+
+    if (!res.ok) return bail(message, env, 'API ' + res.status + ' ' + body.slice(0, 120));
   },
 };
 
