@@ -23,6 +23,58 @@ function isDone(t) {
 function isHeld(t) { return (t.status || '') === '보류'; }
 function isLive(t) { return !isDone(t) && !isHeld(t); }
 
+/* 마감일 변경 이력 — 앱의 todoDueHistory / dueMoveCount 와 **같은 규칙**이어야 한다.
+   · 뒤로 민 것(to > from)만 센다. 앞당긴 건 이력엔 남지만 경고할 일이 아니다.
+   · 처음 마감일을 넣은 건 애초에 이력에 안 쌓인다(앱의 pushDueHistory 가 거른다).
+   ⚠️ 규칙을 바꾸면 src/app.js 의 dueMoveCount 도 같이 고칠 것. */
+export function dueHistoryOf(t) {
+  return Array.isArray(t && t.dueHistory) ? t.dueHistory.filter((h) => h && (h.from || h.to)) : [];
+}
+export function dueMoveCount(t) {
+  return dueHistoryOf(t).filter((h) => h.from && h.to && h.to > h.from).length;
+}
+/* 가장 최근에 뒤로 민 기록(없으면 null) — "원래 7/30 이었다"를 보여 주는 데 쓴다 */
+export function lastDueMove(t) {
+  const back = dueHistoryOf(t).filter((h) => h.from && h.to && h.to > h.from);
+  return back.length ? back[back.length - 1] : null;
+}
+/* 처음 잡았던 마감일 — 여러 번 밀렸어도 맨 처음 from 이 원래 날짜다 */
+export function originalDue(t) {
+  const h = dueHistoryOf(t);
+  return (h.length && h[0].from) || '';
+}
+
+/* 반복해서 미루는 건 = 마감일 문제가 아니라 업무 자체를 다시 볼 신호.
+   기본 3회 — 1~2회는 일정이 밀리면 흔히 있는 일이라 경고하면 소음이 된다. */
+export function computeChronic(todos, minMoves, limit) {
+  const min = minMoves || 3;
+  const out = (Array.isArray(todos) ? todos : [])
+    .filter((t) => isLive(t) && dueMoveCount(t) >= min)
+    .map((t) => ({ todo: t, moves: dueMoveCount(t), from: originalDue(t), to: t.dueDate || '' }))
+    .sort((a, b) => (b.moves - a.moves) || (a.to < b.to ? -1 : (a.to > b.to ? 1 : 0)));
+  return limit ? out.slice(0, limit) : out;
+}
+
+/* 그 구간(주간) 안에 **뒤로 민** 기록만 뽑는다. 한 건을 두 번 밀었으면 두 줄이 아니라
+   한 줄로 합쳐 "원래 → 지금"을 보여 준다 — 한 주를 돌아보는 게 목적이지 조작 로그가 아니다. */
+export function computeMovedIn(todos, start, end) {
+  const out = [];
+  (Array.isArray(todos) ? todos : []).forEach((t) => {
+    const inRange = dueHistoryOf(t).filter((h) =>
+      h.from && h.to && h.to > h.from && isIso(h.at) && h.at >= start && h.at <= end);
+    if (!inRange.length) return;
+    out.push({
+      todo: t,
+      times: inRange.length,
+      from: inRange[0].from,
+      to: inRange[inRange.length - 1].to,
+      at: inRange[inRange.length - 1].at,
+      totalMoves: dueMoveCount(t),
+    });
+  });
+  return out.sort((a, b) => (a.at < b.at ? -1 : (a.at > b.at ? 1 : 0)));
+}
+
 /* 오늘에 걸친 일정을 뽑는다(종일 → 시간순).
    여러 날짜에 걸친 일정도 오늘이 그 사이면 포함한다(start <= 오늘 <= end).
    구글에서 읽기 전용으로 가져온 일정(roCal)도 같은 events 배열에 있으므로 함께 잡힌다.
@@ -72,7 +124,11 @@ export async function computeWeekly(env, todayIso) {
   const stillLate = todos.filter((t) => isLive(t) && isIso(t.dueDate) && t.dueDate < today)
     .sort((a, b) => (a.dueDate < b.dueDate ? -1 : 1));
 
+  // 이번 주에 마감일을 뒤로 민 건 — 한 주를 어떻게 조정했는지 돌아보는 자리
+  const moved = computeMovedIn(todos, tw.start, tw.end);
+
   return { today, week: tw, nextWeek: nw, doneList: done, nextList: next, lateList: stillLate,
+    movedList: moved, moved: moved.length,
     done: done.length, next: next.length, late: stillLate.length };
 }
 
@@ -194,6 +250,8 @@ export async function computeSummary(env) {
     upcoming: upcoming.length,
     events: eventList.length,
     stuckList: computeStuckChannels(todos, today, 3, 3),
+    // 반복해서 미룬 건 — 마감일이 아니라 업무 자체를 다시 볼 신호
+    chronicList: computeChronic(todos, 3, 5),
     overdueList: overdue,
     todayList: dueToday,
     upcomingList: upcoming,

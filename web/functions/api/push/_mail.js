@@ -12,6 +12,8 @@
 //   MAIL_TO         — 받을 주소(= Resend 가입 주소)
 //   MAIL_FROM       — (선택) 기본값 'SCLM <onboarding@resend.dev>'
 
+import { dueMoveCount, originalDue } from './_send.js';
+
 const SEND_URL = 'https://api.resend.com/emails';
 const APP_URL = 'https://sclm.pages.dev';
 
@@ -32,6 +34,16 @@ const mmdd = (iso) => (/^\d{4}-\d{2}-\d{2}$/.test(iso || '') ? iso.slice(5).repl
 /* 할 일 한 줄 (제목 앞의 [대괄호] 꼬리표는 떼고 보여 준다 — 푸시 본문과 같은 규칙) */
 const shortText = (t) => String((t && t.text) || '').replace(/^\s*\[[^\]]*\]\s*/, '').trim();
 
+/* 마감일을 뒤로 민 건에 붙는 꼬리표: "⟳2 · 원래 07/30".
+   목록 줄에 그대로 얹으므로 짧게 — 자세한 이력은 앱에서 배지 툴팁으로 본다.
+   ⚠️ 앱의 dueMoveCount 와 같은 규칙(뒤로 민 것만)을 쓰는 _send.js 함수를 가져다 쓴다. */
+const movedNote = (t) => {
+  const n = dueMoveCount(t);
+  if (!n) return '';
+  const from = originalDue(t);
+  return '⟳' + n + (from ? ' · 원래 ' + mmdd(from) : '');
+};
+
 /* 일정 시각 — 시간이 지정돼 있으면 HH:MM, 아니면 '종일' */
 const evAt = (e) => (e && e.allDay === false && e.startTime ? String(e.startTime).slice(0, 5) : '종일');
 
@@ -50,7 +62,7 @@ export function buildMailBody(s, done) {
           <td style="padding:6px 8px;border-bottom:1px solid #eee;color:#9b9a97;white-space:nowrap;width:64px">${esc(r.when)}</td>
           <td style="padding:6px 8px;border-bottom:1px solid #eee">${r.link
             ? `<a href="${esc(r.link)}" style="color:#37352f;text-decoration:none">${esc(r.text)}</a>`
-            : esc(r.text)}</td>
+            : esc(r.text)}${r.moved ? ` <span style="color:#e37400;font-size:11.5px;white-space:nowrap">${esc(r.moved)}</span>` : ''}</td>
           <td style="padding:6px 8px;border-bottom:1px solid #eee;color:#9b9a97;white-space:nowrap">${esc(r.tag)}</td>
           ${r.done ? `<td style="padding:6px 8px;border-bottom:1px solid #eee;white-space:nowrap;width:74px;text-align:right"><a href="${esc(r.done)}" title="완료 처리" style="display:inline-block;padding:7px 12px;border:1px solid #1a73e8;border-radius:6px;color:#1a73e8;text-decoration:none;font-weight:700;font-size:12px;line-height:1">✓ 완료</a></td>` : ''}
         </tr>`).join('')
@@ -60,9 +72,9 @@ export function buildMailBody(s, done) {
   const daysLate = (due) => Math.max(0, Math.round((new Date(s.today) - new Date(due)) / 864e5));
   const tag = (t) => [t.channel, t.subChannel].filter(Boolean).join(' · ');
 
-  const overdue = (s.overdueList || []).map((t) => ({ when: daysLate(t.dueDate) + '일', text: shortText(t), tag: tag(t), link: todoLink(t), done: doneUrl(t.id) }));
-  const today = (s.todayList || []).map((t) => ({ when: '오늘', text: shortText(t), tag: tag(t), link: todoLink(t), done: doneUrl(t.id) }));
-  const soon = (s.upcomingList || []).map((t) => ({ when: mmdd(t.dueDate), text: shortText(t), tag: tag(t), link: todoLink(t), done: doneUrl(t.id) }));
+  const overdue = (s.overdueList || []).map((t) => ({ when: daysLate(t.dueDate) + '일', text: shortText(t), tag: tag(t), link: todoLink(t), done: doneUrl(t.id), moved: movedNote(t) }));
+  const today = (s.todayList || []).map((t) => ({ when: '오늘', text: shortText(t), tag: tag(t), link: todoLink(t), done: doneUrl(t.id), moved: movedNote(t) }));
+  const soon = (s.upcomingList || []).map((t) => ({ when: mmdd(t.dueDate), text: shortText(t), tag: tag(t), link: todoLink(t), done: doneUrl(t.id), moved: movedNote(t) }));
   const events = (s.eventList || []).map((e) => ({ when: evAt(e), text: String(e.title || ''), tag: e.roCalName || '', link: eventLink(e) }));
 
   const counts = [
@@ -81,11 +93,22 @@ export function buildMailBody(s, done) {
       </div>`
     : '';
 
+  // 세 번 넘게 뒤로 민 건 — 마감일이 문제가 아니라 업무 자체를 다시 볼 신호다.
+  // 분류 경고(주황)와 나란히 두되 색을 달리한다(보라) — 성격이 다른 경고라 섞이면 안 읽는다.
+  const chronic = (s.chronicList || []).slice(0, 5);
+  const chronicHtml = chronic.length
+    ? `<div style="margin:12px 0 0;padding:10px 12px;border-radius:8px;background:#f4f0fb;border:1px solid #d9cdf0;font-size:13px">
+        <b>⟳ 세 번 넘게 미룬 건</b> <span style="color:#9b9a97">마감일보다 업무 자체를 다시 볼 때입니다</span><br>
+        ${chronic.map((c) => `<a href="${esc(todoLink(c.todo))}" style="color:#37352f;text-decoration:none">${esc(shortText(c.todo))}</a> — ${c.moves}회 미룸${c.from ? ` (원래 ${mmdd(c.from)} → 지금 ${mmdd(c.to)})` : ''}`).join('<br>')}
+      </div>`
+    : '';
+
   const html = `<div style="font-family:-apple-system,'Malgun Gothic','Segoe UI',sans-serif;max-width:680px;color:#37352f">
     <div style="font-size:12px;color:#9b9a97">${esc(s.today)}</div>
     <h2 style="margin:4px 0 0;font-size:18px">오늘의 할 일과 일정</h2>
     <div style="margin:6px 0 0;font-size:13px;color:#9b9a97">${esc(counts || '알릴 것이 없어요')}</div>
     ${stuckHtml}
+    ${chronicHtml}
     ${sec('⏰ 지연', overdue)}
     ${sec('📅 오늘 마감', today)}
     ${sec('🔜 임박', soon)}
@@ -97,10 +120,11 @@ export function buildMailBody(s, done) {
   </div>`;
 
   // 텍스트본도 함께 보낸다 — 일부 클라이언트가 평문만 보여 주고, 스팸 점수에도 유리하다
-  const line = (r) => `- ${r.when}  ${r.text}${r.tag ? '  [' + r.tag + ']' : ''}`;
+  const line = (r) => `- ${r.when}  ${r.text}${r.moved ? '  (' + r.moved + ')' : ''}${r.tag ? '  [' + r.tag + ']' : ''}`;
   const tsec = (title, rows) => (rows.length ? `\n${title} (${rows.length}건)\n` + rows.map(line).join('\n') + '\n' : '');
   const stuckText = stuck.length ? '\n[계속 밀리는 분류]\n' + stuck.map((x) => `- ${x.name}  지연 ${x.overdue}건 / 전체 ${x.total} · 평균 ${x.avgLate}일 밀림`).join('\n') + '\n' : '';
-  const text = `${s.today}  오늘의 할 일과 일정\n${counts || '알릴 것이 없어요'}\n` + stuckText
+  const chronicText = chronic.length ? '\n[세 번 넘게 미룬 건]\n' + chronic.map((c) => `- ${shortText(c.todo)}  ${c.moves}회 미룸${c.from ? ' (원래 ' + mmdd(c.from) + ' → 지금 ' + mmdd(c.to) + ')' : ''}`).join('\n') + '\n' : '';
+  const text = `${s.today}  오늘의 할 일과 일정\n${counts || '알릴 것이 없어요'}\n` + stuckText + chronicText
     + tsec('[지연]', overdue) + tsec('[오늘 마감]', today) + tsec('[임박]', soon) + tsec('[오늘 일정]', events)
     + '\nhttps://sclm.pages.dev';
 
@@ -128,12 +152,21 @@ export function buildWeeklyMailBody(w, hasBackup) {
   const done = (w.doneList || []).map((t) => ({ when: mmdd(t.completedDate), text: shortText(t), tag: tag(t), link: todoLink(t) }));
   const next = (w.nextList || []).map((t) => ({ when: mmdd(t.dueDate), text: shortText(t), tag: tag(t), link: todoLink(t) }));
   const late = (w.lateList || []).map((t) => ({ when: daysLate(t.dueDate) + '일', text: shortText(t), tag: tag(t), link: todoLink(t) }));
+  // 이번 주에 뒤로 민 건. 왼쪽 칸에 "원래 → 지금"을 넣어 한눈에 보이게 한다.
+  // 누적 3회 이상이면 뒤에 표시해 준다 — 이번 주에 한 번 밀었어도 여러 번째인 게 중요하다.
+  const moved = (w.movedList || []).map((m) => ({
+    when: mmdd(m.from) + ' → ' + mmdd(m.to),
+    text: shortText(m.todo),
+    tag: tag(m.todo) + (m.totalMoves >= 3 ? ' · 누적 ' + m.totalMoves + '회' : ''),
+    link: todoLink(m.todo),
+  }));
 
   const html = `<div style="font-family:-apple-system,'Malgun Gothic','Segoe UI',sans-serif;max-width:680px;color:#37352f">
     <div style="font-size:12px;color:#9b9a97">${esc(w.week.start)} ~ ${esc(w.week.end)}</div>
     <h2 style="margin:4px 0 0;font-size:18px">주간 리포트</h2>
-    <div style="margin:6px 0 0;font-size:13px;color:#9b9a97">완료 ${w.done} · 다음 주 마감 ${w.next} · 아직 지연 ${w.late}</div>
+    <div style="margin:6px 0 0;font-size:13px;color:#9b9a97">완료 ${w.done} · 다음 주 마감 ${w.next} · 아직 지연 ${w.late}${w.moved ? ` · 기간 연장 ${w.moved}` : ''}</div>
     ${sec('✅ 이번 주 완료', done)}
+    ${sec('⟳ 이번 주에 미룬 건', moved)}
     ${sec('🔜 다음 주 마감 예정', next)}
     ${sec('⏰ 아직 지연', late)}
     <p style="margin:26px 0 0;font-size:12px;color:#9b9a97">
@@ -144,8 +177,9 @@ export function buildWeeklyMailBody(w, hasBackup) {
 
   const line = (r) => `- ${r.when}  ${r.text}${r.tag ? ' [' + r.tag + ']' : ''}`;
   const tsec = (title, rows) => `\n${title} (${rows.length}건)\n` + (rows.length ? rows.map(line).join('\n') : '- (없음)') + '\n';
-  const text = `주간 리포트  ${w.week.start} ~ ${w.week.end}\n완료 ${w.done} · 다음 주 마감 ${w.next} · 아직 지연 ${w.late}\n`
-    + tsec('[이번 주 완료]', done) + tsec('[다음 주 마감 예정]', next) + tsec('[아직 지연]', late)
+  const text = `주간 리포트  ${w.week.start} ~ ${w.week.end}\n완료 ${w.done} · 다음 주 마감 ${w.next} · 아직 지연 ${w.late}${w.moved ? ' · 기간 연장 ' + w.moved : ''}\n`
+    + tsec('[이번 주 완료]', done) + tsec('[이번 주에 미룬 건]', moved)
+    + tsec('[다음 주 마감 예정]', next) + tsec('[아직 지연]', late)
     + '\n' + APP_URL;
 
   return { subject: `[SCLM] 주간 리포트 ${mmdd(w.week.start)}~${mmdd(w.week.end)} · 완료 ${w.done} · 지연 ${w.late}`, html, text };
