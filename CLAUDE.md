@@ -79,7 +79,7 @@
    - 제목 지시어: `#중분류` · `!우선순위` · `~마감일`(`8/10`·`2026-08-10`). ⚠️ **지시어가 없어도 제대로 동작해야 한다** — 매번 제목을 고쳐야 하면 안 쓰게 된다.
    - ⚠️ **대분류와 마감일은 서버가 채우지 않는다.** 메일만 보고 맞히면 분류가 어긋나고 거짓 마감일이 생긴다. 대신 등록 즉시 **확인 메일**(`sendInboxReceipt`)로 "비어 있는 칸"을 짚고 딥링크를 준다 — 전달했는데 됐는지 모르면 결국 앱에 다시 적게 되므로 이 회신을 빼지 말 것.
    - 첨부는 R2 에 담고 키 형식은 `/api/files` 와 **똑같이** 맞춘다(앱의 다운로드·삭제가 `validKey` 로 검사한다). 인라인 이미지(서명 로고)는 첨부로 치지 않는다.
-   - 서버에 못 닿거나 설정이 없으면 메일을 삼키지 말고 `FALLBACK_TO` 로 넘긴다 — 조용히 사라지는 게 최악이다. ⚠️ **`FALLBACK_TO` 는 `wrangler.toml` 의 `[vars]` 가 아니라 시크릿으로 넣는다**(`npx wrangler secret put FALLBACK_TO`) — 이 저장소는 공개라 vars 에 적으면 메일 주소가 그대로 공개된다. 같은 이름을 vars 에도 두면 **vars 가 시크릿을 가리므로** 선언 자체를 두지 말 것. Email Routing 에서 검증된 주소여야 `forward` 가 동작한다(빈 주소로 부르면 "destination address is invalid" 로 터진다).
+   - 서버에 못 닿거나 설정이 없으면 메일을 삼키지 말고 `FALLBACK_TO` 로 넘긴다 — 조용히 사라지는 게 최악이다. ⚠️ **`FALLBACK_TO` 는 `wrangler.toml` 의 `[vars]` 가 아니라 시크릿으로 넣는다**(`npx wrangler secret put FALLBACK_TO`) — 이 저장소는 공개라 vars 에 적으면 메일 주소가 그대로 공개된다. 같은 이름을 vars 에도 두면 충돌하므로 선언 자체를 두지 말 것. ⚠️ **배포가 시크릿 등록보다 먼저다** — 배포된 워커에 옛 var 바인딩이 남아 있으면 `Binding name 'FALLBACK_TO' already in use [code: 10053]` 으로 거부된다(2026-08-06 실제로 겪음). `npx wrangler deploy` → `npx wrangler secret put FALLBACK_TO` 순서. Email Routing 에서 검증된 주소여야 `forward` 가 동작한다(빈 주소로 부르면 "destination address is invalid" 로 터진다).
 
 ## 주요 구조
 - `web/functions/api/` — Pages Functions(파일 기반 라우팅). 앱 비밀번호(Bearer) 인증.
