@@ -4,6 +4,11 @@
 #   1) 도메인을 Cloudflare 에 등록(네임서버 변경)
 #   2) 대시보드 → Email → Email Routing 활성화 (MX·SPF 레코드 자동 추가)
 #   3) 이 워커 배포:  cd web/email-inbox && npm install && npx wrangler deploy
+#      ⚠️ `npm install` 을 빼먹지 말 것. 이 워커는 별도 패키지라 자체 node_modules
+#         가 필요하다(부모의 web/node_modules 로는 postal-mime 이 안 잡힌다).
+#         빼먹으면 `Could not resolve "postal-mime"` 로 **빌드가 조용히 실패**하고,
+#         증상은 엉뚱하게 "시크릿이 안 들어간다"로 나타난다(배포가 안 됐으니
+#         옛 var 바인딩이 그대로 남아 10053 이 뜬다). 2026-08-06 실제로 겪음.
 #   4) 시크릿 등록:   npx wrangler secret put MAIL_INBOX_SECRET  (Pages 쪽과 **같은 값**)
 #      ⚠️ 크론의 CRON_SECRET 과는 **다른 값**이다. 같이 쓰면 값을 바꿀 때 네 곳을
 #         동시에 맞춰야 하고 하나만 빠져도 아침 알림이 멈춘다.
