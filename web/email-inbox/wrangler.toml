@@ -4,7 +4,10 @@
 #   1) 도메인을 Cloudflare 에 등록(네임서버 변경)
 #   2) 대시보드 → Email → Email Routing 활성화 (MX·SPF 레코드 자동 추가)
 #   3) 이 워커 배포:  cd web/email-inbox && npm install && npx wrangler deploy
-#   4) 시크릿 등록:   npx wrangler secret put CRON_SECRET   (Pages 쪽과 **같은 값**)
+#   4) 시크릿 등록:   npx wrangler secret put MAIL_INBOX_SECRET  (Pages 쪽과 **같은 값**)
+#      ⚠️ 크론의 CRON_SECRET 과는 **다른 값**이다. 같이 쓰면 값을 바꿀 때 네 곳을
+#         동시에 맞춰야 하고 하나만 빠져도 아침 알림이 멈춘다.
+#      선택:          npx wrangler secret put FALLBACK_TO       (아래 설명 참고)
 #   5) Email Routing → Routes → Custom address 를 만들고 Action=Send to a Worker
 #      → 이 워커 선택
 #
@@ -19,6 +22,11 @@ workers_dev = false
 
 [vars]
 TARGET_URL = "https://sclm.pages.dev/api/mail-inbox"
-# 서버에 못 닿았을 때 메일을 잃지 않도록 넘길 주소(본인 메일함).
-# Email Routing 에서 **검증된 주소**여야 forward 가 동작한다.
-FALLBACK_TO = ""
+
+# FALLBACK_TO — 서버에 못 닿았을 때 메일을 잃지 않도록 넘길 주소(본인 메일함).
+#   비워 두면 반송된다. 반송도 "조용히 사라지는 것"보단 낫지만, 넣어 두면 전달한
+#   메일이 그대로 메일함으로 되돌아오므로 손으로 다시 옮길 수 있다.
+# ⚠️ 여기 **적지 말고 시크릿으로 등록할 것**:  npx wrangler secret put FALLBACK_TO
+#    이 저장소는 공개다. vars 에 적으면 메일 주소가 그대로 공개된다.
+#    (같은 이름을 vars 에도 두면 vars 가 시크릿을 가려 버리니 선언 자체를 두지 않는다)
+# ⚠️ Email Routing 에서 **검증된 주소**여야 forward 가 동작한다.

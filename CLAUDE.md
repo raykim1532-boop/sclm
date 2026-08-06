@@ -79,7 +79,7 @@
    - 제목 지시어: `#중분류` · `!우선순위` · `~마감일`(`8/10`·`2026-08-10`). ⚠️ **지시어가 없어도 제대로 동작해야 한다** — 매번 제목을 고쳐야 하면 안 쓰게 된다.
    - ⚠️ **대분류와 마감일은 서버가 채우지 않는다.** 메일만 보고 맞히면 분류가 어긋나고 거짓 마감일이 생긴다. 대신 등록 즉시 **확인 메일**(`sendInboxReceipt`)로 "비어 있는 칸"을 짚고 딥링크를 준다 — 전달했는데 됐는지 모르면 결국 앱에 다시 적게 되므로 이 회신을 빼지 말 것.
    - 첨부는 R2 에 담고 키 형식은 `/api/files` 와 **똑같이** 맞춘다(앱의 다운로드·삭제가 `validKey` 로 검사한다). 인라인 이미지(서명 로고)는 첨부로 치지 않는다.
-   - 서버에 못 닿거나 설정이 없으면 메일을 삼키지 말고 `FALLBACK_TO` 로 넘긴다 — 조용히 사라지는 게 최악이다.
+   - 서버에 못 닿거나 설정이 없으면 메일을 삼키지 말고 `FALLBACK_TO` 로 넘긴다 — 조용히 사라지는 게 최악이다. ⚠️ **`FALLBACK_TO` 는 `wrangler.toml` 의 `[vars]` 가 아니라 시크릿으로 넣는다**(`npx wrangler secret put FALLBACK_TO`) — 이 저장소는 공개라 vars 에 적으면 메일 주소가 그대로 공개된다. 같은 이름을 vars 에도 두면 **vars 가 시크릿을 가리므로** 선언 자체를 두지 말 것. Email Routing 에서 검증된 주소여야 `forward` 가 동작한다(빈 주소로 부르면 "destination address is invalid" 로 터진다).
 
 ## 주요 구조
 - `web/functions/api/` — Pages Functions(파일 기반 라우팅). 앱 비밀번호(Bearer) 인증.
@@ -161,6 +161,7 @@
 ## 시크릿 (저장소에 없음 — Cloudflare에만)
 Pages `sclm`: `APP_PASSWORD`, `MAIL_INBOX_SECRET`(메일 전달 등록 — email-inbox 워커와 동일 값, 크론과는 별개), `VAPID_PRIVATE_KEY`, `CRON_SECRET`, `RESEND_API_KEY`·`MAIL_TO`(아침 브리핑 메일, 선택), `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `KAKAO_REST_API_KEY`, `KAKAO_REFRESH_TOKEN`(선택 `KAKAO_CLIENT_SECRET`), `GEMINI_API_KEY`(AI 비서, aistudio.google.com 무료 키).
 Worker `sclm-push-cron`: `CRON_SECRET`(Pages와 동일 값).
+Worker `sclm-email-inbox`: `MAIL_INBOX_SECRET`(Pages와 동일 값 · `CRON_SECRET` 과는 **다른 값**), 선택 `FALLBACK_TO`(등록 실패 시 메일을 넘길 본인 주소 — 저장소가 공개라 `wrangler.toml` 이 아니라 시크릿으로).
 - 카카오 '나에게 보내기' 매일 알림: `run-daily`가 웹푸시와 함께 카카오 메모를 발송한다(`push/_kakao.js`). `KAKAO_REFRESH_TOKEN`으로 access token을 매 호출 재발급. 설정 안 돼 있으면 카카오만 건너뜀(푸시는 정상). 토큰 발급 절차는 `web/PUSH-SETUP.md` 참고. 검증: `POST /api/push/kakao-test`(Bearer=APP_PASSWORD).
 - 시크릿 등록: `npx wrangler pages secret put <NAME> --project-name sclm` (워커는 `npx wrangler secret put <NAME>`).
 - 시크릿 변경 후엔 **Pages 재배포**해야 반영됨.

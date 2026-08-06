@@ -4,6 +4,7 @@
 // 인용문이 통째로 딸려 온다. 그 상태로 그대로 넣으면 목록이 못 읽게 되므로
 // **다듬는 규칙**이 이 기능의 핵심이고, 그래서 규칙을 서버에 두고 여기서 검증한다.
 // (MIME 파싱은 도메인이 있어야 띄울 수 있는 워커 몫이라 테스트가 안 된다.)
+import { readFileSync } from 'node:fs';
 import { API, check, section, mockDB, mockRequest, mockFetch } from './_helpers.mjs';
 
 const {
@@ -290,4 +291,25 @@ section('확인 메일 본문');
   check('지시어 사용법을 알려 준다', bare.html.includes('#거래처') && bare.html.includes('~8/10'));
   check('평문본도 만든다', bare.text.includes('제목만 있는 건'));
   check('이스케이프', buildInboxReceiptBody({ id: 'x', text: '<b>x</b>' }, []).html.includes('&lt;b&gt;'));
+}
+
+/* 워커 설정 — 배포할 때 손으로 보는 파일이라 여기가 틀리면 사람이 잘못 넣는다.
+   ⚠️ 저장소가 공개다. wrangler.toml 의 [vars] 는 그대로 공개되므로 메일 주소를
+      거기 적으면 안 된다. 게다가 같은 이름을 vars 에 두면 vars 가 시크릿을 가린다. */
+section('워커 설정(wrangler.toml)');
+{
+  const toml = readFileSync(new URL('../email-inbox/wrangler.toml', import.meta.url), 'utf8');
+  const vars = toml.split(/^\[vars\]/m)[1] || '';
+  // 주석이 아닌 줄만 본다 — 설명문의 예시 주소를 값으로 오인하지 않도록
+  const varLines = vars.split('\n').map((l) => l.trim()).filter((l) => l && !l.startsWith('#'));
+
+  check('시크릿 안내가 MAIL_INBOX_SECRET 이다', /secret put MAIL_INBOX_SECRET/.test(toml));
+  check('크론 시크릿을 넣으라고 하지 않는다', !/secret put CRON_SECRET/.test(toml));
+  check('FALLBACK_TO 를 vars 에 선언하지 않는다',
+    !varLines.some((l) => /^FALLBACK_TO\s*=/.test(l)), 'vars 가 시크릿을 가린다');
+  check('FALLBACK_TO 는 시크릿으로 넣으라고 안내한다', /secret put FALLBACK_TO/.test(toml));
+  check('vars 에 메일 주소가 없다',
+    !varLines.some((l) => /@[\w.-]+\.\w+/.test(l)), '공개 저장소다');
+  check('TARGET_URL 은 /api/mail-inbox 를 가리킨다',
+    varLines.some((l) => /^TARGET_URL\s*=\s*"https:\/\/[^"]+\/api\/mail-inbox"$/.test(l)));
 }
