@@ -164,7 +164,29 @@ async function collectIssues(env, prevDaily, results) {
   return issues;
 }
 
-/* 점검 메일은 하루 한 통까지. 08:00·08:10 두 번 발사되므로 가드가 없으면 두 통이 온다. */
+/* 점검 경고의 푸시 본문 — 순수 함수(테스트에서 직접 부른다).
+   ⚠️ buildPushBody 와 같은 이유로 **줄 단위로** 덜어낸다. 그냥 slice 하면
+      "백업이 3일째 만들어…" 같은 토막 줄이 남는다. */
+export function buildAlertPush(issues, limit = 320) {
+  const list = Array.isArray(issues) ? issues : [];
+  const lines = list.map((i) => `${(i && i.icon) || '⚠️'} ${(i && i.title) || ''}`);
+  const compose = (ls) => {
+    const more = list.length - ls.length;
+    return ls.join('\n') + (more > 0 ? `\n외 ${more}건` : '');
+  };
+  const shown = lines.slice();
+  let body = compose(shown);
+  while (body.length > limit && shown.length > 1) { shown.pop(); body = compose(shown); }
+  return { title: `⚠️ SCLM 점검 필요 ${list.length}건`, body: body.slice(0, limit), tag: 'sclm-alert', url: '/' };
+}
+
+/* 점검 경고는 하루 한 번까지. 08:00·08:10 두 번 발사되므로 가드가 없으면 두 번 온다.
+   ⚠️ **메일과 웹푸시로 함께** 보낸다. 메일로만 보내면 정작 메일 경로가 통째로 죽은 날 —
+      가장 알아야 할 날 — 에 아무것도 안 온다(점검 메일도 같은 Resend 를 탄다).
+      푸시는 경로가 완전히 달라서 같이 죽지 않는다.
+   가드는 **둘 중 하나라도 닿았을 때만** 세운다. 하나도 못 갔으면 08:10 재시도에서 다시
+   시도해야 하고, 가드를 먼저 세워 버리면 그 재시도가 조용히 사라진다.
+   구독이 없으면 sent 가 0 이다 — '보냈다'가 아니므로 가드 조건은 sent > 0 이어야 한다. */
 async function maybeAlert(env, prevDaily, results) {
   let issues;
   try { issues = await collectIssues(env, prevDaily, results); }
@@ -174,11 +196,17 @@ async function maybeAlert(env, prevDaily, results) {
   const daily = await readDaily(env);
   if (daily.lastAlertDay === todayKST()) return { skipped: 'already_sent_today', issues: issues.length };
 
-  let out;
-  try { out = await sendAlertMail(env, issues, todayKST()); }
-  catch (e) { return { ok: false, error: String((e && e.message) || e).slice(0, 200) }; }
-  if (out && out.ok) { try { await markReportSent(env, 'lastAlertDay'); } catch (e) {} }
-  return Object.assign({ issues: issues.length }, out);
+  let mail;
+  try { mail = await sendAlertMail(env, issues, todayKST()); }
+  catch (e) { mail = { ok: false, error: String((e && e.message) || e).slice(0, 200) }; }
+
+  let push;
+  try { push = await sendToAll(env, buildAlertPush(issues)); }
+  catch (e) { push = { sent: 0, errors: [String((e && e.message) || e).slice(0, 80)] }; }
+
+  const ok = (mail && mail.ok === true) || (push && push.sent > 0);
+  if (ok) { try { await markReportSent(env, 'lastAlertDay'); } catch (e) {} }
+  return { issues: issues.length, ok, mail, push };
 }
 
 export async function onRequestPost(context) {

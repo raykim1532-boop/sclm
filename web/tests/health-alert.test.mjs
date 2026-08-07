@@ -7,7 +7,8 @@
 import { API, check, section, mockDB, mockRequest, mockFetch } from './_helpers.mjs';
 
 const { buildAlertMailBody, sendAlertMail } = await import(API + 'push/_mail.js');
-const { onRequestPost } = await import(API + 'push/run-daily.js');
+const { onRequestPost, buildAlertPush } = await import(API + 'push/run-daily.js');
+const { bytesToB64url } = await import(API + 'push/_webpush.js');
 
 const NOW = Date.UTC(2026, 7, 12, 0, 0, 0);           // KST 2026-08-12(수) 09:00
 const TODAY = '2026-08-12';
@@ -31,6 +32,31 @@ function dbWithSnapshot(docs, lastBackupAt) {
     prepare(q) {
       if (q.includes('MAX(created_at)')) {
         return { bind() { return this; }, async first() { return { last: lastBackupAt }; }, async run() { return {}; } };
+      }
+      return base.prepare(q);
+    },
+  };
+}
+
+/* 웹푸시 구독을 흉내낸다. ⚠️ 키는 **진짜로** 만든다 — sendPush 가 실제 ECDH·HKDF·AES-GCM 을
+   타므로 가짜 문자열을 넣으면 암호화 단계에서 터진다. 그 경로까지 태워야 "메일이 죽어도
+   푸시로 닿는다"를 증명한 게 된다. */
+async function fakeSub(endpoint) {
+  const kp = await crypto.subtle.generateKey({ name: 'ECDH', namedCurve: 'P-256' }, true, ['deriveBits']);
+  const raw = new Uint8Array(await crypto.subtle.exportKey('raw', kp.publicKey));
+  return { endpoint, p256dh: bytesToB64url(raw), auth: bytesToB64url(crypto.getRandomValues(new Uint8Array(16))) };
+}
+async function vapidKey() {
+  const k = await crypto.subtle.generateKey({ name: 'ECDSA', namedCurve: 'P-256' }, true, ['sign', 'verify']);
+  return JSON.stringify(await crypto.subtle.exportKey('jwk', k.privateKey));
+}
+// 공용 mockDB 는 push_subs 를 모르고 빈 배열을 준다 — 구독이 있는 상황은 이 모의가 필요하다
+function dbWithSubs(docs, subs) {
+  const base = mockDB(docs);
+  return {
+    prepare(q) {
+      if (q.includes('FROM push_subs')) {
+        return { bind() { return this; }, async all() { return { results: subs }; }, async run() { return {}; } };
       }
       return base.prepare(q);
     },
@@ -183,6 +209,66 @@ section('브리핑 메일 실패도 잡는다');
     const b = await (await onRequestPost({ env, request: mockRequest({ 'X-Cron-Secret': 'CRONSEC' }) })).json();
     check('메일 미설정은 경고하지 않는다', b.mail.skipped === 'not_configured');
     check('이상 없음', b.alert.skipped === 'no_issues');
+  });
+}
+
+section('점검 경고 푸시 본문');
+{
+  const p = buildAlertPush([
+    { icon: '⏱', title: '아침 알림이 2일 동안 실행되지 않았습니다' },
+    { icon: '💾', title: '백업이 3일째 만들어지지 않았습니다' },
+  ]);
+  check('제목에 건수', p.title === '⚠️ SCLM 점검 필요 2건');
+  check('두 건 다 실린다', p.body.includes('2일 동안') && p.body.includes('3일째'));
+  check('아이콘이 앞에', p.body.startsWith('⏱ '));
+  check('알림 태그·이동 주소', p.tag === 'sclm-alert' && p.url === '/');
+
+  // 길면 줄 단위로 접는다 — 글자 중간에서 자르면 토막 줄이 남는다
+  const many = Array.from({ length: 20 }, (_, i) => ({ icon: '💾', title: `백업이 ${i} 일째 만들어지지 않았습니다` }));
+  const big = buildAlertPush(many);
+  check('길이 제한을 지킨다', big.body.length <= 320);
+  check('덜어낸 만큼 접어 알린다', /외 \d+건$/.test(big.body));
+  check('토막 줄이 없다', big.body.split('\n').filter((l) => l[0] === '💾')
+    .every((l) => many.some((m) => '💾 ' + m.title === l)));
+  check('빈 목록도 안전', buildAlertPush([]).title === '⚠️ SCLM 점검 필요 0건');
+}
+
+section('메일이 죽어도 점검 경고는 푸시로 닿는다');
+{
+  await atNow(async () => {
+    const docs = { main: JSON.stringify({ todos: [T({})], projects: [] }),
+                   daily: JSON.stringify({ lastRunDay: '2026-08-09', lastSentDay: '2026-08-09' }) };
+    const calls = mockFetch([
+      { match: 'api.resend.com', method: 'POST', status: 500, reply: { message: 'service unavailable' } },
+      { match: 'push.example.test', method: 'POST', status: 201, reply: {} },
+    ]);
+    const env = Object.assign({ DB: dbWithSubs(docs, [await fakeSub('https://push.example.test/s/1')]) },
+      MAIL, { VAPID_PRIVATE_KEY: await vapidKey() });
+    const b = await (await onRequestPost({ env, request: mockRequest({ 'X-Cron-Secret': 'CRONSEC' }) })).json();
+
+    check('메일은 실패했지만', b.alert.mail.ok === false);
+    check('푸시로 나갔다', b.alert.push.sent === 1);
+    check('경고가 전달된 것으로 본다', b.alert.ok === true);
+    check('그래서 가드가 세워진다', JSON.parse(docs.daily).lastAlertDay === TODAY);
+    // 브리핑 푸시 1 + 점검 푸시 1 — 점검이 브리핑을 밀어내지 않는다
+    check('푸시는 두 번', calls.filter((c) => c.url.includes('push.example.test')).length === 2);
+  });
+}
+
+section('둘 다 못 가면 가드를 세우지 않는다');
+{
+  await atNow(async () => {
+    // 메일은 죽었고 구독도 없다 → 아무에게도 못 알렸으므로 다음 실행에서 다시 시도해야 한다
+    const docs = { main: JSON.stringify({ todos: [T({})], projects: [] }),
+                   daily: JSON.stringify({ lastRunDay: '2026-08-09', lastSentDay: '2026-08-09' }) };
+    mockFetch([{ match: 'api.resend.com', method: 'POST', status: 500, reply: { message: 'down' } }]);
+    const b = await (await onRequestPost({ env: Object.assign({ DB: mockDB(docs) }, MAIL),
+      request: mockRequest({ 'X-Cron-Secret': 'CRONSEC' }) })).json();
+
+    check('메일 실패', b.alert.mail.ok === false);
+    check('보낼 구독이 없다', b.alert.push.sent === 0);
+    check('전달 실패로 본다', b.alert.ok === false);
+    check('가드를 세우지 않는다', !JSON.parse(docs.daily).lastAlertDay);
   });
 }
 
