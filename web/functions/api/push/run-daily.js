@@ -148,6 +148,13 @@ async function collectIssues(env, prevDaily, results) {
     issues.push({ icon: '💬', title: '카카오톡 발송에 실패했습니다',
       detail: String(r.kakao.error || '') + ' 토큰이 만료됐을 수 있습니다(설정에서 카카오 다시 연결).' });
   }
+  /* 브리핑 메일도 본다 — 이게 빠져 있으면 아침 메일만 조용히 안 오는 날을 알 방법이 없다
+     (푸시·카카오는 살아 있으니 눈치채기까지 며칠 걸린다).
+     ⚠️ 점검 메일도 같은 발송 경로라 메일 자체가 죽은 날은 이 경고도 못 나간다. 그래도 넣는 건
+        한 통만 실패하는 경우(용량·일시 오류·수신 거부)가 실제로 대부분이기 때문이다. */
+  if (r.mail && r.mail.ok === false) {
+    issues.push({ icon: '📮', title: '아침 브리핑 메일 발송에 실패했습니다', detail: String(r.mail.error || '') });
+  }
   if (r.weekly && r.weekly.ok === false) {
     issues.push({ icon: '📮', title: '주간 리포트 발송에 실패했습니다', detail: String(r.weekly.error || '') });
   }
@@ -255,7 +262,7 @@ export async function onRequestPost(context) {
   const monthly = await maybeSendMonthly(env, s.today);
 
   // 6) 조용히 망가진 것이 있으면 점검 메일 (문제가 있을 때만 나간다)
-  const alert = await maybeAlert(env, prevDaily, { backup, kakao, weekly, monthly });
+  const alert = await maybeAlert(env, prevDaily, { backup, kakao, mail, weekly, monthly });
 
   // 오늘 발송 완료 기록(크론 2차 발사가 중복 발송하지 않도록)
   try { await recordAttempt(env, source, 'sent'); } catch (e) {}

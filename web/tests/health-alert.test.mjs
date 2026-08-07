@@ -144,6 +144,48 @@ section('카카오 실패도 잡는다');
   });
 }
 
+section('브리핑 메일 실패도 잡는다');
+{
+  await atNow(async () => {
+    const docs = { main: JSON.stringify({ todos: [T({})], projects: [] }),
+                   daily: JSON.stringify({ lastRunDay: '2026-08-11', lastSentDay: '2026-08-11' }) };
+    const calls = mockFetch([{ match: 'api.resend.com', method: 'POST', reply: { id: 'a' } }]);
+    /* 브리핑만 실패시키고 점검 메일은 살려 둔다 — 둘 다 죽이면 "경고가 도착하는가"를 못 본다.
+       실제로도 한 통만 실패하는 경우(수신 거부·용량·일시 오류)가 대부분이라 이 쪽이 현실적이다. */
+    const inner = global.fetch;
+    global.fetch = async (url, opts = {}) => {
+      const subject = String(url).includes('api.resend.com')
+        ? (JSON.parse(opts.body || '{}').subject || '') : '';
+      if (subject && !subject.includes('점검 필요')) {
+        calls.push({ method: opts.method || 'GET', url: String(url), opts });
+        return { ok: false, status: 422, async json() { return { message: 'domain not verified' }; },
+                 async text() { return '{}'; } };
+      }
+      return inner(url, opts);
+    };
+    try {
+      const env = Object.assign({ DB: mockDB(docs) }, MAIL);
+      const b = await (await onRequestPost({ env, request: mockRequest({ 'X-Cron-Secret': 'CRONSEC' }) })).json();
+
+      check('브리핑 메일이 실패했고', b.mail.ok === false);
+      check('그게 이상 목록에 들어간다', b.alert.ok === true && b.alert.issues === 1);
+      check('무엇이 실패했는지', alerts(calls)[0].html.includes('아침 브리핑 메일 발송에 실패'));
+      check('원인도 함께', alerts(calls)[0].html.includes('domain not verified'));
+    } finally { global.fetch = inner; }
+  });
+
+  // 메일을 아예 안 쓰는 설정(not_configured)은 고장이 아니다 — 경고하면 소음이 된다
+  await atNow(async () => {
+    const docs = { main: JSON.stringify({ todos: [T({})], projects: [] }),
+                   daily: JSON.stringify({ lastRunDay: '2026-08-11', lastSentDay: '2026-08-11' }) };
+    mockFetch([]);
+    const env = { DB: mockDB(docs), APP_PASSWORD: 'pw', CRON_SECRET: 'CRONSEC' };
+    const b = await (await onRequestPost({ env, request: mockRequest({ 'X-Cron-Secret': 'CRONSEC' }) })).json();
+    check('메일 미설정은 경고하지 않는다', b.mail.skipped === 'not_configured');
+    check('이상 없음', b.alert.skipped === 'no_issues');
+  });
+}
+
 section('하루 한 통 (08:10 재시도에 또 오지 않는다)');
 {
   await atNow(async () => {
