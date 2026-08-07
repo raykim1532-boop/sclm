@@ -170,6 +170,9 @@ async function collectIssues(env, prevDaily, results) {
 export function buildAlertPush(issues, limit = 320) {
   const list = Array.isArray(issues) ? issues : [];
   const lines = list.map((i) => `${(i && i.icon) || '⚠️'} ${(i && i.title) || ''}`);
+  /* 한 건뿐이면 **무엇을 해야 하는지**까지 담는다 — 자리가 남고, 어느 문제 얘기인지 헷갈릴 일도 없다.
+     여러 건일 때는 넣지 않는다: 길어져 접히면 정작 "무슨 문제가 몇 개인지"가 잘려 나간다. */
+  if (list.length === 1 && list[0] && list[0].detail) lines.push(String(list[0].detail));
   const compose = (ls) => {
     const more = list.length - ls.length;
     return ls.join('\n') + (more > 0 ? `\n외 ${more}건` : '');
@@ -262,17 +265,12 @@ export async function onRequestPost(context) {
     } catch (e) {
       kakao = { ok: false, error: String((e && e.message) || e).slice(0, 200) };
     }
-    // 카카오가 실패하면 조용히 끊기지 않도록 웹푸시로 알린다(토큰 만료 등).
-    if (!kakao.ok) {
-      try {
-        await sendToAll(env, {
-          title: '⚠️ 카카오 알림 실패',
-          body: '카카오톡 발송이 실패했어요. 설정에서 카카오 연결을 확인해주세요.',
-          tag: 'sclm-kakao-fail',
-          url: '/',
-        });
-      } catch (e2) {}
-    }
+    /* 카카오 실패는 아래 maybeAlert 가 푸시·메일로 함께 알린다.
+       예전에는 여기서 전용 푸시('sclm-kakao-fail')를 따로 쐈는데, 점검 경고가 푸시로도
+       나가게 되면서 같은 얘기를 푸시로 두 번 하게 됐다(2026-08-07 정리).
+       ⚠️ 대신 점검 경고의 하루 한 번 가드를 타므로, 같은 날 이미 경고가 나갔으면
+          카카오 실패는 그 경고 안에 묶여서만 보인다. 그게 의도다 — 하루에 같은 문제로
+          여러 번 울리지 않는 것이 이 가드의 목적이다. */
   }
 
   // 3) 이메일 (설정돼 있을 때만). 푸시·카카오와 독립이라 실패해도 나머지는 그대로 간다.

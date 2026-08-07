@@ -168,6 +168,26 @@ section('카카오 실패도 잡는다');
     check('카카오 실패가 이상 목록에 들어간다', b.alert.issues >= 1);
     check('무엇을 해야 하는지 알려 준다', alerts(calls)[0].html.includes('카카오 다시 연결'));
   });
+
+  /* 예전에는 카카오가 실패하면 전용 푸시('sclm-kakao-fail')가 따로 나갔다.
+     점검 경고가 푸시로도 나가면서 같은 얘기를 두 번 하게 돼 전용 푸시를 뺐다.
+     ⚠️ 푸시 본문은 암호화돼 나가서 들여다볼 수 없다 — **횟수**로 검증한다(예전엔 3회였다). */
+  await atNow(async () => {
+    const docs = { main: JSON.stringify({ todos: [T({})], projects: [] }),
+                   daily: JSON.stringify({ lastRunDay: '2026-08-11', lastSentDay: '2026-08-11' }) };
+    const calls = mockFetch([
+      { match: 'kauth.kakao.com', method: 'POST', status: 401, reply: { error: 'invalid_grant' } },
+      { match: 'api.resend.com', method: 'POST', reply: { id: 'a' } },
+      { match: 'push.example.test', method: 'POST', status: 201, reply: {} },
+    ]);
+    const env = Object.assign({ DB: dbWithSubs(docs, [await fakeSub('https://push.example.test/s/1')]) },
+      MAIL, { KAKAO_REST_API_KEY: 'K', KAKAO_REFRESH_TOKEN: 'R', VAPID_PRIVATE_KEY: await vapidKey() });
+    const b = await (await onRequestPost({ env, request: mockRequest({ 'X-Cron-Secret': 'CRONSEC' }) })).json();
+
+    check('카카오는 실패했고', b.kakao.ok === false);
+    check('점검 경고는 푸시로 나갔다', b.alert.push.sent === 1);
+    check('푸시는 브리핑 1 + 점검 1 뿐', calls.filter((c) => c.url.includes('push.example.test')).length === 2);
+  });
 }
 
 section('브리핑 메일 실패도 잡는다');
@@ -231,6 +251,18 @@ section('점검 경고 푸시 본문');
   check('토막 줄이 없다', big.body.split('\n').filter((l) => l[0] === '💾')
     .every((l) => many.some((m) => '💾 ' + m.title === l)));
   check('빈 목록도 안전', buildAlertPush([]).title === '⚠️ SCLM 점검 필요 0건');
+
+  // 한 건뿐이면 조치 안내까지 — 푸시만 보고도 뭘 해야 할지 알 수 있어야 한다
+  const one = buildAlertPush([{ icon: '💬', title: '카카오톡 발송에 실패했습니다',
+    detail: '토큰이 만료됐을 수 있습니다(설정에서 카카오 다시 연결).' }]);
+  check('한 건이면 조치도 담는다', one.body.includes('설정에서 카카오 다시 연결'));
+  check('"외 N건"은 안 붙는다', !/외 \d+건/.test(one.body));
+  // 여러 건이면 안 담는다 — 접히면 '무슨 문제가 몇 개인지'가 먼저 잘려 나간다
+  const two = buildAlertPush([
+    { icon: '💬', title: '카카오톡 발송에 실패했습니다', detail: '설정에서 카카오 다시 연결' },
+    { icon: '💾', title: '백업이 3일째 만들어지지 않았습니다', detail: '지금 백업으로 남길 수 있습니다' },
+  ]);
+  check('여러 건이면 제목만', !two.body.includes('다시 연결') && two.body.split('\n').length === 2);
 }
 
 section('메일이 죽어도 점검 경고는 푸시로 닿는다');
